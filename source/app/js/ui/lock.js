@@ -10,10 +10,13 @@ const IDLE_CHECK_MS = 10000;
 const calm = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * opts: { onLocking(): Promise (flush + clear), onUnlocked(), onForgot() }
- * -> { lock(): Promise<void> resolved at unlock, isLocked(), watchIdle() }
+ * opts: { onLocking(): Promise (flush + clear), onUnlocked(), onForgot(),
+ *         onLock(source): told when the lock is new and came from "manual" (Lock now) or "idle" (to tell other tabs),
+ *         onActivity(): the user did something in this tab (throttled by the caller) }
+ * -> { lock(source = "manual"): Promise<void> resolved at unlock, isLocked(), watchIdle(), touch(), redraw() }
+ * source: "manual" | "idle" | "boot" (opening the app) | "remote" (another tab locked or changed the PIN).
  */
-export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
+export function createLockScreen({ onLocking, onUnlocked, onForgot, onLock, onActivity } = {}) {
   let locked = false;
   let waiters = [];
   let root = null;
@@ -175,7 +178,7 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
     else root.el.querySelector(".lock-key")?.focus({ preventScroll: true });
   }
 
-  async function lock() {
+  async function lock(source = "manual") {
     const done = new Promise((r) => waiters.push(r));
     if (locked) return done;
     if (!hasPin()) {
@@ -186,6 +189,13 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
     document.activeElement?.blur?.(); // an editor commits its text before the flush
     closeOverlays();
     show();
+    if (source === "manual" || source === "idle") {
+      try {
+        onLock?.(source);
+      } catch (e) {
+        console.error(e);
+      }
+    }
     try {
       await onLocking?.();
     } catch {
@@ -225,11 +235,12 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
   let watching = false;
   const bump = () => {
     lastActive = Date.now();
+    if (!locked) onActivity?.();
   };
   const check = () => {
     if (locked || !hasPin()) return;
     const min = loadIdle();
-    if (min > 0 && Date.now() - lastActive >= min * 60000) lock();
+    if (min > 0 && Date.now() - lastActive >= min * 60000) lock("idle");
   };
   function watchIdle() {
     if (watching) return;
@@ -248,6 +259,17 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
     watchIdle,
     /** Restart the idle clock (after the setting changes). */
     touch: bump,
+    /** Activity in another tab: restart the idle clock without telling the others again. */
+    touchRemote: () => {
+      lastActive = Date.now();
+    },
+    /** Rebuild the lock screen (the PIN changed elsewhere, maybe its length). No-op while unlocked. */
+    redraw: () => {
+      if (!locked) return;
+      clearInterval(countdown);
+      countdown = 0;
+      show();
+    },
     stop: () => clearInterval(idleTimer)
   };
 }

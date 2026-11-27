@@ -20,6 +20,7 @@ import { openFeedback } from "./ui/feedback.js";
 import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
 import { openRepoSettings, installFormulaConstants } from "./ui/repoSettings.js";
 import { hasPin, onUnlock } from "./lock.js";
+import { lockSync, reaction } from "./lockSync.js";
 import { createLockScreen } from "./ui/lock.js";
 import { securitySection, openResetDialog, finishPendingReset, openUnlockKeyDialog, runBrowserJob } from "./ui/security.js";
 import { createKeyring } from "./crypto.js";
@@ -108,13 +109,27 @@ const lockUi = createLockScreen({
   onForgot: () => {
     const { getStatus, prepareReset } = resetCtx();
     openResetDialog({ locked: true, getStatus, prepare: prepareReset });
+  },
+  onLock: () => lockSync().send("lock"), // Lock now / idle lock: every open tab locks
+  onActivity: () => {
+    if (hasPin()) lockSync().send("active"); // throttled; keeps the other tabs' idle clocks in step
   }
 });
-const lockNow = () => lockUi.lock();
+const lockNow = () => lockUi.lock("manual");
+/** Another tab locked, set, changed or removed the PIN (see lockSync.js). Locking flushes this tab's saves first. */
+function onLockSignal(kind) {
+  const act = reaction(kind, { locked: lockUi.isLocked(), hasPin: hasPin() });
+  if (act === "lock") lockUi.lock("remote");
+  else if (act === "redraw") lockUi.redraw();
+  else if (act === "active") lockUi.touchRemote();
+  else if (act === "reload") location.reload(); // locked and the PIN is gone: start again without one
+  else if (act === "refresh" && ws) drawSidebar(); // drops "Lock now"
+}
 async function main() {
   if ((await handleRedirect()).stop) return; // OAuth popup / iframe: the response went to the window that asked
   await finishPendingReset();
-  if (hasPin()) await lockUi.lock(); // nothing is loaded or drawn before the PIN is entered
+  lockSync().onSignal(onLockSignal);
+  if (hasPin()) await lockUi.lock("boot"); // nothing is loaded or drawn before the PIN is entered
   else await (await tokenLock).discard().catch(() => {}); // tokens encrypted for a PIN that is gone can't be read
   await finishDeferredRedirect(); // a redirect sign-in that waited for the PIN
   lockUi.watchIdle();
@@ -345,9 +360,11 @@ function drawSidebar() {
     },
     onClose: () => layout.close(),
     onSettings: () => openSettings({ prefs, onChange: (p) => {
+      const redrawPage = p.remoteImages !== prefs.remoteImages; // linked pictures switch between loaded and placeholder
       prefs = p;
       layout.apply();
       drawSidebar();
+      if (redrawPage) route();
     }, extra: securitySection({ ...resetCtx(), keyring, store, onPinChange: drawSidebar, onIdleChange: () => lockUi.touch() }) }),
     onLockNow: hasPin() ? lockNow : null,
     onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),

@@ -17,6 +17,7 @@ import {
   unwrapWithPin
 } from "../crypto.js";
 import { migrateBrowserCopy } from "../adapters/local.js";
+import { lockSync } from "../lockSync.js";
 import {
   PIN_LENGTHS,
   IDLE_CHOICES,
@@ -276,6 +277,7 @@ export function openPinDialog(mode, { onDone, keyring = null, store = null } = {
               await changePinEverywhere(next.input.value, length, { keyring, store, current: cur?.input.value });
             }
             changed = true;
+            lockSync().send(mode === "remove" ? "pin-removed" : mode === "set" ? "pin-set" : "pin-changed"); // the other open tabs lock (or unlock-free)
             toast(mode === "remove" ? "PIN removed" : mode === "set" ? "PIN set. The app now locks on this device." : "PIN changed");
           } finally {
             busy = false;

@@ -47,6 +47,18 @@ tickets in `work/ticket/`.
   next step for very long pages.
 - Ideas list at the end of `CLAUDE.md`.
 
-## Last batch
+## Last batch (all merged)
 
-(Filled in when the last three agents land.)
+- Cross-tab lock (`js/lockSync.js`), Settings → Privacy → Linked images (click to load).
+- Math / graph / chart editors as a popover anchored to the chip (`ui/anchoredEditor.js`); bottom sheet on phones.
+- Formula precedence: `^` tighter than unary minus, right-associative (`-2^2` = -4, `2^3^2` = 512).
+
+## Next up (small, open)
+
+- **Reset in one tab isn't broadcast:** a locked second tab then has no PIN record and could write its old data back.
+  Add a `reset` signal to `lockSync` that makes other tabs reload. Do this first.
+- Decide: should "Load image" last the session instead of one page view? Should Settings → Reset all keep the
+  Linked images choice? (Currently: per page view; reset returns it to Load automatically.)
+- The idle clock is shared across tabs (activity in any tab keeps all open); confirm with the owner.
+- `ui/plugins/math.js` / `chart.js` could pass an explicit `anchor` to the editors (they fall back to the focused or
+  last-pressed element, which works today).

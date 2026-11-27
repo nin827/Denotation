@@ -47,6 +47,12 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
   (`finishDeferredRedirect`). PIN set encrypts, change re-wraps TK, remove decrypts. PIN records and `tokvault`
   accept 1,000–10,000,000 PBKDF2 iterations only.
 
+- `js/lockSync.js` broadcasts `lock`, `pin-set`, `pin-changed`, `pin-removed` and a throttled `active` ping over
+  BroadcastChannel `denotation-lock` (fallback: `storage` event on `denotion:lock-signal`); `reaction()` is pure; boot
+  and remote locks are never re-broadcast. Tests: `lock-sync.test.js`, `e2e/lock-tabs.cjs`.
+- `prefs.remoteImages` (`auto` | `click`): `imageUtil.deferImage` decides, `ui/remoteImage.js` draws the placeholder;
+  used by the image block, inline image chips and embed images. Tests: `remote-images.test.js`, `e2e/remote-images.cjs`.
+
 ### Follow-ups (ticket 016, 020)
 
 - Cloud folder identity: provider, folder name (case-insensitive), Drive space and account (`sameCloudFolder` in

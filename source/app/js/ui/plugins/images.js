@@ -13,6 +13,7 @@ import { toast } from "../dialogs.js";
 import { safeSrc, shrink } from "../imageUtil.js";
 import { resolveSize, parseSizeField, SIZE_RANGES } from "../../sizes.js";
 import { constantsFor, onConstantsChange } from "../sizing.js";
+import { waitsForClick, imagePlaceholder } from "../remoteImage.js";
 
 const DATA_OK = /^data:image\/(png|jpeg|gif|webp);base64,/;
 const DEFAULT_MAX = "16em"; // an unsized inline image would otherwise take its full pixel size in the middle of a line
@@ -22,6 +23,7 @@ function render(n, ctx) {
   const wrap = h("span", { class: "ichip-img-wrap" });
   const paint = () => {
     if (!safeSrc(src)) return wrap.replaceChildren(h("span", { class: "ichip-img-broken" }, ico("image-off"), h("span", {}, alt || "Image")));
+    if (waitsForClick(src)) return wrap.replaceChildren(imagePlaceholder(src, alt, paint, { inline: true }));
     const constants = constantsFor(ctx);
     const img = h("img", { class: "ichip-img", src, alt: alt || "", loading: "lazy", decoding: "async" });
     const reasons = [];

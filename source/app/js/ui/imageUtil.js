@@ -1,6 +1,24 @@
 // Image sources shared by the image block and the inline image chip: what is allowed, and shrinking an upload.
 export const MAX_EMBED_BYTES = 15e4;
 export const safeSrc = (s) => /^(data:image\/(png|jpe?g|gif|webp|svg\+xml);|https?:\/\/)/i.test(s || "");
+
+// ---------- linked (remote) pictures: load automatically or on a click (prefs.remoteImages) ----------
+/** The http(s) URL of a picture on another site, or null (data:, blob:, same-origin, relative and bad URLs). */
+export function remoteImageUrl(src, pageOrigin = globalThis.location?.origin ?? "") {
+  if (typeof src !== "string" || !/^https?:\/\//i.test(src)) return null;
+  let u;
+  try {
+    u = new URL(src);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  return pageOrigin && u.origin === pageOrigin ? null : u;
+}
+/** True when `src` must wait for a click: mode "click" and a picture on another site. */
+export const deferImage = (src, mode, pageOrigin) => mode === "click" && remoteImageUrl(src, pageOrigin) !== null;
+/** The site a linked picture comes from ("example.com"), or "" for anything that isn't one. */
+export const imageHost = (src, pageOrigin) => remoteImageUrl(src, pageOrigin)?.hostname ?? "";
 const readDataUrl = (blob) => new Promise((res, rej) => {
   const fr = new FileReader();
   fr.onload = () => res(fr.result);

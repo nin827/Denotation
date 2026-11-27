@@ -32,7 +32,7 @@ test("prefs.sanitizePrefs: hostile objects give plain prefs and pollute nothing"
   await fuzz("proto-prefs", 1500, (r) => {
     const p = sanitizePrefs(asJsonObj(r, { mode: "dark", accent: r.pick(["random", "grey", 15, "__proto__"]), fontSize: r.pick([5, "16", NaN, 99]) }));
     assert.equal(Object.getPrototypeOf(p), Object.prototype);
-    assert.deepEqual(Object.keys(p).sort(), ["accent", "customFont", "font", "fontSize", "headingIntercept", "headingStep", "mode", "sidebarLocked"]);
+    assert.deepEqual(Object.keys(p).sort(), ["accent", "customFont", "font", "fontSize", "headingIntercept", "headingStep", "mode", "remoteImages", "sidebarLocked"]);
   });
   assertNoPollution(before, "prefs");
 });

@@ -7,6 +7,7 @@ import { shrink, safeSrc } from "./imageUtil.js";
 import { resolveSize, normSize, SIZE_RANGES } from "../sizes.js";
 import { constantsFor, onConstantsChange, openSizeDialog, dragHandle } from "./sizing.js";
 import { setBlockMenu } from "./blockExtras.js";
+import { waitsForClick, imagePlaceholder } from "./remoteImage.js";
 
 const ALIGN_LABEL = { left: "Left", center: "Centre", right: "Right" };
 const ALIGN_ICON = { left: "text-align-start", center: "text-align-center", right: "text-align-end" };
@@ -82,7 +83,9 @@ export function imageBody(b, inst, a) {
     note.replaceChildren(...reasons.length ? [ico("info"), h("span", {}, ` ${reasons.join(" ")} Showing the automatic size.`)] : []);
     note.hidden = !reasons.length;
   };
-  if (b.src && safeSrc(b.src)) {
+  if (b.src && safeSrc(b.src) && waitsForClick(b.src)) {
+    box.append(imagePlaceholder(b.src, b.caption, () => a.redraw()));
+  } else if (b.src && safeSrc(b.src)) {
     img = h("img", { src: b.src, alt: b.caption || "", class: "img" });
     img.addEventListener("error", () => {
       img = null;

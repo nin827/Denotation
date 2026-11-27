@@ -3,6 +3,7 @@ import { ico } from "../icons/index.js";
 import { config } from "../config.js";
 import { openModal } from "./modal.js";
 import { currentInstallMode, onInstallChange, promptInstall } from "../pwa.js";
+import { setRemoteImageMode } from "./remoteImage.js";
 import {
   sanitizePrefs,
   sanitizeFamily,
@@ -70,6 +71,7 @@ function watchMode(p) {
 }
 export function applyPrefs(p) {
   const root = document.documentElement;
+  setRemoteImageMode(p.remoteImages);
   watchMode(p);
   applyMode();
   const acc = currentAccent(p);
@@ -305,6 +307,19 @@ export function openSettings({ prefs: prefs, onChange, extra = null }) {
           h("input", { type: "checkbox", checked: cur.sidebarLocked, onChange: (e) => set({ sidebarLocked: e.target.checked }) }),
           " Keep the sidebar locked open (unlock it to open and close it as needed)"
         )
+      ),
+      h(
+        "section",
+        { class: "privacy" },
+        h("h4", {}, "Privacy"),
+        h(
+          "div",
+          { class: "set-row" },
+          h("label", { for: "set-remote-images" }, "Linked images"),
+          h("select", { id: "set-remote-images", onChange: (e) => set({ remoteImages: e.target.value }) },
+            [["auto", "Load automatically"], ["click", "Click to load"]].map(([v, label]) => h("option", { value: v, selected: cur.remoteImages === v }, label)))
+        ),
+        h("p", { class: "hint" }, "Pictures linked from other websites tell that site when you open the page. With Click to load, each one shows a Load image button instead. Uploaded pictures always show.")
       ),
       ...[installSection(), extra].filter(Boolean)
     );

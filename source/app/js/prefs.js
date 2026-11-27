@@ -1,5 +1,8 @@
 export const MODES = Object.freeze(["neutral", "light", "dark", "variable"]);
-export const DEFAULTS = Object.freeze({ mode: "neutral", font: "system", customFont: "", fontSize: 15, headingStep: 0, headingIntercept: 0, accent: "random", sidebarLocked: true });
+export const DEFAULTS = Object.freeze({ mode: "neutral", font: "system", customFont: "", fontSize: 15, headingStep: 0, headingIntercept: 0, accent: "random", sidebarLocked: true, remoteImages: "auto" });
+// Linked (http/https) pictures in pages: "auto" loads them, "click" shows a placeholder until each one is clicked.
+export const REMOTE_IMAGES = Object.freeze(["auto", "click"]);
+export const sanitizeRemoteImages = (v) => REMOTE_IMAGES.includes(v) ? v : DEFAULTS.remoteImages;
 const SYSTEM = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 // Recommended fonts: system stacks plus the bundled Noto variable fonts (source/app/fonts, @font-face in style.css). "local" uses prefs.customFont.
@@ -84,7 +87,8 @@ export function sanitizePrefs(raw) {
     headingStep: clampInt(r.headingStep, HEADING_STEP, DEFAULTS.headingStep),
     headingIntercept: clampInt(r.headingIntercept, HEADING_INTERCEPT, DEFAULTS.headingIntercept),
     accent: sanitizeAccent(r.accent),
-    sidebarLocked: r.sidebarLocked === void 0 ? DEFAULTS.sidebarLocked : !!r.sidebarLocked
+    sidebarLocked: r.sidebarLocked === void 0 ? DEFAULTS.sidebarLocked : !!r.sidebarLocked,
+    remoteImages: sanitizeRemoteImages(r.remoteImages)
   };
 }
 // Inline tokens set on <html>: only the accent hue/chroma; the CSS blocks keyed on data-mode derive everything else.

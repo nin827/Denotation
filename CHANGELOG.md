@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+- Locking (Lock now, idle lock, setting or changing the PIN) locks every open tab; removing the PIN opens them again.
+- Settings → Privacy → Linked images: Load automatically or Click to load.
+
 - Math, graph and chart editors open next to their chip on desktop (bottom sheet on phones).
 
 - Formulas and graphs: `^` binds tighter than unary minus and is right-associative (`-2^2` = -4, `2^3^2` = 512).

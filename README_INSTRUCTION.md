@@ -608,7 +608,8 @@ Open **⋯ → Settings → Security** to set a 4- or 6-digit PIN for this brows
 - After a wrong PIN, input is blocked for 3 seconds, then you can try again.
 - **There is no PIN reset.** If you forget it, choose **Forgot PIN? Reset this browser** on the lock screen.
 - **Reset local cache** (Settings → Security) deletes all Denotation data in this browser: pages and rows, preferences, the PIN, the AI access copy and storage-location links. Folders on disk are not touched. To confirm, type the 8-digit number shown (a new one each time). Export first if you have no main storage location or have unpushed changes.
-- Locking applies to the tab you're in; other open tabs don't lock.
+- Locking reaches every open tab: Lock now, the idle lock, setting a PIN or changing it locks all open Denotation tabs in this browser (each asks for the PIN to unlock). The idle timer counts activity in any tab. Removing the PIN opens the other tabs again.
+- **Privacy → Linked images**: *Load automatically* (default) or *Click to load*. Pictures linked from other websites tell that site when you open the page; with Click to load each shows a placeholder (alt text and site) with a **Load image** button that loads just that picture until you leave the page. Uploaded pictures always show.
 
 ### Encryption
 

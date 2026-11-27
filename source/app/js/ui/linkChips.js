@@ -4,6 +4,7 @@
 import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
 import { renderInline } from "./inlineView.js";
+import { waitsForClick, imagePlaceholder } from "./remoteImage.js";
 import { isTokenId } from "../blocks/inline.js";
 import { parseEmbed, embedKey, resolveEmbed, embedCycleFrom, embedPlainText, EMBED_MAX_BLOCKS, EMBED_MAX_DEPTH, EMBED_MAX_EXPANSIONS } from "../links.js";
 
@@ -132,8 +133,13 @@ function staticBlock(b, ctx, depth, num) {
       return h("code", { class: `${cls} emb-code` }, String(b.text ?? ""));
     case "divider":
       return h("span", { class: `${cls} emb-hr`, role: "separator" });
-    case "image":
-      return safeImg(b.src) ? h("img", { class: `${cls} emb-img`, src: b.src, alt: b.caption || "Image", loading: "lazy" }) : h("span", { class: cls }, "[image]");
+    case "image": {
+      if (!safeImg(b.src)) return h("span", { class: cls }, "[image]");
+      const pic = () => h("img", { class: `${cls} emb-img`, src: b.src, alt: b.caption || "Image", loading: "lazy" });
+      if (!waitsForClick(b.src)) return pic();
+      const ph = imagePlaceholder(b.src, b.caption, () => ph.replaceWith(pic()), { inline: true });
+      return ph;
+    }
     case "table":
       return h("span", { class: `${cls} emb-table` }, h("span", { class: "emb-tbl", role: "table" }, (Array.isArray(b.cells) ? b.cells : []).slice(0, 50).map((row, r) => h("span", { class: "emb-tr", role: "row" }, (Array.isArray(row) ? row : []).map((c) => h("span", { class: `emb-td${b.header && r === 0 ? " head" : ""}`, role: "cell" }, renderInline(String(c ?? ""), ctx)))))));
     case "columns":
