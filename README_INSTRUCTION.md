@@ -63,7 +63,7 @@ The sidebar is on the left. From top to bottom:
 | **New** button | Opens a menu to create a page, database, sheet, or a database from a CSV file |
 | Search icon | Opens quick find |
 | Lock / close icons | Lock the sidebar open, or close it when it is unlocked |
-| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Export ▸**, **Import ▸**, **Folder ▸** (Chrome or Edge) and **AI access…** |
+| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Export ▸**, **Import ▸**, **Storage…** (Chrome or Edge, plus **Pull** / **Push** / **Sync now** when a main location is connected) and **AI access…** |
 | **Favorites** | Pages you starred (only shown when you have some) |
 | **Repositories** | Your top-level folders, with their pages nested underneath |
 | Footer | Where your data is stored (this browser, or the connected folder) |
@@ -420,19 +420,23 @@ Smaller exports are available too: a page's **Export as Markdown** (page options
 
 > **Make a backup now and then.** Browser storage is convenient but not permanent. Exporting once a week, or before clearing your browser, takes ten seconds.
 
-### Keep your workspace in a folder
+### Storage: main and backups
 
-In Chrome or Edge on a computer, **⋯ → Folder → Connect folder…** keeps your workspace in a folder on your computer as well as in the browser.
+In Chrome or Edge on a computer, **⋯ → Storage…** lets you choose where your workspace is kept besides this browser.
 
-- Pick any folder. Denotation writes `denotation.json`, `pages/` and `rows/` there, and never touches your other files.
-- On connect, the folder and the browser are merged: for each page or row, the most recently changed copy wins.
-- After that, every change is written to the folder a moment later. The footer shows **Folder: <name>**.
-- Put the folder inside **Google Drive**, **OneDrive** or **Dropbox** on your computer and it syncs to your other computers too.
-- After a restart, your browser may need your permission again. The footer then says **Click anywhere to resume syncing to <name>**: your first click asks, and Chrome can offer **Allow on every visit**.
-- **Sync now** re-reads the folder, for example after editing it on another computer. Changes made to the folder from outside aren't picked up live.
-- **Disconnect** stops using the folder; the files stay where they are.
+**Add a location.** **Add location… → Folder as main…** or **Folder as backup…**, then pick a folder. (Google Drive and OneDrive are listed as *coming soon*. Until then, pick a folder inside the Google Drive, OneDrive or Dropbox folder on your computer and it syncs through them.) Denotation only writes its own files there: `denotation.json`, `pages/`, `rows/`, `tombstones/` and `permissions.json`.
 
-> **Known limit:** a page deleted on one computer can come back from another computer that still has it. Delete it there too, or wait for a future update.
+**Main** (at most one): your workspace syncs with it both ways.
+- **Auto** (default): Denotation fetches from the main by itself when you connect, when you come back to the window, and about every 30 seconds, and writes your changes a moment after you make them. When both sides changed the same page, the newest version wins.
+- **Manual:** nothing happens on its own. Use **Pull** (main → this browser) and **Push** (this browser → main) from the ⋯ menu, the Storage dialog or the footer. The footer tells you about *changes not pushed* and when *the folder has newer changes*.
+- **Warnings:** **Push** warns you when the folder has newer copies than yours ("The folder has newer changes"), and **Pull** warns you when the folder's copies are older than yours ("This browser has newer changes"). The warning lists the pages with both dates. Choose **Cancel**, **Merge (keep newest)**, or **Push anyway** / **Pull anyway** to overwrite.
+- Deleting a page on one computer also deletes it on the others (unless someone edits it again afterwards).
+
+**Backups** (any number) are **copy-only**: Denotation copies your workspace into them after each sync, but never reads them on its own. Each backup has:
+- **Restore from this backup…**, which brings the backup's pages and rows back (after a warning). Pages created since the backup are kept.
+- **Make main**, which turns it into the main; the old main becomes a backup.
+
+**Remove** stops using a location; its files stay where they are. After a restart, your browser may need your permission again: the footer says so, and your first click anywhere asks for all locations at once (Chrome can offer **Allow on every visit**).
 
 Other browsers (Firefox, Safari, phones) can't use folders. Use the ZIP export instead.
 
@@ -447,7 +451,7 @@ Assistants such as Claude Code can read and change your workspace through a smal
 
 That's the **workspace** setting. To set one repository, page or database differently, right-click it in the sidebar (or long-press, or Shift+F10) and choose **AI access…**. The closest setting wins: a page's own choice, then its parent's, and so on up to its repository, then the workspace. Rows follow their database. If nothing says Yes, the answer is **No**, so by default assistants can do nothing. The page dialog shows the effective result and where it comes from.
 
-**2. Connect.** The connector works on a [connected folder](#keep-your-workspace-in-a-folder), so connect one first (Chrome or Edge). Then add the connector to your assistant. For Claude Code:
+**2. Connect.** The connector works on a [connected folder](#storage-main-and-backups), so connect one first (Chrome or Edge). Then add the connector to your assistant. For Claude Code:
 
 ```bash
 claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.mjs --folder <path to your folder>
@@ -455,7 +459,7 @@ claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.
 
 It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [tools/mcp/README.md](tools/mcp/README.md).
 
-**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or with **Sync now**.
+**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or with **Sync now** (or **Pull** in manual mode).
 
 > **Keep the folder private to the connector.** Permissions are checked by the connector. An assistant that can also open files directly (for example one started inside that folder) could get around them.
 

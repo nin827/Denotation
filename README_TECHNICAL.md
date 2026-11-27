@@ -78,11 +78,23 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 - Export/Import (sidebar ⋯ menu) goes through `vault.js`: a JSON file, a ZIP or a folder, in **Denotation JSON**
   (`denotation.json` manifest + `pages/<id>.json` + `rows/<id>.json`, full fidelity) or **Markdown** (sibling-folder
   layout, `.csv` databases, `attachments/`, relative links; lossy). Import detects the format by the manifest.
-- **Folder adapter** (`adapters/folder.js`, Chromium only): wraps `local` as the working cache and mirrors records to a
-  user-picked folder in the Denotation JSON layout. Merge on connect is per-record last-write-wins on `updatedAt`
-  (fallback `createdAt`); writes are debounced and serialised per file; deletes are remembered as `tombstones` in the
-  cache (not yet in the folder: ticket 004). The directory handle lives in IndexedDB (db `denotation`, store
-  `handles`); boot calls `queryPermission` and re-requests on the first user click. `saveRow` stamps `updatedAt`.
+- **Storage locations** (`adapters/locations.js`, `adapters/folder.js`, Chromium only): the `local` adapter stays the
+  working cache; a location is a provider with `permission / readText / writeText / remove / list` (the folder
+  provider uses File System Access; Google Drive / OneDrive will plug in as providers). Per-device config:
+  `localStorage["denotion:storage-locations"]` = `[{ id, type, name, role: "main"|"backup", addedAt, lastSyncAt }]`;
+  handles in IndexedDB (db `denotation`, store `handles`, key `loc:<id>`); the old single folder handle migrates to a main.
+  - **Main** (zero or one): two-way. **Auto** (`denotion:folder-sync`): merge on connect, on focus/visibility (≤ every
+    5 s) and every ~30 s while visible; writes debounced ~800 ms. **Manual**: no automatic writes; Pull / Push mirror one
+    side onto the other after a conflict warning; a read-only check powers the footer counts.
+  - **Backups**: copy-only. The app writes changed records, tombstones, `denotation.json` and `permissions.json` after
+    each main sync (or ~5 s after saves with no main); never reads them during sync. Restore = JSON restore with fresh
+    `updatedAt`.
+- **`sync.js`** (pure): `planSync({ local, remote, localTombstones, remoteTombstones, direction: "merge"|"push"|"pull" })`
+  returns `{ toLocal, toRemote, deleteLocal, deleteRemote, writeTombstones, removeTombstones, conflicts: { newerRemote,
+  olderRemote } }`; `applyPlan(plan, io)` applies it. Merge is per-record last-write-wins on `updatedAt` (fallback
+  `createdAt`); a tombstone wins when `deletedAt >= stamp`, a later edit resurrects. Tombstones live in
+  `tombstones/<id>.json` (`{ id, collection, deletedAt }`) and are pruned after 90 days; legacy `rows/.deleted.json`
+  is read only. `saveRow` stamps `updatedAt`.
 
 ## 6. AI access (MCP)
 
@@ -118,7 +130,7 @@ Colour tokens are CSS custom properties on `:root`, redefined for dark mode. The
 ## 10. Roadmap
 
 1. GitHub Pages deploy and installable app (manifest, icons, service worker, install button).
-2. IndexedDB storage with migration from localStorage, plus an optional data folder (File System Access).
-3. Google Drive and OneDrive sync, browser-only (no backend).
+2. IndexedDB cache with migration from localStorage.
+3. Google Drive and OneDrive as storage-location providers (reusing `sync.js`), browser-only (no backend).
 
 The details are in `CLAUDE.md`.
