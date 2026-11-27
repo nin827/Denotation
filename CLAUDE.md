@@ -17,7 +17,7 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 - Every path is relative (GitHub Pages serves under `/<repo>/`). No leading `/` in fetches, imports or links.
 - No native `alert` / `confirm` / `prompt` (use `ui/dialogs.js`, `ui/modal.js`).
 - Never put personal details (names, emails) in project files.
-- **Known violation to fix:** `prefs.js` / `ui/appearance.js` load Google Fonts from `fonts.googleapis.com`. See ticket 001.
+- Fonts are system stacks or vendored open-source (SIL OFL) files in `public/fonts/`. Never load fonts from a CDN.
 
 ## Safety
 
@@ -85,7 +85,14 @@ Full details in `README_TECHNICAL.md`. In short:
   - **Grey** (chroma 0): **dark grey in light mode, light grey in dark mode**.
 - **Default is Random:** a random hue from the 24 on each load, never grey. Stored as `prefs.accent` =
   `"random" | "grey" | <hue>`; invalid or legacy hex values become `"random"`.
-- "Dark" follows the effective theme: system or explicit light/dark, and dark custom backgrounds.
+- **One theme, four value modes** (`prefs.mode`, applied as `<html data-mode>`): **neutral** (default, soft grey, counts
+  as light for the accent), **light**, **dark**, **variable** (light 07:00–19:00 local time, dark otherwise). No colour
+  presets and no custom background/text colours.
+- **Fonts:** a short *Recommended* list (system sans (default), serif and mono, plus vendored Noto Sans / Noto Serif /
+  Noto Sans Mono) and an *On this device* list from `queryLocalFonts()` where supported (otherwise a font-name field).
+  Device fonts are never presented as recommendations.
+- **Design:** clean and minimal. The design spec and live style guide are in `design/` (`design/README.md`,
+  `design/index.html`); keep them in sync with `css/style.css`.
 - Correct, selected and error states show an icon or label, never colour alone. Respect `prefers-reduced-motion`.
 - Mobile-first: works from 360px wide, no horizontal page scroll, respects `env(safe-area-inset-*)`, inputs ≥ 16px on
   phones, no hover-only affordances.

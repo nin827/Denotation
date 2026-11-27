@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "../..");
-const PORT = 8099;
+const PORT = Number(process.env.PORT) || 8099;
 const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "127.0.0.1", "-d", root], { stdio: "ignore" });
 
 (async () => {
