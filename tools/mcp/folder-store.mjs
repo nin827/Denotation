@@ -1,6 +1,8 @@
 // File access for the Denotation MCP server: reads and writes the Denotation JSON folder layout
 // (denotation.json, pages/<id>.json, rows/<id>.json) with strict path rules:
-//   - writes only pages/<id>.json, rows/<id>.json and tombstones/<id>.json (delete markers)
+//   - writes only pages/<id>.json, rows/<id>.json, tombstones/<id>.json (delete markers) and the stamp in
+//     denotation.json ({ ..., updatedAt, rev, writer }, bumped after every write / delete so the app's cheap
+//     check notices the change and pulls)
 //   - never writes permissions.json (or anything else)
 //   - never follows symlinks; pages/ and rows/ must be real directories inside the folder
 //   - writes go to a temp file in the same directory, then rename
@@ -9,6 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { validPage, validRow } from "../../public/js/vault.js";
 import { sanitize, PERMISSIONS_FILE } from "../../public/js/permissions.js";
+import { bumpManifest } from "../../public/js/sync.js";
 
 export const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
 const FILE_RE = /^([A-Za-z0-9-]{1,100})\.json$/;
@@ -17,6 +20,7 @@ const DIRS = [...COLS, "tombstones"]; // tombstones/ is written, never read as r
 const READ_MAX = 5 * 1024 * 1024; // skip absurdly large files
 export const RECORD_MAX = 250 * 1024; // same limit the app keeps per record
 export const TOMBS_DIR = "tombstones";
+export const MANIFEST_FILE = "denotation.json";
 
 export class FolderStore {
   constructor(folder, { readOnly = false, permissionsPath = null } = {}) {
@@ -24,6 +28,7 @@ export class FolderStore {
     this.readOnly = !!readOnly;
     this.permissionsPath = permissionsPath ? path.resolve(String(permissionsPath)) : null;
     this.root = null;
+    this.writer = `mcp-${crypto.randomBytes(5).toString("hex")}`; // this server process's writer id for the stamp
   }
 
   async init() {
@@ -123,6 +128,21 @@ export class FolderStore {
     if (Buffer.byteLength(text) > RECORD_MAX) throw new Error(`Denotation: that ${col === "pages" ? "page" : "row"} would be larger than ${RECORD_MAX / 1024} KB.`);
     const file = await this.safePath(col, `${rec.id}.json`, { forWrite: true });
     await this.writeAtomic(file, text);
+    await this.bumpStamp();
+  }
+
+  /**
+   * Bump the manifest stamp (rev + 1, updatedAt, writer) after a change, keeping the format fields.
+   * Same rules as record writes: a plain file directly in the folder (no symlink), temp file + rename.
+   */
+  async bumpStamp() {
+    this.assertWritable();
+    const file = path.join(this.root, MANIFEST_FILE);
+    if (path.dirname(file) !== this.root) throw new Error("Denotation: refused unsafe path.");
+    const st = await fs.lstat(file).catch(() => null);
+    if (st && (st.isSymbolicLink() || !st.isFile())) throw new Error("Denotation: denotation.json is not a plain file; refusing to use it.");
+    const prev = st ? await this.readJson(file) : null;
+    await this.writeAtomic(file, JSON.stringify(bumpManifest(prev, this.writer, Date.now()), null, 2));
   }
 
   /**
@@ -136,5 +156,6 @@ export class FolderStore {
     await this.writeAtomic(tomb, JSON.stringify({ id, collection: "rows", deletedAt: Date.now() }, null, 2));
     const file = await this.safePath("rows", `${id}.json`, { forWrite: true });
     await fs.rm(file, { force: true });
+    await this.bumpStamp();
   }
 }

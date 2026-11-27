@@ -9,19 +9,29 @@
 // `rows/.deleted.json` (written by older versions of the MCP server) is read as extra tombstones, never written.
 //
 // Main location: two-way sync planned by ../sync.js.
-//   auto (default): merge (per-record last write wins, tombstones honoured) on connect, on window focus
-//     and every 30 s while visible ("auto pull"); local edits are written debounced (~800 ms) and flushed at
-//     once when the page is hidden or closed, on disconnect / make main, and before Pull / Push.
-//   One shared cooldown (SYNC_COOLDOWN_MS) starts at the end of every auto pull, Pull and Push (connect, make main
-//     and permission grants run immediately and start it too). An auto pull runs at most once per window (a focus
-//     inside the window queues one trailing pull for its end); Pull / Push are refused (error code "cooldown")
-//     until it ends. Scheduled backups also copy at most once per window (flushed on hide).
+//   Change detection: every writer (this app, other devices, the MCP server) stamps denotation.json with
+//     { ..., updatedAt, rev, writer } after it changes records (see bumpManifest in sync.js). This device
+//     remembers the stamp it last synced with (`seen` in the location config).
+//   auto (default):
+//     - pull: a full merge (per-record last write wins, tombstones honoured) on connect (add as main, make
+//       main, permission grant, boot, switching to auto), and whenever a check finds a different stamp.
+//       A check reads only denotation.json; it runs on focus / visibility and every 30 s while visible, at most
+//       once per cooldown window (a focus inside the window queues one trailing check). Nothing else scans
+//       the folder.
+//     - push: local edits are queued (`dirty`) and written every `pushMinutes` (5 / 10 / 15 / 30 / 60, default 5,
+//       per device). Each push checks the stamp first: unchanged -> write just the queued records and bump the
+//       stamp; changed -> a full merge instead (never a blind overwrite). Pending edits are also pushed at once
+//       (flush) on pagehide / beforeunload / hidden, on disconnect / remove / make main / switching to manual,
+//       and before Pull / Push; that does not move the interval.
+//   One shared cooldown (SYNC_COOLDOWN_MS) starts at the end of every pull / merge, Pull and Push (connect, make
+//     main and permission grants run immediately and start it too). Checks wait for it as well; Pull / Push are
+//     refused (error code "cooldown") until it ends.
 //   manual: nothing is applied automatically. pull() / push() overwrite in one direction and return
 //     the conflicts first unless { force: true }. A read-only check on connect / focus counts what the
 //     folder has that this browser doesn't (`incoming`) and what isn't pushed yet (`unpushed`).
-// Backups: copy-only. After each sync of the main (or ~5 s after local saves when there is no main or
-//   the main is in auto mode, at most once per cooldown window) the app writes changed records, tombstones and permissions.json to each
-//   backup. A backup is never read back automatically and never loses a record file the app didn't delete.
+// Backups: copy-only. After each push / sync of the main (or, with no main, on the same push interval) and
+//   when the page is hidden, the app writes changed records, tombstones and permissions.json to each backup.
+//   A backup is never read back automatically and never loses a record file the app didn't delete.
 //
 // Deletions: the cache keeps tombstones ({ id: "<col>:<id>", col, rid, deletedAt, synced }). Unsynced
 // ones are this device's deletes the main hasn't seen; synced ones mirror the main's tombstones so
@@ -29,11 +39,11 @@
 import { validPage, validRow, MANIFEST } from "../vault.js";
 import { PERMISSIONS_FILE } from "../permissions.js";
 import { syncPermissions, loadLocalPermissions } from "./folderPermissions.js";
-import { planSync, applyPlan, summarize, conflictCount, keyOf, stamp, isNoop, TOMBSTONE_TTL_MS } from "../sync.js";
-import { createLocationRegistry, asProvider, loadSyncMode, saveSyncMode } from "./locations.js";
+import { planSync, applyPlan, summarize, conflictCount, keyOf, stamp, isNoop, TOMBSTONE_TTL_MS, manifestStamp, sameStamp, bumpManifest } from "../sync.js";
+import { createLocationRegistry, asProvider, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId } from "./locations.js";
 
-export { loadSyncMode, saveSyncMode } from "./locations.js";
-/** Shared by auto pulls, manual Pull / Push and scheduled backups: at most one per this window. */
+export { loadSyncMode, saveSyncMode, loadSyncSettings, saveSyncSettings, PUSH_MINUTES, clampPushMinutes } from "./locations.js";
+/** Shared by pulls / merges, manual Pull / Push and the auto checks: at most one per this window. */
 export const SYNC_COOLDOWN_MS = 30_000;
 export const folderSupported = () => typeof globalThis.showDirectoryPicker === "function";
 
@@ -42,6 +52,7 @@ const FILE_RE = /^([A-Za-z0-9-]{1,100})\.json$/;
 const TOMBS = "tombstones"; // cache collection and folder directory
 const LEGACY_TOMBS = "rows/.deleted.json";
 const FOCUS_MERGE_MS = 5000;
+const MINUTE = 60_000;
 const valid = (col, r) => (col === "pages" ? validPage(r) : validRow(r));
 const isPermission = (e) => e?.name === "NotAllowedError" || e?.name === "SecurityError";
 const recPath = (col, id) => `${col}/${id}.json`;
@@ -92,10 +103,19 @@ async function readTombs(p, now = Date.now()) {
   }
   return { tombs: out, legacyOnly };
 }
+/** denotation.json parsed: null when missing, {} when unreadable; permission errors are thrown. */
+async function readManifestFile(p) {
+  const text = await p.readText(MANIFEST);
+  if (text == null) return null;
+  try {
+    const m = JSON.parse(text);
+    return m && typeof m === "object" ? m : {};
+  } catch {
+    return {};
+  }
+}
 
 export function createFolderAdapter(cache, {
-  debounceMs = 800,
-  backupDebounceMs = 5000,
   cooldownMs = SYNC_COOLDOWN_MS,
   pollMs = cooldownMs,
   clock = () => Date.now(),
@@ -103,32 +123,39 @@ export function createFolderAdapter(cache, {
   mergeOnFocus = true,
   onConnected = syncPermissions,
   mode: initialMode,
+  pushMinutes: initialPushMinutes,
   storage = globalThis.localStorage,
+  writer = loadWriterId(storage ?? undefined),
   registry = createLocationRegistry({ storage: storage ?? undefined })
 } = {}) {
-  let mode = initialMode ?? loadSyncMode(storage);
+  const settings = loadSyncSettings(storage);
+  let mode = initialMode === "manual" || initialMode === "auto" ? initialMode : settings.mode;
+  let pushMinutes = clampPushMinutes(initialPushMinutes ?? settings.pushMinutes);
   const locs = []; // runtime locations
   const statusFns = new Set();
   const remoteFns = new Set();
-  const dirty = new Map(); // "col/id" -> [col, id]: auto-mode edits waiting to be written to the main
-  let writeTimer = null;
-  let trailTimer = null; // one trailing automatic sync / check queued by a focus inside the window
+  const dirty = new Map(); // "col/id" -> [col, id]: auto-mode edits not pushed to the main yet
+  let backupDirty = false; // local edits the backups haven't been given yet (no main, or auto mode)
+  let trailTimer = null; // one trailing automatic check queued by a focus inside the window
   const pending = new Set(); // manual mode: keys edited here since the last sync
   let planUnpushed = new Set(); // manual mode: keys the last check found not pushed
   let incoming = 0; // manual mode: changes the last check found in the main
-  let backupTimer = null;
   let pollTimer = null;
+  let pushTimer = null;
+  let nextPushAt = 0;
   let lock = Promise.resolve();
   let running = 0;
-  let lastSyncEnd = 0; // end of the last auto pull / Pull / Push (starts the shared cooldown)
-  let lastCheckEnd = 0; // manual mode: end of the last read-only check
+  let lastSyncEnd = 0; // end of the last pull / merge / Pull / Push (starts the shared cooldown)
+  let lastCheckEnd = 0; // end of the last check (manifest read in auto, read-only plan in manual)
   let coolTimer = null;
-  let lastBackupEnd = 0;
 
   const main = () => locs.find((l) => l.role === "main") ?? null;
   const backups = () => locs.filter((l) => l.role === "backup");
   const ready = (l) => !!l && l.state !== "needs-permission";
+  const hidden = () => win?.document?.visibilityState === "hidden";
+  const pushMs = () => pushMinutes * MINUTE;
   const publicLoc = (l) => ({ id: l.id, type: l.type, name: l.name, role: l.role, state: l.state, error: l.error, addedAt: l.addedAt, lastSyncAt: l.lastSyncAt });
+  const unpushedCount = () => (mode === "auto" ? dirty.size : new Set([...pending, ...planUnpushed]).size);
   const status = () => {
     const m = main();
     return {
@@ -136,8 +163,10 @@ export function createFolderAdapter(cache, {
       folderName: m?.name ?? "",
       error: m?.error ?? "",
       mode,
-      unpushed: m ? new Set([...pending, ...planUnpushed]).size : 0,
+      pushMinutes,
+      unpushed: m ? unpushedCount() : 0,
       incoming: m ? incoming : 0,
+      nextPushAt: m && mode === "auto" ? nextPushAt : 0,
       cooldownUntil: m ? cooldownUntil() : 0,
       lastSyncAt: m?.lastSyncAt ?? 0,
       locations: locs.map(publicLoc)
@@ -162,14 +191,14 @@ export function createFolderAdapter(cache, {
     if (isPermission(e)) setLoc(l, "needs-permission");
     else setLoc(l, "error", e?.message ?? String(e));
   };
-  const persist = () => registry.save(locs.map(({ id, type, name, role, addedAt, lastSyncAt }) => ({ id, type, name, role, addedAt, lastSyncAt })));
+  const persist = () => registry.save(locs.map(({ id, type, name, role, addedAt, lastSyncAt, seen }) => ({ id, type, name, role, addedAt, lastSyncAt, seen })));
   const exclusive = (job) => {
     running++;
     const next = lock.then(job, job);
     lock = next.catch(() => {});
     return next.finally(() => running--);
   };
-  const makeLoc = (cfg, provider, state) => ({ ...cfg, name: cfg.name || provider.name, provider, state, error: "", chains: new Map(), known: null, manifestOk: false, permsAt: 0 });
+  const makeLoc = (cfg, provider, state) => ({ ...cfg, seen: manifestStamp(cfg.seen), name: cfg.name || provider.name, provider, state, error: "", chains: new Map(), known: null, manifestOk: false, permsAt: 0 });
 
   // ---------- file IO on a location (serialised per file) ----------
   const serial = (l, path, job) => {
@@ -185,9 +214,21 @@ export function createFolderAdapter(cache, {
   const removeFile = (l, path) => serial(l, path, () => l.provider.remove(path));
   const writeRec = (l, col, rec) => writeFile(l, recPath(col, rec.id), JSON.stringify(rec, null, 2));
   const writeTomb = (l, t) => writeFile(l, tombPath(t.id), JSON.stringify({ id: t.id, collection: t.collection, deletedAt: t.deletedAt }, null, 2));
+  /** Backups: write a plain manifest once if the location has none. */
   const ensureManifest = async (l) => {
     if (l.manifestOk) return;
     if ((await l.provider.readText(MANIFEST)) == null) await writeFile(l, MANIFEST, manifestText());
+    l.manifestOk = true;
+  };
+  /**
+   * Main: after changing the folder, bump the manifest stamp. `before` is the manifest read when this sync
+   * started; if another writer changed it meanwhile, `seen` stays at `before` so the next check pulls.
+   */
+  const stampManifest = async (l, before) => {
+    const cur = await readManifestFile(l.provider);
+    const next = bumpManifest(cur, writer, Date.now());
+    await writeFile(l, MANIFEST, JSON.stringify(next, null, 2));
+    l.seen = sameStamp(manifestStamp(cur), manifestStamp(before)) ? manifestStamp(next) : manifestStamp(before);
     l.manifestOk = true;
   };
 
@@ -248,13 +289,14 @@ export function createFolderAdapter(cache, {
     const left = cooldownUntil() - clock();
     if (left > 0) throw Object.assign(new Error(`Please wait ${Math.ceil(left / 1000)} s before the next Pull or Push.`), { code: "cooldown", waitMs: left });
   };
-  /** Take (and forget) the queued main writes. */
+  /** Take (and forget) the queued auto-mode edits. */
   const takeDirty = () => {
-    clearTimeout(writeTimer);
-    writeTimer = null;
     const keys = [...dirty.values()];
     dirty.clear();
     return keys;
+  };
+  const requeue = (keys) => {
+    for (const [c, id] of keys) if (!dirty.has(`${c}/${id}`)) dirty.set(`${c}/${id}`, [c, id]);
   };
   const clearTimers = () => {
     takeDirty();
@@ -262,7 +304,7 @@ export function createFolderAdapter(cache, {
     trailTimer = null;
   };
 
-  /** Run a merge / push / pull against the main. Returns { applied, plan, conflicts, counts }. */
+  /** Run a merge / push / pull against the main (a full scan). Returns { applied, plan, conflicts, counts }. */
   function runSync(direction, { force = false, quiet = false } = {}) {
     return exclusive(async () => {
       const l = main();
@@ -272,6 +314,7 @@ export function createFolderAdapter(cache, {
       const taken = takeDirty(); // the snapshot already holds every pending local edit
       let applied = false;
       try {
+        const before = await readManifestFile(l.provider);
         const snap = await snapshot(l);
         const plan = planSync({ ...snap, direction, now: Date.now() });
         if (direction !== "merge" && conflictCount(plan) && !force) {
@@ -279,7 +322,9 @@ export function createFolderAdapter(cache, {
           return { applied: false, plan, conflicts: plan.conflicts, counts: summarize(plan) };
         }
         const done = await applyPlan(plan, mainIo(l, snap));
-        if (direction !== "pull") await ensureManifest(l);
+        const changedRemote = done.pushed || done.deletedRemote || plan.writeTombstones.length || plan.removeTombstones.length;
+        if (direction !== "pull" && (changedRemote || before == null)) await stampManifest(l, before);
+        else l.seen = manifestStamp(before);
         await recordKnownTombs(snap.remoteTombstones, plan);
         l.lastSyncAt = Date.now();
         persist();
@@ -288,9 +333,9 @@ export function createFolderAdapter(cache, {
         incoming = 0;
         setLoc(l, "synced");
         applied = true;
-        clearTimeout(trailTimer); // this sync satisfies a queued focus sync
+        clearTimeout(trailTimer); // this sync satisfies a queued focus check
         trailTimer = null;
-        if (!quiet || !isNoop(plan)) notify();
+        if (!quiet || !isNoop(plan) || taken.length) notify();
         if (done.pulled || done.deletedLocal) for (const f of [...remoteFns]) f(done);
         await runBackups();
         return { applied: true, plan, conflicts: plan.conflicts, counts: done };
@@ -299,7 +344,7 @@ export function createFolderAdapter(cache, {
         throw e;
       } finally {
         if (applied || direction === "merge") startCooldown();
-        if (!applied) for (const [c, id] of taken) scheduleWrite(c, id); // nothing was written: keep them queued
+        if (!applied && mode === "auto") requeue(taken); // nothing was written: keep them queued
       }
     });
   }
@@ -325,75 +370,120 @@ export function createFolderAdapter(cache, {
     });
   }
 
-  // ---------- auto mode: single-record writes ----------
-  const pushKey = async (col, id) => {
+  // ---------- auto mode: cheap checks and interval pushes ----------
+  /** Does the main's manifest stamp differ from the one this device last synced with? Reads only denotation.json. */
+  async function folderChanged(l) {
+    return !sameStamp(manifestStamp(await readManifestFile(l.provider)), l.seen);
+  }
+  /** Auto check: read the stamp; pull (full merge) only if another writer changed the folder. */
+  async function autoCheck() {
     const l = main();
-    if (!ready(l) || mode !== "auto") return;
-    try {
-      const rec = await cache.get(col, id);
-      if (rec) return void (await writeRec(l, col, rec));
-      const t = await cache.get(TOMBS, tombKey(col, id));
-      if (!t || t.synced) return;
-      // Don't delete a copy edited in the main after this delete; the next merge pulls it back.
-      let there = null;
+    if (!ready(l) || mode !== "auto") return { pulled: false };
+    const changed = await exclusive(async () => {
       try {
-        there = JSON.parse((await l.provider.readText(recPath(col, id))) ?? "null");
-      } catch {
-        there = null;
+        return await folderChanged(l);
+      } catch (e) {
+        failLoc(l, e);
+        throw e;
+      } finally {
+        lastCheckEnd = clock();
       }
-      if (there && stamp(there) > t.deletedAt) return;
-      await removeFile(l, recPath(col, id));
-      await writeTomb(l, fromCacheTomb(t));
-      await cache.set(TOMBS, t.id, { ...t, synced: true });
+    });
+    if (!changed || main() !== l || mode !== "auto") return { pulled: false };
+    const r = await runSync("merge", { quiet: true });
+    return { pulled: true, counts: r.counts };
+  }
+  /** Write one queued key to the main: the cached record, or its delete (tombstone). */
+  async function pushKey(l, col, id) {
+    const rec = await cache.get(col, id);
+    if (rec) return void (await writeRec(l, col, rec));
+    const t = await cache.get(TOMBS, tombKey(col, id));
+    if (!t || t.synced) return;
+    // Don't delete a copy edited in the main after this delete; the next merge pulls it back.
+    let there = null;
+    try {
+      there = JSON.parse((await l.provider.readText(recPath(col, id))) ?? "null");
     } catch (e) {
-      failLoc(l, e);
+      if (isPermission(e)) throw e;
+      there = null;
     }
-  };
-  /** Queue an auto-mode write ~debounceMs after the edit (not throttled by the cooldown). */
-  const scheduleWrite = (col, id) => {
-    dirty.set(`${col}/${id}`, [col, id]);
-    clearTimeout(writeTimer);
-    writeTimer = setTimeout(() => {
-      writeTimer = null;
-      writeDirty().catch(() => {});
-    }, debounceMs);
-    writeTimer.unref?.();
-  };
-  async function writeDirty() {
-    await Promise.all(takeDirty().map(([col, id]) => pushKey(col, id)));
+    if (there && stamp(there) > t.deletedAt) return;
+    await removeFile(l, recPath(col, id));
+    await writeTomb(l, fromCacheTomb(t));
+    await cache.set(TOMBS, t.id, { ...t, synced: true });
+  }
+  /**
+   * Push the queued edits now. Checks the stamp first: unchanged -> write just those records and bump the
+   * stamp; changed -> a full merge (pull + push, newest wins). Then copies to the backups.
+   */
+  async function autoPush() {
+    const l = main();
+    if (!ready(l) || mode !== "auto" || !dirty.size) return null;
+    const r = await exclusive(async () => {
+      if (main() !== l || !dirty.size) return { done: true };
+      let before;
+      try {
+        before = await readManifestFile(l.provider);
+      } catch (e) {
+        failLoc(l, e);
+        throw e;
+      }
+      if (!sameStamp(manifestStamp(before), l.seen)) return { merge: true };
+      const keys = takeDirty();
+      try {
+        for (const [col, id] of keys) await pushKey(l, col, id);
+        await stampManifest(l, before);
+        l.lastSyncAt = Date.now();
+        persist();
+        if (l.state !== "synced") setLoc(l, "synced");
+        notify();
+        return { done: true, pushed: keys.length };
+      } catch (e) {
+        requeue(keys);
+        failLoc(l, e);
+        throw e;
+      }
+    });
+    if (r.merge) return runSync("merge", { quiet: true });
+    if (r.pushed) await runBackups();
+    return r;
   }
   const schedule = (col, id) => {
     const l = main();
-    if (l && mode === "manual") {
-      const before = status().unpushed;
-      pending.add(keyOf(col, id));
-      if (status().unpushed !== before) notify();
-    } else if (l) {
-      scheduleWrite(col, id);
+    if (l) {
+      const before = unpushedCount();
+      if (mode === "manual") pending.add(keyOf(col, id));
+      else dirty.set(`${col}/${id}`, [col, id]);
+      if (unpushedCount() !== before) notify();
     }
-    if (!l || mode === "auto") scheduleBackups();
+    if (!l || mode === "auto") backupDirty = true;
+  };
+  /** The push interval: a fixed clock (connect / settings start it), not moved by the final pushes on hide. */
+  const onPushTick = () => {
+    nextPushAt = clock() + pushMs();
+    pushTimer = setTimeout(onPushTick, pushMs());
+    pushTimer.unref?.();
+    const l = main();
+    if (l) {
+      if (mode === "auto" && dirty.size && ready(l)) autoPush().catch(() => {});
+    } else if (backupDirty) runBackups().catch(() => {});
+    notify();
+  };
+  const startPushTimer = (restart = false) => {
+    if (pushTimer && !restart) return;
+    clearTimeout(pushTimer);
+    nextPushAt = clock() + pushMs();
+    pushTimer = setTimeout(onPushTick, pushMs());
+    pushTimer.unref?.();
   };
 
   // ---------- backups ----------
-  const scheduleBackups = (ms = backupDebounceMs) => {
-    if (!backups().some(ready)) return;
-    clearTimeout(backupTimer);
-    const t = clock();
-    backupTimer = setTimeout(() => {
-      backupTimer = null;
-      runBackups().catch(() => {});
-    }, Math.max(ms, lastBackupEnd + cooldownMs - t));
-    backupTimer.unref?.();
-  };
   async function runBackups() {
-    clearTimeout(backupTimer);
-    backupTimer = null;
+    backupDirty = false;
     for (const l of backups()) if (ready(l)) await runBackup(l).catch(() => {});
   }
   function runBackup(l) {
-    l.busy = (l.busy ?? Promise.resolve()).then(() => backupOnce(l)).catch((e) => failLoc(l, e)).finally(() => {
-      lastBackupEnd = clock();
-    });
+    l.busy = (l.busy ?? Promise.resolve()).then(() => backupOnce(l)).catch((e) => failLoc(l, e));
     return l.busy;
   }
   async function backupOnce(l) {
@@ -461,7 +551,7 @@ export function createFolderAdapter(cache, {
   /** Insert a location synchronously (its handle is stored in the background). */
   function insertLoc(h, role, state) {
     const provider = asProvider(h);
-    const l = makeLoc({ id: registry.newId(), type: provider.type, name: provider.name, role: "backup", addedAt: Date.now(), lastSyncAt: 0 }, provider, state);
+    const l = makeLoc({ id: registry.newId(), type: provider.type, name: provider.name, role: "backup", addedAt: Date.now(), lastSyncAt: 0, seen: null }, provider, state);
     const saved = Promise.resolve(registry.putHandle(l.id, provider.handle ?? h)).catch(() => {});
     locs.push(l);
     if (role === "main") {
@@ -495,14 +585,14 @@ export function createFolderAdapter(cache, {
     persist();
     notify();
   }
+  /** Auto checks every pollMs (30 s) while visible, each at most once per cooldown window. */
   const ensurePoll = () => {
     if (pollTimer || !pollMs) return;
     pollTimer = setInterval(() => {
       const l = main();
-      if (!l || l.state !== "synced" || mode !== "auto" || running) return;
-      if (globalThis.document?.visibilityState === "hidden") return;
-      if (clock() - lastSyncEnd < Math.max(cooldownMs, pollMs * 0.9)) return;
-      runSync("merge", { quiet: true }).catch(() => {});
+      if (!l || l.state !== "synced" || mode !== "auto" || running || hidden()) return;
+      if (clock() - Math.max(lastSyncEnd, lastCheckEnd) < Math.max(cooldownMs, pollMs * 0.9)) return;
+      autoCheck().catch(() => {});
     }, Math.max(10, Math.floor(Math.min(pollMs, Math.max(cooldownMs, 1)) / 3)));
     pollTimer.unref?.();
   };
@@ -536,6 +626,9 @@ export function createFolderAdapter(cache, {
     get mode() {
       return mode;
     },
+    get pushMinutes() {
+      return pushMinutes;
+    },
     onStatus(fn) {
       statusFns.add(fn);
       return () => statusFns.delete(fn);
@@ -563,6 +656,7 @@ export function createFolderAdapter(cache, {
       }
       persist();
       notify();
+      if (locs.length) startPushTimer();
       const m = main();
       if (ready(m)) await adapter.connect().catch(() => {});
       else await runBackups();
@@ -572,16 +666,17 @@ export function createFolderAdapter(cache, {
     attach(handle) {
       insertLoc(handle, "main", "needs-permission");
     },
-    /** Use `handle` (permission granted) as the main, or reconnect the current main, then sync. */
+    /** Use `handle` (permission granted) as the main, or reconnect the current main, then sync (a first connect: full merge). */
     async connect(handle) {
       let m = main();
       if (handle !== undefined && !(m && (await sameHandle(m.provider.handle ?? m.provider, handle.handle ?? handle)))) {
-        await adapter.flush(); // the old main (replaced below) gets its pending writes first
+        await adapter.flush(); // the old main (replaced below) gets its pending edits first
         m = await addLoc(handle, "main", "syncing");
       }
       if (!m) throw new Error("No folder chosen.");
       if (m.state === "needs-permission") setLoc(m, "syncing");
       ensurePoll();
+      startPushTimer();
       let counts = { pulled: 0, pushed: 0, deleted: 0 };
       if (mode === "auto") counts = plain(await runSync("merge"));
       else {
@@ -593,6 +688,10 @@ export function createFolderAdapter(cache, {
     },
     /** Internal two-way merge (newest wins), no cooldown check; the UI has no "Sync now" button. */
     syncNow: () => runSync("merge"),
+    /** Auto mode: read the manifest stamp and pull only if the folder changed. Resolves { pulled }. */
+    checkNow: () => autoCheck(),
+    /** Auto mode: push the queued edits now (check first, merge if the folder changed). */
+    pushNow: () => autoPush(),
     /** Overwrite the main with this browser (refused during the cooldown). Without force, returns { applied: false, conflicts } if that would lose newer folder state. */
     async push(opts) {
       guardCooldown();
@@ -609,12 +708,29 @@ export function createFolderAdapter(cache, {
     async setMode(m) {
       const next = m === "manual" ? "manual" : "auto";
       if (next === mode) return;
-      if (next === "manual") await adapter.flush();
+      if (next === "manual") {
+        await adapter.flush(); // push what auto mode still had queued
+        for (const [c, id] of takeDirty()) pending.add(keyOf(c, id)); // a failed push stays visible as unpushed
+      } else {
+        for (const k of pending) {
+          const i = k.indexOf("/");
+          dirty.set(k, [k.slice(0, i), k.slice(i + 1)]); // the merge below pushes them; kept queued if it fails
+        }
+        pending.clear();
+        planUnpushed = new Set();
+      }
       mode = next;
-      saveSyncMode(mode, storage);
-      pending.clear();
+      saveSyncSettings({ mode, pushMinutes }, storage);
       notify();
       if (ready(main())) await (mode === "auto" ? runSync("merge") : check()).catch(() => {});
+    },
+    /** Auto push interval in minutes (5 / 10 / 15 / 30 / 60; anything else snaps, minimum 5). Restarts the interval. */
+    setPushMinutes(n) {
+      pushMinutes = clampPushMinutes(n);
+      saveSyncSettings({ mode, pushMinutes }, storage);
+      if (pushTimer) startPushTimer(true);
+      notify();
+      return pushMinutes;
     },
     /** Stop using the main location (pages stay in this browser and in the folder). */
     async disconnect() {
@@ -633,6 +749,7 @@ export function createFolderAdapter(cache, {
       } catch {
         state = "needs-permission";
       }
+      startPushTimer();
       if (role === "main") {
         await adapter.flush();
         const old = main();
@@ -759,27 +876,31 @@ export function createFolderAdapter(cache, {
         }).catch((e) => failLoc(b, e));
       }
     },
-    /** Write everything still waiting (main writes and backups) now, ignoring the cooldown, and wait for all file writes. */
+    /**
+     * Final push: write everything still waiting now (auto-mode edits to the main, then the backups),
+     * ignoring the interval and the cooldown, and wait for all file writes. Called on hide / close and
+     * before disconnect, remove, make main, switching to manual, Pull and Push.
+     */
     async flush() {
-      if (dirty.size) await writeDirty();
-      if (backupTimer) await runBackups();
+      if (mode === "auto" && dirty.size && ready(main())) await autoPush().catch(() => {});
+      if (backupDirty) await runBackups();
       await Promise.all(locs.flatMap((l) => [...l.chains.values(), l.busy].filter(Boolean)));
     }
   };
 
-  // Pick up changes made elsewhere (other devices, the AI assistant's MCP server) when the window
-  // regains focus. Auto: merge. Manual: only count them for the footer. Both at most once per cooldown
-  // window (measured from the end of the last pull / push / check); a focus inside the window queues one trailing run.
+  // Pick up changes made elsewhere (other devices, the AI assistant's MCP server) when the window regains
+  // focus. Auto: a stamp check (pull only if the folder changed). Manual: the read-only check for the footer.
+  // Both at most once per cooldown window (measured from the end of the last pull / push / check); a focus
+  // inside the window queues one trailing run.
   let lastFocus = 0;
-  const hidden = () => win.document?.visibilityState === "hidden";
-  const focusAction = () => (mode === "auto" ? runSync("merge", { quiet: true }) : check()).catch(() => {});
+  const focusAction = () => (mode === "auto" ? autoCheck() : check()).catch(() => {});
   const onFocus = () => {
     const l = main();
     if (!l || l.state !== "synced" || running || hidden()) return;
     const t = clock();
     if (t - lastFocus < FOCUS_MERGE_MS) return;
     lastFocus = t;
-    const wait = Math.max(lastSyncEnd, mode === "auto" ? 0 : lastCheckEnd) + cooldownMs - t;
+    const wait = Math.max(lastSyncEnd, lastCheckEnd) + cooldownMs - t;
     if (wait <= 0) focusAction();
     else if (!trailTimer) {
       trailTimer = setTimeout(() => {
@@ -790,14 +911,14 @@ export function createFolderAdapter(cache, {
       trailTimer.unref?.();
     }
   };
-  // Never lose or delay edits when the tab goes away: flush everything pending right now.
+  // Never lose edits when the tab goes away: push everything pending right now.
   const onHide = () => void adapter.flush().catch(() => {});
   const onVisibility = () => (hidden() ? onHide() : onFocus());
-  if (mergeOnFocus && typeof win.addEventListener === "function" && win.document) {
+  if (mergeOnFocus && typeof win?.addEventListener === "function" && win.document) {
     win.addEventListener("focus", onFocus);
     win.document.addEventListener?.("visibilitychange", onVisibility);
   }
-  if (typeof win.addEventListener === "function") {
+  if (typeof win?.addEventListener === "function") {
     win.addEventListener("pagehide", onHide);
     win.addEventListener("beforeunload", onHide);
     if (!mergeOnFocus) win.document?.addEventListener?.("visibilitychange", () => hidden() && onHide());

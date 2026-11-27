@@ -1,6 +1,7 @@
 // Storage locations: where the workspace is mirrored besides this browser's cache.
 // - Config per device in localStorage["denotion:storage-locations"]:
-//     [{ id, type: "folder", name, role: "main" | "backup", addedAt, lastSyncAt }]
+//     [{ id, type: "folder", name, role: "main" | "backup", addedAt, lastSyncAt, seen }]
+//   seen: the main's manifest stamp ({ rev, writer, updatedAt }) this device last synced with, or null.
 // - Directory handles in IndexedDB (db "denotation", store "handles"), keyed "loc:<id>". The old single
 //   handle (key "folder", before locations existed) is migrated to a main location on first load.
 // - A provider is the file-level interface the sync code talks to, so Google Drive / OneDrive can plug in
@@ -8,6 +9,8 @@
 //     { type, name, handle?, permission(request) -> "granted"|"prompt"|"denied",
 //       readText(path) -> string|null, writeText(path, text), remove(path), list(dir) -> [{ name, kind }] }
 //   Paths are "<dir>/<file>" or "<file>" relative to the location root.
+
+import { manifestStamp } from "../sync.js";
 
 export const LOCATIONS_KEY = "denotion:storage-locations";
 export const SYNC_MODE_KEY = "denotion:folder-sync";
@@ -19,21 +22,75 @@ export const LOCATION_TYPES = [
 const ID_RE = /^loc-[A-Za-z0-9-]{1,40}$/;
 const newId = () => `loc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-/** Per-device sync mode for the main location: "auto" (default) or "manual". */
-export function loadSyncMode(storage = globalThis.localStorage) {
-  try {
-    return storage?.getItem(SYNC_MODE_KEY) === "manual" ? "manual" : "auto";
-  } catch {
-    return "auto";
-  }
+/** Auto push interval choices (minutes); the minimum is 5. */
+export const PUSH_MINUTES = [5, 10, 15, 30, 60];
+export const DEFAULT_PUSH_MINUTES = 5;
+/** Snap any value to an allowed interval: below 5 (or invalid) -> 5, otherwise the largest choice not above it. */
+export function clampPushMinutes(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return DEFAULT_PUSH_MINUTES;
+  return PUSH_MINUTES.filter((m) => m <= v).at(-1) ?? PUSH_MINUTES[0];
 }
-export function saveSyncMode(mode, storage = globalThis.localStorage) {
+
+/**
+ * Per-device sync settings for the main location, in localStorage["denotion:folder-sync"]:
+ *   { mode: "auto" | "manual", pushMinutes: 5 | 10 | 15 | 30 | 60 }.
+ * Older versions stored just the mode string ("auto" / "manual"); it is read as { mode, pushMinutes: 5 }.
+ */
+export function loadSyncSettings(storage = globalThis.localStorage) {
+  let raw = null;
   try {
-    storage?.setItem(SYNC_MODE_KEY, mode === "manual" ? "manual" : "auto");
+    raw = storage?.getItem(SYNC_MODE_KEY) ?? null;
+  } catch {
+    raw = null;
+  }
+  let v = raw;
+  try {
+    v = raw == null ? null : JSON.parse(raw);
+  } catch {
+    // the old plain string ("auto" / "manual")
+  }
+  if (typeof v === "string") v = { mode: v };
+  return { mode: v?.mode === "manual" ? "manual" : "auto", pushMinutes: clampPushMinutes(v?.pushMinutes ?? DEFAULT_PUSH_MINUTES) };
+}
+export function saveSyncSettings(settings, storage = globalThis.localStorage) {
+  const cur = loadSyncSettings(storage);
+  const next = { mode: (settings?.mode ?? cur.mode) === "manual" ? "manual" : "auto", pushMinutes: clampPushMinutes(settings?.pushMinutes ?? cur.pushMinutes) };
+  try {
+    storage?.setItem(SYNC_MODE_KEY, JSON.stringify(next));
   } catch {
     // private mode etc.: the choice lasts for this session only
   }
+  return next;
 }
+/** Per-device sync mode for the main location: "auto" (default) or "manual". */
+export const loadSyncMode = (storage = globalThis.localStorage) => loadSyncSettings(storage).mode;
+export const saveSyncMode = (mode, storage = globalThis.localStorage) => void saveSyncSettings({ mode }, storage);
+
+/** This device's random writer id for manifest stamps (localStorage["denotion:device-id"]). */
+export const WRITER_KEY = "denotion:device-id";
+const WRITER_RE = /^w-[a-z0-9]{8,32}$/;
+export function loadWriterId(storage = globalThis.localStorage) {
+  try {
+    const cur = storage?.getItem(WRITER_KEY);
+    if (cur && WRITER_RE.test(cur)) return cur;
+  } catch {
+    // fall through: a fresh id for this session
+  }
+  const bytes = new Uint8Array(8);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  const id = `w-${[...bytes].map((b) => b.toString(36).padStart(2, "0")).join("")}`;
+  try {
+    storage?.setItem(WRITER_KEY, id);
+  } catch {
+    // session only
+  }
+  return id;
+}
+
+/** The manifest stamp this device last synced with ({ rev, writer, updatedAt }) or null. */
+const sanitizeSeen = (s) => manifestStamp(s);
 
 /** Keep only well-formed entries; at most one main (the first one wins). */
 export function sanitizeLocations(list) {
@@ -44,7 +101,7 @@ export function sanitizeLocations(list) {
     if (out.some((x) => x.id === l.id)) continue;
     const role = l.role === "main" && !main ? "main" : "backup";
     if (role === "main") main = true;
-    out.push({ id: l.id, type: l.type, name: String(l.name ?? "").slice(0, 200), role, addedAt: Number(l.addedAt) || 0, lastSyncAt: Number(l.lastSyncAt) || 0 });
+    out.push({ id: l.id, type: l.type, name: String(l.name ?? "").slice(0, 200), role, addedAt: Number(l.addedAt) || 0, lastSyncAt: Number(l.lastSyncAt) || 0, seen: sanitizeSeen(l.seen) });
   }
   return out;
 }
@@ -136,7 +193,7 @@ export function createLocationRegistry({ storage, handles } = {}) {
       if (legacy) {
         const id = newId();
         await hs.put(`loc:${id}`, legacy);
-        list.push({ id, type: "folder", name: legacy.name ?? "Folder", role: "main", addedAt: now, lastSyncAt: 0 });
+        list.push({ id, type: "folder", name: legacy.name ?? "Folder", role: "main", addedAt: now, lastSyncAt: 0, seen: null });
         await hs.delete(LEGACY_KEY);
       }
       write(list);

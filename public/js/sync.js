@@ -218,3 +218,30 @@ export async function applyPlan(plan, io) {
   done.deleted = done.deletedLocal + done.deletedRemote;
   return done;
 }
+
+// ---------- manifest stamp (cheap change detection) ----------
+// Every writer of a shared location stamps its manifest (denotation.json) after it changes records:
+//   { app: "denotation", format: "json", version: 1, updatedAt, rev, writer }
+// rev is a counter (previous rev + 1), writer a per-device (or per-process) random id. A reader remembers
+// the stamp it last synced with; any difference means another writer changed the folder since.
+
+/** The comparable part of a parsed manifest, or null when there is none. */
+export function manifestStamp(m) {
+  if (!m || typeof m !== "object") return null;
+  return { rev: Math.max(0, Math.floor(Number(m.rev) || 0)), writer: typeof m.writer === "string" ? m.writer.slice(0, 64) : "", updatedAt: Number(m.updatedAt) || 0 };
+}
+/** True when two stamps (from manifestStamp, or null) describe the same folder version. */
+export function sameStamp(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.rev === b.rev && a.writer === b.writer && a.updatedAt === b.updatedAt;
+}
+/** The manifest a writer stores after a change: the previous one with a bumped stamp (unknown keys dropped). */
+export function bumpManifest(prev, writer, now = Date.now()) {
+  const p = prev && typeof prev === "object" ? prev : {};
+  const out = { app: "denotation", format: "json", version: 1 };
+  if (typeof p.exportedAt === "string") out.exportedAt = p.exportedAt.slice(0, 40);
+  out.updatedAt = Math.max(Number(now) || 0, (Number(p.updatedAt) || 0) + 1);
+  out.rev = (manifestStamp(p)?.rev ?? 0) + 1;
+  out.writer = String(writer ?? "").slice(0, 64);
+  return out;
+}

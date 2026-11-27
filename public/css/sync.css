@@ -8,6 +8,10 @@
 .loc-row .hint { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .loc-mode { margin: 0; max-width: 220px; }
 .loc-mode button { padding: 4px 6px; font-size: 13px; }
+.loc-push { display: grid; gap: 2px; }
+.loc-push .set-row { margin: 0; gap: 8px; }
+.loc-push .set-row > label { flex: none; font-size: 13px; }
+.loc-push select { flex: 0 1 auto; max-width: 160px; }
 .loc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .loc-actions .chip-btn { display: inline-flex; align-items: center; gap: 4px; }
 .loc-actions .icon-svg { width: 14px; height: 14px; }

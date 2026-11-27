@@ -1,5 +1,5 @@
 // Export / import menus (JSON file, ZIP, folder) and the Storage dialog (main location + backups,
-// sync mode, Pull / Push with warnings, restore from a backup).
+// sync mode and auto push interval, Pull / Push with warnings, restore from a backup).
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openMenu } from "./popover.js";
@@ -9,7 +9,7 @@ import { saveTextFile, saveBinaryFile } from "./files.js";
 import { createZip, readZip } from "../zip.js";
 import { toJsonFiles, toMarkdownFiles, importFiles } from "../vault.js";
 import { folderSupported } from "../adapters/folder.js";
-import { LOCATION_TYPES } from "../adapters/locations.js";
+import { LOCATION_TYPES, PUSH_MINUTES } from "../adapters/locations.js";
 
 const READ_EXT = /\.(md|markdown|csv|tsv|json|png|jpe?g|gif|webp)$/i;
 const READ_MAX = 256 * 1024 * 1024;
@@ -134,6 +134,12 @@ export function createVaultUi(ctx) {
   const backupLocs = () => st().locations.filter((l) => l.role === "backup");
   const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   const when = (t) => (t ? new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "never");
+  /** Auto mode: "3 changes · next push in 4 min" (minute granularity), or "" when nothing waits. */
+  const autoPending = (s) => {
+    if (s.mode !== "auto" || !s.unpushed) return "";
+    const min = s.nextPushAt ? Math.max(1, Math.ceil((s.nextPushAt - Date.now()) / 60000)) : 0;
+    return `${plural(s.unpushed, "change")}${min ? ` · next push in ${min} min` : ""}`;
+  };
   const STATE_LABEL = { synced: "Connected", syncing: "Syncing…", "needs-permission": "Needs permission", error: "Error" };
 
   const reconnectAll = () => run("Reconnect", async () => {
@@ -241,6 +247,25 @@ export function createVaultUi(ctx) {
       renderDialog?.();
     }, 1000);
   };
+  // Auto mode footer: refresh "next push in M min" when the minute changes (no per-second redraws).
+  let minuteTick = null;
+  let minuteLabel = "";
+  const watchMinutes = () => {
+    minuteLabel = autoPending(st());
+    if (minuteTick) return;
+    minuteTick = setInterval(() => {
+      const label = live ? autoPending(st()) : "";
+      if (!label) {
+        clearInterval(minuteTick);
+        minuteTick = null;
+      }
+      if (label !== minuteLabel) {
+        minuteLabel = label;
+        ctx.redraw();
+        renderDialog?.();
+      }
+    }, 15000);
+  };
   const transfer = (dir) => run(dir === "push" ? "Push" : "Pull", async () => {
     if (coolLeft()) return toast(`Wait ${coolLeft()} s before the next Pull or Push.`);
     await ctx.flush();
@@ -254,7 +279,10 @@ export function createVaultUi(ctx) {
   const setMode = (mode) => run("Sync mode", async () => {
     await ctx.flush();
     await store.setMode(mode);
-    toast(mode === "manual" ? "Manual sync: use Pull and Push to sync with the main location." : "Automatic sync is on.");
+    toast(mode === "manual" ? "Manual sync: use Pull and Push to sync with the main location." : `Auto sync: changes are pushed every ${store.pushMinutes} min.`);
+  });
+  const setPushMinutes = (n) => run("Auto push", async () => {
+    store.setPushMinutes(n);
   });
   const addFolder = (role) => run("Add location", async () => {
     let handle;
@@ -332,6 +360,24 @@ export function createVaultUi(ctx) {
           h("button", { "aria-pressed": String(s.mode === "manual"), onClick: () => setMode("manual") }, s.mode === "manual" ? ico("check") : null, "Manual")
         )
         : null,
+      isMain && !needs && s.mode === "auto"
+        ? h(
+          "div",
+          { class: "loc-push" },
+          h(
+            "div",
+            { class: "set-row" },
+            h("label", { for: "loc-push-min" }, "Auto push every"),
+            h(
+              "select",
+              { id: "loc-push-min", value: String(s.pushMinutes), onChange: (e) => setPushMinutes(Number(e.target.value)), onBlur: () => renderDialog?.() },
+              ...PUSH_MINUTES.map((m) => h("option", { value: String(m) }, `${m} minutes`))
+            )
+          ),
+          h("p", { class: "hint" }, "Pulls happen automatically when the folder has a newer version.")
+        )
+        : null,
+      isMain && !needs && s.mode === "auto" && s.unpushed ? h("div", { class: "hint" }, autoPending(s)) : null,
       isMain && !needs && s.mode === "manual" && (s.unpushed || s.incoming)
         ? h("div", { class: "hint" }, [s.unpushed ? `${plural(s.unpushed, "change")} not pushed` : "", s.incoming ? "Folder has newer changes" : ""].filter(Boolean).join(" · "))
         : null,
@@ -350,6 +396,9 @@ export function createVaultUi(ctx) {
   const openStorage = () => {
     const body = h("div", { class: "storage-dialog" });
     renderDialog = () => {
+      // Don't rebuild under an open select (status ticks would close it); its blur re-renders.
+      const active = document.activeElement;
+      if (active?.tagName === "SELECT" && body.contains(active)) return;
       const locs = st().locations;
       const ordered = [...locs.filter((l) => l.role === "main"), ...locs.filter((l) => l.role === "backup")];
       body.replaceChildren(
@@ -433,6 +482,10 @@ export function createVaultUi(ctx) {
     else {
       const tag = { syncing: " · syncing…", "needs-permission": " · paused", error: " · error" }[m.state] ?? "";
       lines.push(h("div", { title: "Pages sync with the main location and are cached in this browser." }, ico("folder"), ` Main: ${m.name}${tag}${s.mode === "manual" ? " · manual" : ""}${backups}${user ? ` · ${user}` : ""}`));
+      if (s.mode === "auto" && m.state !== "needs-permission" && s.unpushed) {
+        lines.push(h("div", { class: "note sync-pending", role: "status", title: "Pushed to the main location at the interval set in Storage, and when this tab is hidden or closed." }, autoPending(s)));
+        watchMinutes();
+      }
       if (s.mode === "manual" && m.state === "synced" && (s.unpushed || s.incoming)) {
         lines.push(h(
           "div",

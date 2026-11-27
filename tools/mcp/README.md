@@ -76,10 +76,12 @@ Any client that starts stdio servers works. For example, in Claude Desktop's `cl
 
 ## When changes show up in the app
 
-The server writes the same JSON files the app does (each with a new `updatedAt`). In **Auto** sync mode the app picks
-them up when its window regains focus or every 30 seconds while it is open (at most one pull per 30 seconds). In **Manual** mode use
-**Pull** (the footer says "Folder has newer changes" after the window regains focus). For each page or row the
-newer version wins, so an edit you make in the app after the assistant's edit is kept.
+The server writes the same JSON files the app does (each with a new `updatedAt`), then bumps the stamp in
+`denotation.json` (`{ ..., "updatedAt", "rev", "writer" }`: `rev` goes up by one, `writer` is `mcp-<random>` for this
+server process). In **Auto** sync mode the app checks that stamp when its window regains focus and every 30 seconds
+while it is open (at most one check per 30 seconds; a check reads only `denotation.json`) and pulls when it changed.
+In **Manual** mode use **Pull** (the footer says "Folder has newer changes" after the window regains focus). For each
+page or row the newer version wins, so an edit you make in the app after the assistant's edit is kept.
 
 Deleted rows leave a tombstone, `tombstones/<id>.json` (`{ "id", "collection", "deletedAt" }`), so the app (and
 every other device syncing the folder) removes its copy instead of writing it back. The app prunes tombstones after
@@ -90,8 +92,8 @@ but never reads them back, so changes the assistant makes in a backup are never 
 
 ## Security notes and limits
 
-- The server writes only `pages/<id>.json`, `rows/<id>.json` and `tombstones/<id>.json`. It never writes
-  `permissions.json`, refuses ids that aren't Denotation ids, and doesn't follow symbolic links.
+- The server writes only `pages/<id>.json`, `rows/<id>.json`, `tombstones/<id>.json` and the stamp in
+  `denotation.json` (temp file + rename, like every write). It never writes `permissions.json`, refuses ids that aren't Denotation ids, and doesn't follow symbolic links.
 - **The permissions are only enforced by this server.** An assistant that also has general file access to the folder
   (a shell, a file-system MCP server, Claude Code started inside the folder) can read or change the files directly,
   including `permissions.json`. Expose the folder to assistants only through this server, and don't start them with

@@ -439,7 +439,7 @@ In Chrome or Edge on a computer, **⋯ → Storage…** lets you choose where yo
 **Add a location.** **Add location… → Folder as main…** or **Folder as backup…**, then pick a folder. (Google Drive and OneDrive are listed as *coming soon*. Until then, pick a folder inside the Google Drive, OneDrive or Dropbox folder on your computer and it syncs through them.) Denotation only writes its own files there: `denotation.json`, `pages/`, `rows/`, `tombstones/` and `permissions.json`.
 
 **Main** (at most one): your workspace syncs with it both ways.
-- **Auto** (default): Denotation pulls the main's changes by itself when you connect, when you come back to the window, and every 30 seconds, and saves your edits about a second after you make them. When both sides changed the same page, the newest version wins.
+- **Auto** (default): Denotation pulls the main's changes when you connect, and whenever the folder has a newer version (checked when you come back to the window and every 30 seconds). Your edits are pushed every 5 minutes (choose 5, 10, 15, 30 or 60 under **Auto push every** in Storage), and right away when you close or leave the tab. The footer shows how many changes are waiting and when the next push is. When both sides changed the same page, the newest version wins.
 - **Manual:** nothing happens on its own. Use **Pull** (main → this browser) and **Push** (this browser → main) from the ⋯ menu, the Storage dialog or the footer. Pulls and pushes (including automatic pulls) share a **30-second cooldown**: after one runs, the buttons wait and show the seconds left. The footer tells you about *changes not pushed* and when *the folder has newer changes*.
 - **Warnings:** **Push** warns you when the folder has newer copies than yours ("The folder has newer changes"), and **Pull** warns you when the folder's copies are older than yours ("This browser has newer changes"). The warning lists the pages with both dates. Choose **Cancel**, **Merge (keep newest)**, or **Push anyway** / **Pull anyway** to overwrite.
 - Deleting a page on one computer also deletes it on the others (unless someone edits it again afterwards).
@@ -471,7 +471,7 @@ claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.
 
 It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [tools/mcp/README.md](tools/mcp/README.md).
 
-**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or within 30 seconds (or with **Pull** in manual mode).
+**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or within 30 seconds: the assistant marks the folder as changed and Denotation then pulls (in manual mode use **Pull**).
 
 > **Keep the folder private to the connector.** Permissions are checked by the connector. An assistant that can also open files directly (for example one started inside that folder) could get around them.
 

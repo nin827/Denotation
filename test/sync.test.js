@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planSync, applyPlan, summarize, conflictCount, isNoop, keyOf, stamp, TOMBSTONE_TTL_MS } from "../public/js/sync.js";
+import { planSync, applyPlan, summarize, conflictCount, isNoop, keyOf, stamp, TOMBSTONE_TTL_MS, manifestStamp, sameStamp, bumpManifest } from "../public/js/sync.js";
 
 const rec = (id, updatedAt, extra = {}) => ({ id, updatedAt, title: id, ...extra });
 const ids = (list) => list.map((c) => `${c.collection}/${c.id}`).sort();
@@ -235,3 +235,21 @@ for (const seed of [1, 2, 3, 42, 1234, 9001]) {
     for (const d of devs) assert.equal(d.tombs.size, 0, "local tombstones are consumed");
   });
 }
+
+test("manifest stamp: bump keeps the format, increments rev, sets writer; any difference counts", () => {
+  const first = bumpManifest(null, "w-a", 1000);
+  assert.deepEqual(first, { app: "denotation", format: "json", version: 1, updatedAt: 1000, rev: 1, writer: "w-a" });
+  const old = { app: "denotation", format: "json", version: 1, exportedAt: "2026-01-01T00:00:00.000Z", junk: "<x>", rev: 7, updatedAt: 5000, writer: "w-b" };
+  const next = bumpManifest(old, "mcp-1", 2000);
+  assert.deepEqual(next, { app: "denotation", format: "json", version: 1, exportedAt: old.exportedAt, updatedAt: 5001, rev: 8, writer: "mcp-1" }, "updatedAt never goes back; unknown keys dropped");
+  assert.equal(manifestStamp(null), null);
+  assert.deepEqual(manifestStamp({ rev: "3", writer: 5, updatedAt: "x" }), { rev: 3, writer: "", updatedAt: 0 });
+  assert.deepEqual(manifestStamp({ app: "denotation" }), { rev: 0, writer: "", updatedAt: 0 }, "an unstamped manifest");
+  const s = manifestStamp(next);
+  assert.equal(sameStamp(s, manifestStamp({ ...next })), true);
+  assert.equal(sameStamp(s, { ...s, rev: s.rev + 1 }), false);
+  assert.equal(sameStamp(s, { ...s, writer: "other" }), false, "same rev from another writer is a change");
+  assert.equal(sameStamp(s, { ...s, updatedAt: 1 }), false);
+  assert.equal(sameStamp(null, null), true);
+  assert.equal(sameStamp(null, s), false);
+});

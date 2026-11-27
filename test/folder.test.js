@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createMemoryAdapter } from "../public/js/adapters/memory.js";
 import { createFolderAdapter, SYNC_COOLDOWN_MS } from "../public/js/adapters/folder.js";
 import { createWorkspace } from "../public/js/workspace.js";
-import { createLocationRegistry, memoryHandles, LOCATIONS_KEY } from "../public/js/adapters/locations.js";
+import { createLocationRegistry, memoryHandles, LOCATIONS_KEY, SYNC_MODE_KEY, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId, PUSH_MINUTES } from "../public/js/adapters/locations.js";
 import { importFiles } from "../public/js/vault.js";
 
 // Minimal stand-in for FileSystemDirectoryHandle / FileSystemFileHandle.
@@ -104,7 +104,7 @@ test("connect merges per record, last write wins, and leaves other files alone",
   assert.equal(fs.label, 'folder "Vault"');
 });
 
-test("writes are debounced and serialised per file; removes delete only that file", async () => {
+test("auto edits wait for the push (one write per record); removes delete only that file", async () => {
   const cache = createMemoryAdapter();
   const dir = fakeDir("V");
   const fs = createFolderAdapter(cache, { debounceMs: 30 });
@@ -202,14 +202,18 @@ const countWrites = (d) => {
   return n;
 };
 
-test("auto mode: the periodic poll merges changes made in the folder", async () => {
+test("auto mode: the periodic check pulls when another writer bumps the manifest stamp", async () => {
   const dir = fakeDir("V");
   const cache = createMemoryAdapter();
-  const fs = createFolderAdapter(cache, { mode: "auto", pollMs: 30, cooldownMs: 0, debounceMs: 5 });
+  const fs = createFolderAdapter(cache, { mode: "auto", pollMs: 30, cooldownMs: 0 });
   await fs.connect(dir);
   let remote = 0;
   fs.onRemoteChange(() => remote++);
   dir.put("pages/new.json", json(page("new", "from another device", Date.now())));
+  await tick(120);
+  assert.equal(await cache.get("pages", "new"), null, "unchanged stamp: no pull");
+  const m = JSON.parse(dir.read("denotation.json"));
+  dir.put("denotation.json", json({ ...m, rev: m.rev + 1, writer: "w-otherdevice1", updatedAt: Date.now() }));
   await tick(120);
   assert.equal((await cache.get("pages", "new"))?.title, "from another device");
   assert.ok(remote >= 1);
@@ -338,18 +342,6 @@ test("backups get a copy after each main sync and never lose files the app didn'
   const saved = JSON.parse(storage.getItem(LOCATIONS_KEY));
   assert.deepEqual(saved.map((l) => [l.name, l.role]), [["Main", "main"], ["Backup", "backup"]]);
   assert.ok(saved[1].lastSyncAt > 0);
-});
-
-test("with no main, local saves are copied to backups (debounced)", async () => {
-  const bak = fakeDir("B");
-  const cache = createMemoryAdapter();
-  const fs = createFolderAdapter(cache, { backupDebounceMs: 10, cooldownMs: 0 });
-  await fs.addLocation(bak);
-  await fs.set("pages", "p", page("p", "P", 3));
-  assert.equal(bak.read("pages/p.json"), undefined);
-  await tick(50);
-  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P");
-  assert.equal(fs.status().state, "off");
 });
 
 test("make main: the backup becomes the main and syncs; the old main becomes a backup", async () => {
@@ -489,56 +481,24 @@ async function withClock(fn) {
     mock.timers.reset();
   }
 }
-const pageFile = async (dir) => (await dir.getDirectoryHandle("pages")).tree.get("p.json");
+/** Counts reads of denotation.json (the cheap auto check); writes open it with create and are not counted. */
+function countManifestReads(dir) {
+  const orig = dir.getFileHandle.bind(dir);
+  const c = { n: 0 };
+  dir.getFileHandle = (n, opts = {}) => {
+    if (n === "denotation.json" && !opts.create) c.n++;
+    return orig(n, opts);
+  };
+  return c;
+}
+/** Another writer (device or MCP server) changed the folder: bump its manifest stamp. */
+function bumpStamp(dir, writer = "w-otherdevice1") {
+  const m = JSON.parse(dir.read("denotation.json") ?? "{}");
+  dir.put("denotation.json", json({ ...m, app: "denotation", format: "json", version: 1, rev: (m.rev ?? 0) + 1, writer, updatedAt: Date.now() }));
+}
+const MIN = 60_000;
 
 test("cooldown constant is 30 s", () => assert.equal(SYNC_COOLDOWN_MS, 30000));
-
-test("auto poll runs every 30 s, not sooner", () => withClock(async () => {
-  const dir = fakeDir("V");
-  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin() });
-  await fs.connect(dir);
-  const reads = await countReads(dir);
-  await advance(29_000);
-  assert.equal(reads.n, 0);
-  await advance(1_000);
-  assert.equal(reads.n, 1);
-  await advance(30_000);
-  assert.equal(reads.n, 2);
-  await fs.disconnect();
-}));
-
-test("focus inside the window queues exactly one trailing pull for the window end", () => withClock(async () => {
-  const dir = fakeDir("V");
-  const win = fakeWin();
-  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
-  await fs.connect(dir);
-  const reads = await countReads(dir);
-  for (let i = 0; i < 3; i++) {
-    await advance(6_000);
-    win.emit("focus");
-  }
-  assert.equal(reads.n, 0, "inside the window: no sync");
-  await advance(11_000);
-  assert.equal(reads.n, 0);
-  await advance(1_000);
-  assert.equal(reads.n, 1, "one trailing pull at the window end");
-  await advance(10_000);
-  win.emit("focus");
-  await advance(20_000);
-  assert.equal(reads.n, 2, "a later focus waits for its own window");
-}));
-
-test("focus after the window pulls right away", () => withClock(async () => {
-  const dir = fakeDir("V");
-  const win = fakeWin();
-  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
-  await fs.connect(dir);
-  const reads = await countReads(dir);
-  await advance(31_000);
-  win.emit("focus");
-  await settle();
-  assert.equal(reads.n, 1);
-}));
 
 test("manual mode: the focus check also runs at most once per window", () => withClock(async () => {
   const dir = fakeDir("V");
@@ -583,33 +543,20 @@ test("a Pull that only warns does not start the cooldown, so the forced retry ru
   assert.equal((await fs.pull({ force: true })).applied, true);
 }));
 
-test("a Pull in the window resets it for auto pulls", () => withClock(async () => {
+test("a Pull in the window resets it for auto checks", () => withClock(async () => {
   const dir = fakeDir("V");
   const win = fakeWin();
   const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
   await fs.connect(dir);
   await advance(31_000);
   await fs.pull({ force: true });
-  const reads = await countReads(dir);
+  const checks = countManifestReads(dir);
   await advance(10_000);
   win.emit("focus");
   await advance(10_000);
-  assert.equal(reads.n, 0);
+  assert.equal(checks.n, 0);
   await advance(10_000);
-  assert.equal(reads.n, 1, "trailing pull when the Pull's window ended");
-}));
-
-test("edits are still written after the normal debounce, not held by the cooldown", () => withClock(async () => {
-  const dir = fakeDir("V");
-  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
-  await fs.connect(dir);
-  await advance(1_000);
-  await fs.set("pages", "p", page("p", "v1", 1));
-  await advance(900);
-  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
-  await fs.set("pages", "p", page("p", "v2", 2));
-  await advance(900);
-  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v2");
+  assert.equal(checks.n, 1, "trailing check when the Pull's window ended");
 }));
 
 test("hiding the page, pagehide and beforeunload flush pending writes immediately", () => withClock(async () => {
@@ -643,22 +590,288 @@ test("disconnect and Pull / Push write pending edits first", () => withClock(asy
   assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v2");
 }));
 
-test("backups copy at most once per window and are flushed on hide", () => withClock(async () => {
+
+test("first connect pulls and stamps the manifest; the stamp is remembered per location", () => withClock(async () => {
+  const dir = fakeDir("V");
+  dir.put("pages/f.json", json(page("f", "in folder", 5)));
+  const cache = createMemoryAdapter();
+  const storage = memStorage();
+  const fs = createFolderAdapter(cache, { win: fakeWin(), storage, writer: "w-thisdevice01", registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.addLocation(dir, { role: "main" });
+  assert.equal((await cache.get("pages", "f")).title, "in folder");
+  const m = JSON.parse(dir.read("denotation.json"));
+  assert.deepEqual([m.app, m.format, m.version, m.rev, m.writer], ["denotation", "json", 1, 1, "w-thisdevice01"]);
+  assert.ok(m.updatedAt > 0);
+  const saved = JSON.parse(storage.getItem(LOCATIONS_KEY))[0];
+  assert.deepEqual(saved.seen, { rev: 1, writer: "w-thisdevice01", updatedAt: m.updatedAt });
+  // a later push bumps rev
+  await fs.set("pages", "n", page("n", "N", 9));
+  await fs.flush();
+  assert.equal(JSON.parse(dir.read("denotation.json")).rev, 2);
+  assert.equal(JSON.parse(storage.getItem(LOCATIONS_KEY))[0].seen.rev, 2);
+}));
+
+test("auto check runs every 30 s while visible and reads only the manifest", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win });
+  await fs.connect(dir);
+  const scans = await countReads(dir);
+  const checks = countManifestReads(dir);
+  await advance(29_000);
+  assert.equal(checks.n, 0);
+  await advance(1_000);
+  assert.equal(checks.n, 1);
+  await advance(30_000);
+  assert.equal(checks.n, 2);
+  assert.equal(scans.n, 0, "unchanged stamp: no record reads");
+  win.hide();
+  await advance(60_000);
+  assert.equal(checks.n, 2, "no checks while hidden");
+  await fs.disconnect();
+}));
+
+test("focus with an unchanged manifest: no pull and no record reads", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(dir);
+  const scans = await countReads(dir);
+  const checks = countManifestReads(dir);
+  dir.put("pages/x.json", json(page("x", "written without a stamp", Date.now())));
+  await advance(31_000);
+  win.emit("focus");
+  await settle();
+  assert.equal(checks.n, 1);
+  assert.equal(scans.n, 0);
+  assert.equal(await fs.get("pages", "x"), null);
+}));
+
+test("focus inside the window queues exactly one trailing check for the window end", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(dir);
+  const checks = countManifestReads(dir);
+  for (let i = 0; i < 3; i++) {
+    await advance(6_000);
+    win.emit("focus");
+  }
+  assert.equal(checks.n, 0, "inside the window: no check");
+  await advance(11_000);
+  assert.equal(checks.n, 0);
+  await advance(1_000);
+  assert.equal(checks.n, 1, "one trailing check at the window end");
+  await advance(10_000);
+  win.emit("focus");
+  await advance(19_000);
+  assert.equal(checks.n, 1, "a later focus waits for its own window (from the last check)");
+  await advance(1_000);
+  assert.equal(checks.n, 2);
+}));
+
+test("manifest bumped by another device or the MCP server: pulled on the next check", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const a = createMemoryAdapter();
+  const A = createFolderAdapter(a, { win, pollMs: 0, writer: "w-devicea0001" });
+  await A.connect(dir);
+  // another device writes through its own adapter (stamps the manifest on push)
+  const B = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0, writer: "w-deviceb0001" });
+  await B.connect(dir);
+  await B.set("pages", "b", page("b", "from B", Date.now()));
+  await B.flush();
+  assert.equal(JSON.parse(dir.read("denotation.json")).writer, "w-deviceb0001");
+  const scans = await countReads(dir);
+  let remote = 0;
+  A.onRemoteChange(() => remote++);
+  await advance(31_000);
+  win.emit("focus");
+  await settle();
+  assert.equal((await a.get("pages", "b")).title, "from B");
+  assert.equal(scans.n, 1, "one full read for the pull");
+  assert.equal(remote, 1);
+  // an MCP-style write: record + bumped stamp
+  dir.put("pages/m.json", json(page("m", "from MCP", Date.now())));
+  bumpStamp(dir, "mcp-1234abcd");
+  await advance(31_000);
+  win.emit("focus");
+  await settle();
+  assert.equal((await a.get("pages", "m")).title, "from MCP");
+  assert.equal(scans.n, 2);
+}));
+
+test("auto push runs only at the interval (5 min default); nothing is written in between", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
+  await fs.connect(dir);
+  assert.equal(fs.status().pushMinutes, 5);
+  const start = Date.now();
+  assert.equal(fs.status().nextPushAt, start + 5 * MIN);
+  const before = countWrites(dir);
+  await advance(1_000);
+  await fs.set("pages", "p", page("p", "v1", 1));
+  await fs.set("pages", "q", page("q", "q1", 1));
+  assert.equal(fs.status().unpushed, 2);
+  await advance(5 * MIN - 2_000);
+  assert.equal(countWrites(dir), before, "no writes before the interval");
+  await advance(1_000);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
+  assert.equal(JSON.parse(dir.read("pages/q.json")).title, "q1");
+  assert.equal(fs.status().unpushed, 0);
+  assert.equal(fs.status().nextPushAt, start + 10 * MIN);
+  const after = countWrites(dir);
+  await advance(5 * MIN);
+  assert.equal(countWrites(dir), after, "no changes: nothing written at the next interval");
+  await fs.set("pages", "p", page("p", "v2", 2));
+  await advance(4 * MIN);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
+  await advance(1 * MIN);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v2");
+}));
+
+test("push interval setting: 10 min honoured, values below 5 clamp to 5, saved per device", () => withClock(async () => {
+  const storage = memStorage();
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0, storage, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  assert.equal(fs.setPushMinutes(10), 10);
+  assert.deepEqual(JSON.parse(storage.getItem(SYNC_MODE_KEY)), { mode: "auto", pushMinutes: 10 });
+  await fs.set("pages", "p", page("p", "v1", 1));
+  await advance(9 * MIN);
+  assert.equal(dir.read("pages/p.json"), undefined);
+  await advance(1 * MIN);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
+  assert.equal(fs.setPushMinutes(1), 5);
+  assert.equal(fs.setPushMinutes(0), 5);
+  assert.equal(fs.setPushMinutes("abc"), 5);
+  assert.equal(fs.setPushMinutes(45), 30);
+  assert.equal(fs.setPushMinutes(999), 60);
+  assert.equal(createFolderAdapter(createMemoryAdapter(), { pushMinutes: 2 }).pushMinutes, 5);
+  assert.deepEqual(PUSH_MINUTES, [5, 10, 15, 30, 60]);
+}));
+
+test("auto push checks first: a newer folder is merged (pulled) before pushing, never overwritten", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { win: fakeWin(), pollMs: 0 });
+  await fs.connect(dir);
+  await fs.set("pages", "s", page("s", "shared v1", 10));
+  await advance(5 * MIN);
+  assert.equal(JSON.parse(dir.read("pages/s.json")).title, "shared v1");
+  // here: an older edit of s and a new page; elsewhere: a newer edit of s and another page, stamped
+  await fs.set("pages", "s", page("s", "local older", 20));
+  await fs.set("pages", "mine", page("mine", "mine", 20));
+  dir.put("pages/s.json", json(page("s", "remote newer", 30)));
+  dir.put("pages/theirs.json", json(page("theirs", "theirs", 30)));
+  bumpStamp(dir);
+  const scans = await countReads(dir);
+  await advance(5 * MIN);
+  assert.equal(scans.n, 1, "a full merge ran");
+  assert.equal(JSON.parse(dir.read("pages/s.json")).title, "remote newer", "not overwritten");
+  assert.equal((await cache.get("pages", "s")).title, "remote newer");
+  assert.equal((await cache.get("pages", "theirs")).title, "theirs");
+  assert.equal(JSON.parse(dir.read("pages/mine.json")).title, "mine");
+  assert.equal(fs.status().unpushed, 0);
+}));
+
+test("hide pushes pending edits at once without moving the interval", () => withClock(async () => {
+  for (const how of ["hide", "pagehide", "beforeunload"]) {
+    const dir = fakeDir("V");
+    const win = fakeWin();
+    const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+    await fs.connect(dir);
+    const next = fs.status().nextPushAt;
+    await advance(2 * MIN);
+    await fs.set("pages", "p", page("p", "v1", 1));
+    if (how === "hide") win.hide();
+    else win.emit(how);
+    await settle();
+    assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1", how);
+    assert.equal(fs.status().nextPushAt, next, "interval unchanged");
+    const w = countWrites(dir);
+    win.emit(how === "hide" ? "pagehide" : how);
+    await settle();
+    assert.equal(countWrites(dir), w, "nothing pending: a hide writes nothing");
+    await fs.disconnect();
+  }
+}));
+
+test("switching to Manual, remove and make main push pending edits first", () => withClock(async () => {
+  const one = fakeDir("One");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
+  await fs.connect(one);
+  await fs.set("pages", "a", page("a", "A", 1));
+  await fs.setMode("manual");
+  assert.equal(JSON.parse(one.read("pages/a.json")).title, "A");
+  await fs.setMode("auto");
+  const two = fakeDir("Two");
+  const { id } = await fs.addLocation(two);
+  await fs.set("pages", "b", page("b", "B", 2));
+  await fs.makeMain(id);
+  assert.equal(JSON.parse(one.read("pages/b.json")).title, "B", "old main got the pending edit before the switch");
+  await fs.set("pages", "c", page("c", "C", 3));
+  await fs.removeLocation(id);
+  assert.equal(JSON.parse(two.read("pages/c.json")).title, "C");
+}));
+
+test("sync settings: the old mode string migrates to { mode, pushMinutes }", () => {
+  const storage = memStorage();
+  storage.setItem(SYNC_MODE_KEY, "manual");
+  assert.deepEqual(loadSyncSettings(storage), { mode: "manual", pushMinutes: 5 });
+  assert.equal(createFolderAdapter(createMemoryAdapter(), { storage }).mode, "manual");
+  storage.setItem(SYNC_MODE_KEY, "auto");
+  assert.deepEqual(loadSyncSettings(storage), { mode: "auto", pushMinutes: 5 });
+  storage.setItem(SYNC_MODE_KEY, json({ mode: "manual", pushMinutes: 3 }));
+  assert.deepEqual(loadSyncSettings(storage), { mode: "manual", pushMinutes: 5 });
+  storage.setItem(SYNC_MODE_KEY, "{junk");
+  assert.deepEqual(loadSyncSettings(storage), { mode: "auto", pushMinutes: 5 });
+  storage.setItem(SYNC_MODE_KEY, "manual");
+  saveSyncSettings({ pushMinutes: 15 }, storage);
+  assert.deepEqual(JSON.parse(storage.getItem(SYNC_MODE_KEY)), { mode: "manual", pushMinutes: 15 });
+  assert.equal(clampPushMinutes(4.9), 5);
+  const empty = memStorage();
+  const id = loadWriterId(empty);
+  assert.match(id, /^w-[a-z0-9]{8,32}$/);
+  assert.equal(loadWriterId(empty), id, "the writer id is stable per device");
+});
+
+test("backups: copied after each auto push of the main, and on hide", () => withClock(async () => {
+  const main = fakeDir("M");
   const bak = fakeDir("B");
   const win = fakeWin();
-  const fs = createFolderAdapter(createMemoryAdapter(), { win, backupDebounceMs: 10 });
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(main);
+  await fs.addLocation(bak);
+  await fs.set("pages", "p", page("p", "P1", 1));
+  await advance(4 * MIN);
+  assert.equal(bak.read("pages/p.json"), undefined);
+  await advance(1 * MIN);
+  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P1");
+  await fs.set("pages", "p", page("p", "P2", 2));
+  win.hide();
+  await settle();
+  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P2");
+}));
+
+test("backups with no main: copied on the push interval and on hide", () => withClock(async () => {
+  const bak = fakeDir("B");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win });
   await fs.addLocation(bak);
   await fs.set("pages", "p", page("p", "P1", 3));
-  await advance(5_000);
+  await advance(4 * MIN);
   assert.equal(bak.read("pages/p.json"), undefined);
-  await advance(24_000);
-  assert.equal(bak.read("pages/p.json"), undefined);
-  await advance(1_000);
+  await advance(1 * MIN);
   assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P1");
+  const w = countWrites(bak);
+  await advance(5 * MIN);
+  assert.equal(countWrites(bak), w, "nothing changed: no copy");
   await fs.set("pages", "p", page("p", "P2", 4));
-  await advance(5_000);
+  await advance(1 * MIN);
   assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P1");
   win.hide();
   await settle();
   assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P2");
+  assert.equal(fs.status().state, "off");
 }));

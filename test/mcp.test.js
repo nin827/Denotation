@@ -161,6 +161,12 @@ test("writes with and without permission; permissions.json never modified", asyn
   // create
   const made = await s.call("create_page", { title: "From AI", parentId: "doc-shared", markdown: "# Title\n\n- one\n- [x] two" });
   assert.equal(made.error, false, made.text);
+  // every write bumps the manifest stamp (format fields kept) so the app's cheap check notices it
+  const manifest = () => JSON.parse(fs.readFileSync(path.join(dir, "denotation.json"), "utf8"));
+  const m1 = manifest();
+  assert.deepEqual([m1.app, m1.format, m1.version, m1.rev], ["denotation", "json", 1, 1]);
+  assert.match(m1.writer, /^mcp-[0-9a-f]{10}$/);
+  assert.ok(m1.updatedAt > NOW);
   const rec = JSON.parse(fs.readFileSync(path.join(dir, "pages", `${made.data.created.id}.json`), "utf8"));
   assert.equal(rec.parentId, "doc-shared");
   assert.equal(rec.type, "doc");
@@ -208,6 +214,9 @@ test("writes with and without permission; permissions.json never modified", asyn
   assert.equal(tomb.collection, "rows");
   assert.ok(tomb.deletedAt > NOW);
   assert.ok(!fs.existsSync(path.join(dir, "rows", ".deleted.json")), "no legacy delete log is written");
+  const m2 = manifest();
+  assert.ok(m2.rev > m1.rev + 3, "writes and deletes bumped the stamp");
+  assert.equal(m2.writer, m1.writer);
 
   // delete_page on the database is allowed (granular delete yes; rows inherit) and only trashes it
   const delDb = await s.call("delete_page", { id: "db-groc" });
@@ -220,6 +229,12 @@ test("writes with and without permission; permissions.json never modified", asyn
   assert.equal(fs.statSync(permFile).mtimeMs, beforeStat);
   assert.equal(fs.readFileSync(path.join(dir, "outside.txt"), "utf8"), "do not touch");
   assert.ok(!fs.readdirSync(path.join(dir, "pages")).some((f) => f.endsWith(".tmp")), "no temp files left");
+  assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith(".tmp")), "no temp files left next to denotation.json");
+  // denials and reads do not bump it
+  const m3 = manifest();
+  await s.call("update_page", { id: "doc-secret", title: "pwned" });
+  await s.call("list_pages");
+  assert.equal(manifest().rev, m3.rev);
 });
 
 test("path traversal and bad ids are rejected", async (t) => {
@@ -249,6 +264,12 @@ test("path traversal and bad ids are rejected", async (t) => {
   assert.equal(r.error, true);
   assert.deepEqual(fs.readdirSync(outside), ["victim.json"]);
   assert.match(fs.readFileSync(path.join(dir, "permissions.json"), "utf8"), /"repo-open"/);
+  // a symlinked denotation.json is never written through
+  fs.writeFileSync(path.join(outside, "manifest.json"), "{}");
+  fs.rmSync(path.join(dir, "denotation.json"));
+  fs.symlinkSync(path.join(outside, "manifest.json"), path.join(dir, "denotation.json"));
+  assert.equal((await s.call("update_page", { id: "doc-shared", title: "x" })).error, true);
+  assert.equal(fs.readFileSync(path.join(outside, "manifest.json"), "utf8"), "{}");
 });
 
 test("--read-only hides and refuses write tools", async (t) => {
@@ -333,8 +354,10 @@ test("end to end: the app's folder sync picks up MCP writes and deletes; app wri
 
   let remote = 0;
   app.onRemoteChange(() => remote++);
-  await app.connect(); // "Sync now"
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "denotation.json"), "utf8")).writer.startsWith("mcp-"), true);
+  assert.deepEqual((await app.checkNow()).pulled, true, "the bumped stamp makes the app's check pull");
   assert.equal(remote, 1);
+  assert.equal((await app.checkNow()).pulled, false, "unchanged stamp: no pull");
   assert.equal((await app.get("pages", "doc-shared")).title, "Renamed by AI");
   assert.ok(await app.get("rows", made.data.created.id));
   assert.equal(await app.get("rows", "row-milk"), null, "row deleted by the assistant is not pushed back");
