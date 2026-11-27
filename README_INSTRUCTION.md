@@ -436,6 +436,29 @@ In Chrome or Edge on a computer, **⋯ → Folder → Connect folder…** keeps 
 
 Other browsers (Firefox, Safari, phones) can't use folders. Use the ZIP export instead.
 
+### Let an AI assistant use your workspace
+
+Assistants such as Claude Code can read and change your workspace through a small local connector (an MCP server that comes with Denotation). You decide exactly what they may do.
+
+**1. Set permissions.** Open **⋯ → AI access…**. For each action (**Read**, **Create**, **Edit**, **Delete**) choose:
+- ✗ **No:** not allowed.
+- ✓ **Yes:** allowed.
+- – **Ignore:** not set here, so the level above decides.
+
+That's the **workspace** setting. To set one repository, page or database differently, right-click it in the sidebar (or long-press, or Shift+F10) and choose **AI access…**. The closest setting wins: a page's own choice, then its parent's, and so on up to its repository, then the workspace. Rows follow their database. If nothing says Yes, the answer is **No**, so by default assistants can do nothing. The page dialog shows the effective result and where it comes from.
+
+**2. Connect.** The connector works on a [connected folder](#keep-your-workspace-in-a-folder), so connect one first (Chrome or Edge). Then add the connector to your assistant. For Claude Code:
+
+```bash
+claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.mjs --folder <path to your folder>
+```
+
+It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [tools/mcp/README.md](tools/mcp/README.md).
+
+**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or with **Sync now**.
+
+> **Keep the folder private to the connector.** Permissions are checked by the connector. An assistant that can also open files directly (for example one started inside that folder) could get around them.
+
 ---
 
 ## 8. Appearance

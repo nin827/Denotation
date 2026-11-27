@@ -37,6 +37,7 @@ public/
     dbviews.js          filters, sorts, groups, chart/layout helpers (pure)
     formula.js          Excel-like formula engine             (pure)
     pivot.js            pivot tables                           (pure)
+    permissions.js      AI access rules: yes/no/ignore per action, nearest ancestor wins (pure; also imported by Node)
     preview.js          record preview: key matching, preset/config resolution (pure)
     csv.js              CSV parse/serialise                    (pure)
     prefs.js            appearance preferences and tokens      (pure)
@@ -44,6 +45,8 @@ public/
     blocks/             block model, markdown, inline formatting, block catalogue (pure)
     icons/              ico(name) helper + Lucide data
     ui/                 rendering: sidebar, pages, block editor, database views, dialogs, settings
+tools/
+  mcp/                in-house MCP server for AI assistants (Node built-ins only, not served by the app)
 test/
   *.test.js             unit tests (node:test)
   e2e/smoke.cjs         browser smoke test
@@ -81,7 +84,17 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
   cache (not yet in the folder: ticket 004). The directory handle lives in IndexedDB (db `denotation`, store
   `handles`); boot calls `queryPermission` and re-requests on the first user click. `saveRow` stamps `updatedAt`.
 
-## 6. Data model
+## 6. AI access (MCP)
+
+`tools/mcp/denotation-mcp.mjs` speaks MCP (JSON-RPC 2.0 over stdio) and works directly on a connected folder (or an
+extracted Denotation JSON export with `--read-only`). Tools: `list_pages`, `read_page`, `search`, `create_page`,
+`update_page`, `delete_page`, `add_row`, `update_row`, `delete_row`. Every call re-reads `permissions.json` (written by
+the app from **AI access** settings; the server never writes it) and checks it with `public/js/permissions.js`. The
+server writes only `pages/`, `rows/` and delete markers, via temp file + rename, never follows symlinks, and hides
+unreadable titles. The app keeps a browser copy of the permissions in `localStorage["denotion:ai-permissions"]`.
+Details: `tools/mcp/README.md`.
+
+## 7. Data model
 
 - **Page types:** `repo` (top-level group), `doc` (blocks), `database` (columns + rows + views; `sourceId` makes it a linked view of another database), `sync` (synced block source).
 - **Rows** belong to a database, hold `values[colId]`, and have their own `blocks`, so each row is also a page. Formula columns cache their result in `values[colId]`; `applyFormulas` recomputes them.
@@ -90,7 +103,7 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
   preset → snapshot (preset deleted) → own config → default.
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
-## 7. UI conventions
+## 8. UI conventions
 
 - `h(tag, props, ...children)` in `ui/dom.js` builds DOM. `replaceChildren` turns `null` into the text "null", so `.filter(Boolean)` child lists.
 - Never use native `alert` / `confirm` / `prompt`: use `ui/dialogs.js` and `ui/modal.js`.
@@ -98,11 +111,11 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 - Sidebar rows have no inline buttons: right-click, long-press or Shift+F10 opens the page menu.
 - Escape all user, CSV, markdown and imported content before it reaches the DOM. No `eval` or `new Function` outside the sandboxed formula engine.
 
-## 8. Theme
+## 9. Theme
 
 Colour tokens are CSS custom properties on `:root`, redefined for dark mode. The accent is one of 24 OKLCH hues (0–345° in 15° steps, chroma 0.16) or grey, stored as `prefs.accent` (`"random"`, `"grey"` or the hue). `"random"`, the default, picks a new hue on each load and never grey. Grey is dark grey in light mode and light grey in dark mode. See `CLAUDE.md` → Theme for the exact formulas.
 
-## 9. Roadmap
+## 10. Roadmap
 
 1. GitHub Pages deploy and installable app (manifest, icons, service worker, install button).
 2. IndexedDB storage with migration from localStorage, plus an optional data folder (File System Access).

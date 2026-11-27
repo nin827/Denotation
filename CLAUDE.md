@@ -74,6 +74,8 @@ Full details in `README_TECHNICAL.md`. In short:
 - `js/workspace.js` holds all data operations. `js/ui/*` renders. `h(tag, props, ...children)` is the DOM helper;
   `replaceChildren` stringifies `null`, so `.filter(Boolean)`.
 - Keep each record under ~250 KB (also matters for sync). Rows cache formula results in `row.values[colId]`; `applyFormulas` recomputes them.
+- AI access: `tools/mcp/` is a Node-only MCP server (built-ins only, no dependencies). `js/permissions.js` must stay
+  pure because Node imports it. The server never writes `permissions.json`.
 - Sidebar rows have no buttons: right-click, long-press or Shift+F10 opens the page menu. Long titles roll as a marquee.
 
 ## Theme (reference: studyblock `js/lib/theme.js`, `css/style.css`)
