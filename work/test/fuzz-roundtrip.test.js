@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { fuzz, XSS, UNICODE, MARKUP } from "./fixtures/fuzz.js";
 import { markdownToBlocks, blocksToMarkdown } from "../../source/app/js/blocks/markdown.js";
 import { newBlock, plainText } from "../../source/app/js/blocks/model.js";
-import { parseCsv, databaseToCsv, tableFromCsv } from "../../source/app/js/csv.js";
+import { parseCsv, databaseToCsv, tableFromCsv, csvSafeCell } from "../../source/app/js/csv.js";
 import { buildToken, scanTokens, stripInline, parseInline } from "../../source/app/js/blocks/inline.js";
 import { parseWikiSyntax, toWikiSyntax, makeTitleResolver, extractLinks } from "../../source/app/js/links.js";
 import { parseType, formatType, validate, clamp, defaultFor, specAt, leafPaths, summary } from "../../source/app/js/typespec.js";
@@ -86,7 +86,8 @@ test("CSV: text tables survive export -> parse exactly (quotes, delimiters, newl
     const rows = Array.from({ length: r.int(0, 8) }, () => ({ values: Object.fromEntries(cols.map((c) => [c.id, cell()])) }));
     const csv = databaseToCsv(cols, rows);
     const grid = parseCsv(csv, ",");
-    const want = [cols.map((c) => c.name), ...rows.map((x) => cols.map((c) => x.values[c.id]))];
+    // cells a spreadsheet would run as a formula are exported with a leading ' (see fuzz-xss)
+    const want = [cols.map((c) => c.name), ...rows.map((x) => cols.map((c) => csvSafeCell(x.values[c.id])))];
     // a row that is one empty cell is written as "" and reads back as [""]
     assert.deepEqual(grid, want.map((row) => (row.length === 1 && row[0] === "" ? [""] : row)));
   });

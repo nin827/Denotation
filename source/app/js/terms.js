@@ -13,7 +13,8 @@ export const MAX_TERM_DEF = 500;
 export const MAX_TERM_CAT = 40;
 
 const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
-const oneLine = (v, max) => (typeof v === "string" ? v.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "");
+// trim again after the cut so a cut that lands on a space gives the same text on the next clean (idempotent)
+const oneLine = (v, max) => (typeof v === "string" ? v.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
 const multiLine = (v, max) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim().slice(0, max).trim() : "");
 const norm = (s) => String(s ?? "").trim().toLowerCase();
 const ICON_RE = /^icon:[a-z0-9-]{1,60}$/;
@@ -86,9 +87,18 @@ export function cleanCategories(list) {
   return out;
 }
 
-export const termsOf = (repo) => Array.isArray(repo?.terms) ? repo.terms : [];
+// repo.terms / repo.termCategories can arrive uncleaned (JSON import, sync, MCP), so reads go through the cleaners.
+// Saves replace the arrays (never mutate them in place), so the cleaned copy is cached per stored array.
+const cleanCache = new WeakMap();
+const cleanedOnce = (list, clean) => {
+  if (!Array.isArray(list)) return [];
+  let out = cleanCache.get(list);
+  if (!out) cleanCache.set(list, (out = clean(list)));
+  return out;
+};
+export const termsOf = (repo) => cleanedOnce(repo?.terms, cleanTerms);
 export const termById = (repo, id) => termsOf(repo).find((t) => t.id === id) ?? null;
-export const categoriesOf = (repo) => Array.isArray(repo?.termCategories) ? repo.termCategories : [];
+export const categoriesOf = (repo) => cleanedOnce(repo?.termCategories, cleanCategories);
 export const categoryDefaults = (repo, name) => categoriesOf(repo).find((c) => norm(c.name) === norm(name)) ?? null;
 export const childrenOf = (terms, id) => (terms ?? []).filter((t) => t.parentId === id);
 

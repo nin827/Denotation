@@ -149,7 +149,7 @@ test("JSON import (vault + workspace.importAll): dangerous keys in records pollu
   assertNoPollution(before, "import");
 });
 
-test("workspace.search survives imported pages whose props hold non-objects (pinned)", { todo: "BUG: ws.search (pageProps.propsSearchText) throws on props: [null] from a JSON import; MCP search has the same map" }, async () => {
+test("workspace.search survives imported pages whose props hold non-objects (pinned)", async () => {
   const ws = createWorkspace(createMemoryAdapter());
   await ws.importAll({ app: "denotation", pages: [{ id: "p1", type: "doc", title: "A", parentId: null, createdAt: 1, blocks: [], props: [null, 5, "x"] }], rows: [] });
   await assert.doesNotReject(ws.search("a"));

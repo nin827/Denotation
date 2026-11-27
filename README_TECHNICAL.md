@@ -20,6 +20,17 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
 
 `npm` is only used as a script runner. There are no dependencies to install.
 
+### Hardening (from the fuzz tests)
+
+- `pageProps.safeUrl` cleans like a browser (tab / CR / LF and edge control characters removed) before the scheme
+  check; only http(s), mailto and parseable same-origin relative links are kept.
+- `terms.termsOf` / `categoriesOf` return cleaned lists cached per stored array: save new arrays, never edit
+  `repo.terms` in place. `hueStyle` only writes a finite number.
+- Ancestor walks (`isTrashed`, `isArchived`, `inTemplate`, `ancestors`, the permissions chain) have no depth cap and are
+  guarded against parent loops; permissions fail closed.
+- The local adapter skips and logs corrupt records. ZIP inflation stops at each entry's declared size. Key files must
+  use 1,000–10,000,000 PBKDF2 iterations. CSV export prefixes `'` to text cells starting with `= + - @`, tab or CR.
+
 ### Fuzz tests
 
 `work/test/fuzz-*.test.js` are seeded, reproducible fuzz tests (part of `npm test`, a few seconds each). Shared helpers

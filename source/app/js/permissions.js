@@ -14,7 +14,6 @@ export const PERMISSIONS_FILE = "permissions.json";
 export const PERMISSIONS_KEY = "denotion:ai-permissions";
 const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
 const MAX_PAGES = 20000;
-const MAX_DEPTH = 200;
 
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const val = (v, fallback) => (VALUES.includes(v) ? v : fallback);
@@ -86,7 +85,8 @@ export function makeResolver(perms, pages, rows) {
       seen.add(cur);
       cur = row.dbId;
     }
-    while (cur && !seen.has(cur) && out.length < MAX_DEPTH) {
+    // no depth cap: a deny far up the chain must still apply; `seen` stops parent loops
+    while (cur && !seen.has(cur)) {
       seen.add(cur);
       out.push(cur);
       cur = pageMap.get(cur)?.parentId ?? null;

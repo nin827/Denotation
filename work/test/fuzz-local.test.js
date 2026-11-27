@@ -75,7 +75,7 @@ test("local adapter: hostile ids and un-awaited interleavings match a Map model"
   assertNoPollution(before, "local adapter");
 });
 
-test("local adapter: one corrupt record (truncated JSON) doesn't make the whole collection unreadable", { todo: "BUG: list() JSON.parses every raw value without a guard; one corrupt localStorage record makes list('pages') throw, so the workspace can't load" }, async () => {
+test("local adapter: one corrupt record (truncated JSON) doesn't make the whole collection unreadable", async () => {
   const s = memStorage();
   const a = createLocalAdapter(s, "t", { win: null });
   await a.set("pages", "ok", { id: "ok", title: "fine" });

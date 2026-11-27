@@ -18,10 +18,7 @@ if (PORT < 8096 || PORT > 8099) throw new Error("fuzz-xss: use a port from 8096 
 const root = path.resolve(__dirname, "../../..");
 const STRICT = process.env.FUZZ_STRICT === "1";
 // Findings that match a known, reported bug: printed, not fatal (unless FUZZ_STRICT=1).
-const KNOWN = [
-  { re: /prop-open|prop-ro/, why: "pageProps.safeUrl keeps 'java\\tscript:' / '\\u0001javascript:' URLs (url page properties)" },
-  { re: /ichip-term.*style=/, why: "termsUi.hueStyle writes an uncleaned repo.terms hue into style (CSS injection)" }
-];
+const KNOWN = [];
 
 (async () => {
   const { rng, seedFor, XSS, UNICODE, BASE_SEED, RUNS } = await import("../fixtures/fuzz.js");

@@ -194,7 +194,7 @@ test("workspace: random operation sequences keep the tree and listings consisten
   console.log(`  ops: ${Object.entries(opCount).map(([k, v]) => `${k}=${v}`).join(" ")}`);
 });
 
-test("workspace: a page under a trashed ancestor more than 100 levels up counts as trashed", { todo: "BUG: isTrashed / isArchived / inTemplate / ancestors stop after 100 levels; deeper pages escape Trash and Archive" }, async () => {
+test("workspace: a page under a trashed ancestor more than 100 levels up counts as trashed", async () => {
   const pages = [{ id: "root", parentId: null, trashedAt: 1 }];
   for (let i = 1; i <= 150; i++) pages.push({ id: `p${i}`, parentId: i === 1 ? "root" : `p${i - 1}` });
   assert.equal(isTrashed(pages, pages[150]), true);

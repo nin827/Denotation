@@ -392,7 +392,7 @@ Want the same data in two places? **New → Database view of…** or **Sheet vie
 
 - **Create a new database from a CSV file:** **New → Database from CSV…** and choose a `.csv`, `.tsv` or `.txt` file. The first line becomes the column names. Denotation guesses each column's type (number, checkbox for true/false/yes/no, date for `YYYY-MM-DD`, otherwise text) and works out the separator (comma, semicolon, tab or `|`). Up to 5,000 rows.
 - **Add rows to an existing database:** the **CSV** button in the toolbar, then **Import rows from CSV…**. Columns are matched by name; if no names match, the columns are matched by position instead.
-- **Export:** **CSV → Export this view as CSV** saves what the current view shows (so filters and sorts apply).
+- **Export:** **CSV → Export this view as CSV** saves what the current view shows (so filters and sorts apply). Text cells that start with `=`, `+`, `-` or `@` get a leading `'` so a spreadsheet opens them as text, not formulas.
 
 ---
 

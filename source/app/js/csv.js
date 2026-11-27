@@ -115,6 +115,15 @@ export function rowsFromCsv(grid, columns) {
   });
   return { rows, matched: positional ? Math.min(columns.length, width(lines)) : matched };
 }
+/**
+ * A cell as written to an exported CSV: text that a spreadsheet would run as a formula (starts with = + - @, tab or
+ * CR) gets a leading ' so it opens as text (CSV formula injection). Plain numbers such as -5 are left alone.
+ * Export only: import keeps cells as they are.
+ */
+export const csvSafeCell = (v) => {
+  const t = v == null ? "" : String(v);
+  return /^[=+\-@\t\r]/.test(t) && !NUM.test(t) ? `'${t}` : t;
+};
 export function databaseToCsv(columns, rows) {
-  return toCsv([columns.map((c) => c.name), ...rows.map((r) => columns.map((c) => toText(c, r.values?.[c.id])))]);
+  return toCsv([columns.map((c) => csvSafeCell(c.name)), ...rows.map((r) => columns.map((c) => csvSafeCell(toText(c, r.values?.[c.id]))))]);
 }

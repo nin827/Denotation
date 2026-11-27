@@ -234,7 +234,7 @@ test("MCP: record folders replaced by symlinks are refused for reads and writes"
   }
 });
 
-test("MCP: a deny on an ancestor more than 200 levels up still applies (permission chain has no silent cap)", { todo: "BUG: permissions.js makeResolver stops at MAX_DEPTH=200 and falls back to the broad value (fail-open when broad is yes)" }, async () => {
+test("MCP: a deny on an ancestor more than 200 levels up still applies (permission chain has no silent cap)", async () => {
   const pages = [{ id: "root", type: "repo", title: "T-root", parentId: null, createdAt: NOW }];
   for (let i = 1; i <= 230; i++) pages.push({ id: `d${i}`, type: "doc", title: `T-d${i}`, parentId: i === 1 ? "root" : `d${i - 1}`, createdAt: NOW + i, blocks: [{ id: "b", type: "p", text: `B-d${i} ` }] });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "denotation-fuzzmcp-"));
@@ -251,7 +251,7 @@ test("MCP: a deny on an ancestor more than 200 levels up still applies (permissi
   }
 });
 
-test("MCP: a page under a trashed ancestor more than 100 levels up is not served", { todo: "BUG: workspace.isTrashed caps its walk at 100 levels, so MCP (and the app) treat deeper pages as live" }, async () => {
+test("MCP: a page under a trashed ancestor more than 100 levels up is not served", async () => {
   const pages = [{ id: "root", type: "repo", title: "T-root", parentId: null, createdAt: NOW }, { id: "gone", type: "doc", title: "gone", parentId: "root", createdAt: NOW, trashedAt: NOW, blocks: [] }];
   for (let i = 1; i <= 120; i++) pages.push({ id: `d${i}`, type: "doc", title: `T-d${i}`, parentId: i === 1 ? "gone" : `d${i - 1}`, createdAt: NOW + i, blocks: [] });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "denotation-fuzzmcp-"));
@@ -267,7 +267,7 @@ test("MCP: a page under a trashed ancestor more than 100 levels up is not served
   }
 });
 
-test("MCP search survives pages whose props hold non-objects", { todo: "BUG: tools.mjs search maps p.props with x.name; props: [null] makes every search fail" }, async () => {
+test("MCP search survives pages whose props hold non-objects", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "denotation-fuzzmcp-"));
   try {
     fs.mkdirSync(path.join(root, "pages"));

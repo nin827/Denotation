@@ -27,9 +27,12 @@ export function crc32(bytes) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-async function pipe(bytes, stream) {
+/** Run `bytes` through a (de)compression stream. Output past `max` bytes stops the stream with an error. */
+async function pipe(bytes, stream, max = MAX_TOTAL, tooLarge = "ZIP entry too large (limit 512 MB)") {
   const writer = stream.writable.getWriter();
   const done = writer.write(bytes).then(() => writer.close());
+  // Corrupt input fails both sides; the read loop reports it, so the write side must not reject unhandled.
+  done.catch(() => {});
   const chunks = [];
   let total = 0;
   const reader = stream.readable.getReader();
@@ -38,9 +41,9 @@ async function pipe(bytes, stream) {
     if (fin) break;
     chunks.push(value);
     total += value.length;
-    if (total > MAX_TOTAL) {
+    if (total > max) {
       await reader.cancel().catch(() => {});
-      throw new Error("ZIP entry too large (limit 512 MB)");
+      throw new Error(tooLarge);
     }
   }
   await done;
@@ -243,7 +246,8 @@ export async function readZip(input, { password = null, listOnly = false } = {})
       data = body.slice();
     } else {
       if (!canDecompress()) throw new Error("DecompressionStream is not available in this environment");
-      data = await pipe(body, new DecompressionStream("deflate-raw"));
+      // stop at the declared size, so a small entry can't inflate to hundreds of MB before the size check
+      data = await pipe(body, new DecompressionStream("deflate-raw"), e.usize, `Corrupt ZIP (entry too large for its declared size): ${e.rawName}`);
     }
     if (data.length !== e.usize) throw new Error(`Corrupt ZIP (size mismatch): ${e.rawName}`);
     // AE-2 entries store CRC 0 (the AES auth code covers them); AE-1 and plain entries are checked.

@@ -51,7 +51,8 @@ export function termIcon(icon) {
   else wrap.append(document.createTextNode(icon ?? ""));
   return wrap;
 }
-export const hueStyle = (hue) => hue == null ? null : `--term-h:${hue}`;
+/** The chip tint; only a finite number reaches the style attribute. */
+export const hueStyle = (hue) => typeof hue === "number" && Number.isFinite(hue) ? `--term-h:${hue}` : null;
 
 /** Bold text, then the icon, tinted by the hue (when set). A button so a tap works and the editor does not start editing. */
 export function termChipNode(res, { tag = "button" } = {}) {

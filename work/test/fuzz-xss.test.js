@@ -56,7 +56,7 @@ test("parseInline: never throws; every link node that the view would render is s
   });
 });
 
-test("pageProps.safeUrl: a kept URL resolves to http(s), mailto or a same-origin relative link", { todo: "BUG: safeUrl keeps 'java\\tscript:' and '\\u0001javascript:' (browser strips tab/C0 -> javascript:)" }, async () => {
+test("pageProps.safeUrl: a kept URL resolves to http(s), mailto or a same-origin relative link", async () => {
   await fuzz("safeUrl", 4000, (r) => {
     const v = r.chance(0.3) ? r.pick(XSS) : urlish(r);
     const kept = safeUrl(v);
@@ -67,7 +67,7 @@ test("pageProps.safeUrl: a kept URL resolves to http(s), mailto or a same-origin
   });
 });
 
-test("pageProps.safeUrl: the known payload classes (pinned)", { todo: "BUG: tab/newline inside the scheme and leading C0 controls bypass safeUrl" }, () => {
+test("pageProps.safeUrl: the known payload classes (pinned)", () => {
   for (const v of ["java\tscript:alert(1)", "java\nscript:alert(1)", "\u0001javascript:alert(1)", "\u0000javascript:alert(1)", "jav\rascript:alert(1)"]) {
     const kept = safeUrl(v);
     assert.ok(!kept || effectiveProtocol(kept, BASE) !== "javascript:", `safeUrl(${JSON.stringify(v)}) -> ${JSON.stringify(kept)}`);
@@ -221,7 +221,7 @@ test("CSV: parse never throws; tableFromCsv keeps every row; column names are un
   });
 });
 
-test("CSV export neutralises spreadsheet formulas (cells starting with = + - @)", { todo: "BUG (hardening): databaseToCsv writes =cmd|... cells as-is (CSV formula injection when opened in a spreadsheet)" }, () => {
+test("CSV export neutralises spreadsheet formulas (cells starting with = + - @)", () => {
   const cols = [{ id: "a", name: "A", type: "text", config: {} }];
   const csv = databaseToCsv(cols, [{ values: { a: "=HYPERLINK(\"http://evil.example\",\"x\")" } }, { values: { a: "@SUM(1)" } }, { values: { a: "+1+1" } }]);
   for (const line of csv.split(/\r?\n/).slice(1)) assert.ok(!/^"?[=+@-]/.test(line), `formula cell exported raw: ${line}`);

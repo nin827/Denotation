@@ -2,6 +2,14 @@
 
 ## 0.1 (2026-11-27)
 
+Fixes from the fuzz tests:
+- Security: url properties drop `javascript:` links hidden with tabs or control characters; imported term colours
+  can't inject CSS (terms are cleaned when read); CSV export neutralises spreadsheet formulas.
+- Pages nested more than 100 levels under a trashed or archived page now count as trashed or archived; AI
+  permissions apply at any depth and fail closed.
+- One corrupt record no longer stops the workspace loading; corrupt or oversized ZIP entries fail cleanly; key files
+  with absurd iteration counts are refused; search tolerates malformed properties.
+
 First marked version. Highlights:
 - Pages, sub-pages, repositories, blocks, Markdown shortcuts, page properties, templates, callout presets,
   automatic callouts, Archive and Trash.

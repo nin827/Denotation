@@ -176,10 +176,22 @@ export function createLocalAdapter(storage = globalThis.localStorage, prefix = "
     const p = `${prefix}:${col}:`.length;
     const out = [];
     const waits = [];
+    // One corrupt record (truncated JSON) is skipped with a warning, so the rest of the collection still loads.
+    const corrupt = (key, e) => {
+      if (!(e instanceof SyntaxError)) throw e;
+      console.warn(`Skipped a corrupt record (${key}): ${e.message}`);
+      return null;
+    };
     try {
       for (const key of keys) {
-        const o = { key, r: entryFor(col, key.slice(p), key, storage.getItem(key)) };
-        if (typeof o.r?.then === "function") waits.push(o.r.then((r) => void (o.r = r)));
+        let r;
+        try {
+          r = entryFor(col, key.slice(p), key, storage.getItem(key));
+        } catch (e) {
+          r = corrupt(key, e);
+        }
+        const o = { key, r };
+        if (typeof r?.then === "function") waits.push(r.then((v) => void (o.r = v), (e) => void (o.r = corrupt(key, e))));
         out.push(o);
       }
     } finally {

@@ -30,12 +30,25 @@ export function isDate(s) {
 }
 /** Only http(s), mailto and relative links are kept as links. */
 export function safeUrl(s) {
-  const v = String(s ?? "").trim();
+  // Browsers drop tab / CR / LF anywhere in a URL and leading C0 controls and spaces, so "java\tscript:" and
+  // "\u0001javascript:" run as javascript:. Remove them the same way before the scheme check.
+  const v = (typeof s === "string" ? s : typeof s === "number" ? String(s) : "").replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020\s]+|[\u0000-\u0020\s]+$/g, "");
   if (!v) return "";
-  if (/^(https?:|mailto:)/i.test(v)) return v;
+  if (/^(https?:|mailto:)/i.test(v)) return parses(v) ? v : "";
   if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return "";
-  return v;
+  // "//host" and "/\\host" are another origin (backslash counts as a slash in http URLs)
+  if (/^[\\/]{2}/.test(v)) return "";
+  return parses(v, "https://base.invalid/") ? v : "";
 }
+/** Does the URL parser accept `u` (a link it can't parse is dropped rather than kept as a dead href)? */
+const parses = (u, base) => {
+  try {
+    new URL(u, base);
+    return true;
+  } catch {
+    return false;
+  }
+};
 const cleanOptions = (list) => {
   const out = [];
   for (const o of Array.isArray(list) ? list : []) {
@@ -124,6 +137,8 @@ export function convertProp(p, type) {
 }
 
 /** Plain text of a value (search, rules, front matter). `titleOf(id)` names page links. */
+// Stored props can be uncleaned (JSON import, sync, MCP): objects give no text, so a hostile toString never runs.
+const scalarText = (v) => (v == null || typeof v === "object" || typeof v === "function" ? "" : String(v));
 export function propText(p, titleOf = null) {
   const v = p?.value;
   if (v == null) return "";
@@ -131,15 +146,17 @@ export function propText(p, titleOf = null) {
     case "checkbox":
       return v ? "Yes" : "No";
     case "multi":
-      return Array.isArray(v) ? v.join(", ") : "";
+      return Array.isArray(v) ? v.map(scalarText).join(", ") : "";
     case "page":
-      return titleOf ? titleOf(v) || "" : String(v);
+      return titleOf ? titleOf(v) || "" : scalarText(v);
     default:
-      return String(v);
+      return scalarText(v);
   }
 }
-/** All property names and values as one string for search. */
-export const propsSearchText = (props, titleOf = null) => (Array.isArray(props) ? props.map((p) => `${p.name}: ${propText(p, titleOf)}`).join("\n") : "");
+/** All property names and values as one string for search (entries that are not objects are skipped). */
+export const propsSearchText = (props, titleOf = null) => (Array.isArray(props)
+  ? props.filter((p) => p && typeof p === "object").map((p) => `${scalarText(p.name)}: ${propText(p, titleOf)}`).join("\n")
+  : "");
 
 /**
  * Database row values as page properties (used when a row body becomes an archive page). `textOf(col, v)` turns a

@@ -23,6 +23,9 @@
 export const ENC_TAG = "denotation-enc";
 export const KEYS_FILE = "keys.json";
 export const KDF_ITERATIONS = 600000;
+// A key file's own iteration count is accepted only in this range: too low is a weak PIN wrap, too high hangs unlock.
+export const KDF_MIN_ITERATIONS = 1000;
+export const KDF_MAX_ITERATIONS = 10000000;
 export const LOCAL_KEYS = "denotion:keys";
 export const ENC_SETTINGS = "denotion:encryption";
 const ALG = "AES-256-GCM";
@@ -146,8 +149,8 @@ const okWrap = (w) => !!w && typeof w === "object" && fromB64(w.iv)?.length === 
 export function sanitizeKeyFile(f) {
   if (!f || typeof f !== "object" || f.v !== 1 || f.alg !== ALG || typeof f.kid !== "string" || !/^[a-f0-9]{16,64}$/.test(f.kid)) return null;
   const k = f.kdf;
-  const iterations = Number(k?.iterations);
-  if (!k || k.name !== "PBKDF2-SHA256" || !(fromB64(k.salt)?.length >= 16) || !Number.isInteger(iterations) || iterations < 1) return null;
+  const iterations = k?.iterations;
+  if (!k || k.name !== "PBKDF2-SHA256" || !(fromB64(k.salt)?.length >= 16) || !Number.isInteger(iterations) || iterations < KDF_MIN_ITERATIONS || iterations > KDF_MAX_ITERATIONS) return null;
   if (!okWrap(f.pinWrap) || !okWrap(f.recoveryWrap) || f.recoveryWrap.kdf !== "HKDF-SHA256" || !(fromB64(f.recoveryWrap.salt)?.length >= 16)) return null;
   const out = {
     v: 1, alg: ALG, kid: f.kid,

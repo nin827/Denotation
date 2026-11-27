@@ -71,14 +71,14 @@ test("cleanTerms: hostile lists give bounded, one-level, unique, safe terms; cle
   assertNoPollution(before, "cleanTerms");
 });
 
-test("cleanTerms / cleanCategories are idempotent when the cut lands on a space (pinned)", { todo: "BUG (low): terms.js oneLine trims before slice(0, max), so text / category / name cut at a space keep a trailing space that the next clean removes (saved data changes on every save)" }, () => {
+test("cleanTerms / cleanCategories are idempotent when the cut lands on a space (pinned)", () => {
   const t = cleanTerms([{ id: "a", text: `${"x".repeat(79)} y`, category: `${"c".repeat(39)} d` }]);
   assert.deepEqual(cleanTerms(t), t);
   const c = cleanCategories([{ name: `${"n".repeat(39)} m`, hue: 30 }]);
   assert.deepEqual(cleanCategories(c), c);
 });
 
-test("terms read from a stored repository (JSON import / sync) are cleaned before use (pinned)", { todo: "BUG (medium): termsOf / resolveIn / resolveTerm hand raw repo.terms to the UI. ui/termsUi.js hueStyle writes the raw hue into style=\"--term-h:…\" (CSS injection: '0;position:fixed;inset:0;background:url(https://…)' overlays the page and beacons out); a text like {\"toString\":null} makes the page view and quick find throw (page renders empty). Clean on read (cache cleanTerms per repo version) or on import" }, () => {
+test("terms read from a stored repository (JSON import / sync) are cleaned before use (pinned)", () => {
   const repo = JSON.parse('{"id":"r","type":"repo","terms":[{"id":"a","text":{"toString":null},"hue":"0;position:fixed;background:url(https://example.invalid/x)","icon":"icon:<svg>"}]}');
   const res = resolveIn(repo, "a");
   assert.ok(res === null || (typeof res.text === "string" && (res.hue === null || Number.isInteger(res.hue)) && (res.icon === null || cleanIcon(res.icon) === res.icon)), JSON.stringify(res));

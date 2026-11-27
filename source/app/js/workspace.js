@@ -25,25 +25,19 @@ const indexOf = (pages, page) => {
   indexCache.set(pages, { n: pages.length, byId });
   return byId;
 };
-export const isTrashed = (pages, page) => {
-  const byId = indexOf(pages, page);
-  for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.trashedAt) return true;
+// Ancestor walks have no depth cap (a deep page must not escape Trash or Archive). A parent chain longer than the number
+// of pages must loop, so that count is the cycle guard.
+const someAncestor = (byId, page, test) => {
+  for (let p = page, n = 0; p && n <= byId.size; p = byId.get(p.parentId), n++) if (test(p)) return true;
   return false;
 };
+export const isTrashed = (pages, page) => someAncestor(indexOf(pages, page), page, (p) => p.trashedAt);
 /** True when the page or one of its parents is archived (`archivedAt`). Archived pages are out of every listing. */
-export const isArchived = (pages, page) => {
-  const byId = indexOf(pages, page);
-  for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.archivedAt) return true;
-  return false;
-};
+export const isArchived = (pages, page) => someAncestor(indexOf(pages, page), page, (p) => p.archivedAt);
 /** Trashed or archived: left out of the tree, pickers, search and chips. */
 export const isHidden = (pages, page) => isTrashed(pages, page) || isArchived(pages, page);
 /** True when the page is a template or sits inside one (templates are listed apart from the tree). */
-export const inTemplate = (pages, page) => {
-  const byId = indexOf(pages, page);
-  for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.template) return true;
-  return false;
-};
+export const inTemplate = (pages, page) => someAncestor(indexOf(pages, page), page, (p) => p.template);
 /** Does a row (or page) body hold anything written? An empty paragraph does not count. */
 export const hasWrittenBlocks = (blocks) => Array.isArray(blocks) && blocks.some((b) => b && (b.type !== "p" || String(b.text ?? "").trim() || b.children?.length));
 /** Text of a cell value for page properties and rules (composite values summarised, formulas formatted). */
@@ -57,8 +51,9 @@ const freshBlocks = (blocks) => (Array.isArray(blocks) ? blocks.map((b) => clone
 export const ancestors = (pages, id) => {
   const byId = indexOf(pages);
   const chain = [];
-  for (let p = byId.get(id), n = 0; p && n < 100; p = byId.get(p.parentId), n++) chain.unshift(p);
-  return chain;
+  const seen = new Set();
+  for (let p = byId.get(id); p && !seen.has(p); p = byId.get(p.parentId)) seen.add(p), chain.push(p);
+  return chain.reverse();
 };
 export const descendantIds = (pages, id) => {
   const kids = new Map();
@@ -534,7 +529,7 @@ export function createWorkspace(store) {
     // term chips are searched by their text and definition (the repository of each page holds its terms)
     const byId = new Map(pages.map((x) => [x.id, x]));
     const repoOf = (p) => {
-      for (let q = p, n = 0; q && n < 100; q = byId.get(q.parentId), n++) if (q.type === "repo") return q;
+      for (let q = p, n = 0; q && n <= byId.size; q = byId.get(q.parentId), n++) if (q.type === "repo") return q;
       return null;
     };
     const termResolver = (repo) => {

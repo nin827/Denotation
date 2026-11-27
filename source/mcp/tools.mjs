@@ -9,6 +9,7 @@ import { newBlock, plainText, walk } from "../app/js/blocks/model.js";
 import { validate, defaultValue } from "../app/js/schema.js";
 import { applyFormulas } from "../app/js/formula.js";
 import { toText } from "../app/js/dbviews.js";
+import { propsSearchText } from "../app/js/pageProps.js";
 import { ID_RE } from "./folder-store.mjs";
 
 export class ToolError extends Error {}
@@ -301,7 +302,7 @@ const handlers = {
       if (arch && !withArchived) continue;
       if (s.allowed(p.id, "read")) {
         const inTitle = (p.title || "").toLowerCase().includes(query);
-        const props = Array.isArray(p.props) ? p.props.map((x) => `${x.name}: ${Array.isArray(x.value) ? x.value.join(", ") : x.value ?? ""}`).join("\n") : "";
+        const props = propsSearchText(p.props);
         const body = snip(`${props ? `${props}\n` : ""}${p.blocks ? plainText(p.blocks) : ""}`);
         if (inTitle || body) hits.push({ kind: p.type, id: p.id, title: p.title || "Untitled", snippet: inTitle ? undefined : body, rank: inTitle ? 0 : 1, ...(arch ? { archived: true } : {}) });
       }

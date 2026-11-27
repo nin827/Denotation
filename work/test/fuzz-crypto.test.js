@@ -68,7 +68,7 @@ test("envelopes: malformed shapes are refused before any crypto; locked (no key)
 
 test("key files: random mutations are rejected by sanitizeKeyFile or fail to unwrap; never a wrong key", async () => {
   const pin = "4821";
-  const { file, dek, recovery } = await createKeyFile({ pin, iterations: 2 });
+  const { file, dek, recovery } = await createKeyFile({ pin, iterations: 1000 });
   const raw = new Uint8Array(await crypto.subtle.exportKey("raw", dek));
   const sameKey = async (k) => k && Buffer.from(new Uint8Array(await crypto.subtle.exportKey("raw", k))).equals(Buffer.from(raw));
   assert.ok(await sameKey(await unwrapWithPin(file, pin)));
@@ -89,8 +89,8 @@ test("key files: random mutations are rejected by sanitizeKeyFile or fail to unw
   });
 });
 
-test("key files: iteration count from the file is trusted as-is (any positive integer)", { todo: "BUG (hardening): sanitizeKeyFile accepts kdf.iterations = 1 (weak) or 1e12 (unlock hangs); clamp to a sane range" }, async () => {
-  const { file } = await createKeyFile({ pin: "4821", iterations: 2 });
+test("key files: an iteration count outside the sane range is rejected (weak, or a hang on unlock)", async () => {
+  const { file } = await createKeyFile({ pin: "4821", iterations: 1000 });
   for (const iterations of [1, 1e12]) assert.equal(sanitizeKeyFile({ ...file, kdf: { ...file.kdf, iterations } }), null, `iterations ${iterations}`);
 });
 
@@ -106,8 +106,8 @@ test("recovery key text: parse(encode(bytes)) round trips; random text is reject
 });
 
 // ---------- ZIP ----------
-// zip.js pipe() leaves the writer's promise unawaited when inflation fails, so corrupt deflate data also raises an
-// unhandled rejection (pinned below). The mutation fuzz wraps DecompressionStream so those don't fail unrelated cases.
+// zip.js pipe() must not leave the writer side rejecting unhandled when inflation fails (tested on its own below). The
+// mutation fuzz still wraps DecompressionStream so a regression there is reported by that one test, not every case.
 function withQuietInflate(fn) {
   const Real = globalThis.DecompressionStream;
   globalThis.DecompressionStream = class extends Real {
@@ -161,13 +161,13 @@ test("readZip: mutated archives either throw an Error or return entries with saf
   }));
 });
 
-test("readZip: corrupt deflate data raises no unhandled promise rejection", { todo: "BUG: zip.js pipe() never awaits/catches writer.write().then(close) when inflate fails -> unhandledRejection (Z_DATA_ERROR)" }, async () => {
+test("readZip: corrupt deflate data raises no unhandled promise rejection", async () => {
   const zip = await createZip([{ path: "a.txt", data: "hello hello hello hello ".repeat(50) }], { compress: true });
   const z = zip.slice();
   z[35] ^= 0xff; // first bytes of the deflate stream
   z[36] ^= 0xff;
   await readZip(z).catch(() => {});
-  await settle(); // the runner fails this (todo) test if a rejection goes unhandled meanwhile
+  await settle(); // the runner fails this test if a rejection goes unhandled meanwhile
 });
 
 test("readZip: random bytes never hang or throw non-Errors", async () => {
@@ -206,7 +206,7 @@ test("readZip: declared sizes are enforced; a deflate bomb is rejected (timing p
   assert.ok(ms < 20000, "bomb rejected within 20 s");
 });
 
-test("readZip: inflation stops at the declared size (no 512 MB allocation for a 10-byte entry)", { todo: "BUG (hardening): zip.js pipe() caps output at MAX_TOTAL (512 MB) per entry, not at the entry's declared usize" }, async () => {
+test("readZip: inflation stops at the declared size (no 512 MB allocation for a 10-byte entry)", async () => {
   const big = new Uint8Array(8 * 1024 * 1024);
   const zip = await createZip([{ path: "b.bin", data: big }], { compress: true });
   const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
