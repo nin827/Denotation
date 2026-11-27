@@ -1,6 +1,6 @@
 # 006: Encrypted files, unlocked with the PIN
 
-Status: open
+Status: decided (owner, 2026-11-27)
 Raised: 2026-11-27
 
 Goal: an option to keep the workspace files (storage locations, main and backups) encrypted, so they're readable only
@@ -27,3 +27,12 @@ Caveats:
 
 Open questions: PIN-only (simpler, weak) instead of passphrase + PIN? Also encrypt the browser cache? Also encrypt
 exports (ZIP/JSON)?
+
+## Decisions (owner)
+
+- **PIN only.** The data key is wrapped by a key derived from the PIN (PBKDF2, high iterations, salt); no passphrase.
+  A recovery key is still shown once (it's the only way back if the PIN is forgotten). Weakness accepted and stated in
+  the UI: anyone with the files can try all PINs offline.
+- **Browser copy:** encrypt it too, only when toggled on (default off).
+- **Exports:** off by default; optional password on ZIP exports using standard ZIP AES-256 (WinZip AE-2: opens in
+  7-Zip, WinRAR, macOS Archive Utility/Keka; Windows Explorer may not). Built in house with WebCrypto.
