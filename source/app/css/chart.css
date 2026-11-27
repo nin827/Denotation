@@ -1,0 +1,70 @@
+/* charts: the {{chart:<json>}} chip, the chart block and the chart editor (ui/chartUi.js, ui/plugins/chart.js).
+   Marks use the block colour variables (--blk-fg / --blk-tint / --blk-grey), so light, neutral and dark all work. Values are
+   always available as text too (tooltips, labels, aria-label), never colour alone. */
+.chart-svg { --ch: 240; --mark: oklch(var(--blk-fg) var(--ch)); --soft: oklch(var(--blk-tint) var(--ch)); display: inline-block; flex: none; overflow: visible; }
+.chart-svg.is-grey { --mark: var(--muted); --soft: var(--blk-grey); }
+.c-line { fill: none; stroke: var(--mark); stroke-width: 1.5px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.c-area { fill: var(--soft); stroke: none; }
+.c-dot, .c-bar { fill: var(--mark); }
+.c-bar.neg { opacity: .6; }
+.c-base, .c-grid { stroke: var(--border-ctl, var(--border)); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.c-grid { stroke: var(--border); stroke-dasharray: 3 3; }
+.c-slice { fill: oklch(var(--blk-fg) var(--ch)); stroke: var(--bg); stroke-width: 1px; }
+.is-grey .c-slice { fill: var(--muted); opacity: calc(1 - var(--i, 0) * .07); }
+.c-track { fill: var(--soft); }
+.c-fill { fill: var(--mark); }
+.c-tick, .c-leg, .c-val { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.c-leg { fill: var(--text); font-size: 13px; }
+.c-val { fill: var(--text); font-weight: 600; }
+
+/* chip: sized to a line of text */
+.ichip-chart { gap: var(--sp-6); padding: 0 6px; cursor: pointer; }
+.ichip-chart .chart-svg { vertical-align: middle; }
+.ichip-chart .chart-spark { width: 4.6em; height: 1.15em; }
+.ichip-chart .chart-bar { width: 3.45em; height: 1.15em; }
+.ichip-chart .chart-pie { width: 1.15em; height: 1.15em; }
+.ichip-chart .chart-progress { width: 4em; height: .6em; }
+.chart-pct { font-variant-numeric: tabular-nums; font-size: .9em; }
+.chart-msg { font-style: italic; }
+button.ichip-chart:hover:not(:disabled) { background: var(--bg-hover); }
+button.ichip-chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* block */
+.chart-block { margin: 4px 0; min-width: 0; border-radius: var(--radius); }
+.chart-block[role="button"] { cursor: pointer; }
+.chart-block:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chart-fig { max-width: 640px; }
+.chart-fig .chart-svg { display: block; width: 100%; height: auto; }
+.chart-fig-err { display: flex; align-items: center; gap: var(--sp-8); color: var(--muted); font-style: italic; padding: 8px 0; }
+.chart-fig-err .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.chart-cap { color: var(--muted); font-size: var(--fs-ui); font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+/* editor (a dialog on desktop, a bottom sheet on phones) */
+@media (min-width: 601px) { .chart-ed-modal { width: min(560px, 100%); } }   /* phones: the shared bottom-sheet dialog rules apply */
+.chart-ed { display: grid; gap: var(--sp-12); }
+.chart-ed-group { display: grid; gap: var(--sp-6); }
+.chart-ed-h { font-size: var(--fs-md); color: var(--muted); font-weight: 600; }
+.chart-radios { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.chart-radio { display: inline-flex; align-items: center; gap: var(--sp-6); min-height: 36px; padding: 0 12px; }
+.chart-radio .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.chart-radio.on { background: var(--accent-soft, var(--bg-soft)); color: var(--accent-ink, inherit); border-color: var(--accent); font-weight: 600; }
+.chart-radio.on::before { content: "\2713"; }
+.chart-ed-source, .chart-ed-options { display: grid; gap: var(--sp-8); }
+.chart-ed-source label, .chart-ed-options label { margin-bottom: 0; }
+.chart-ed textarea { font-family: var(--font-mono, monospace); resize: vertical; }
+.chart-hues { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.chart-hue { width: 32px; height: 32px; padding: 0; border-radius: 50%; background: var(--sw); border: 2px solid transparent; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.chart-hue .icon-svg { width: 16px; height: 16px; display: inline-flex; }
+.chart-hue.on { border-color: var(--text); }
+.chart-ed-errors { display: grid; gap: var(--sp-4); }
+.chart-ed-errors:empty { display: none; }
+.chart-ed-err { display: flex; align-items: flex-start; gap: var(--sp-6); color: var(--danger); font-size: var(--fs-md); }
+.chart-ed-err .icon-svg { width: 1em; height: 1em; flex: none; margin-top: 2px; display: inline-flex; }
+.chart-ed-preview { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 40px; overflow: hidden; }
+.chart-ed-sample { margin: 0; line-height: 1.9; }
+@media (max-width: 700px) {
+  .chart-ed input, .chart-ed select, .chart-ed textarea { font-size: 16px; min-height: 40px; }
+  .chart-radio { min-height: 40px; }
+  .chart-hue { width: 40px; height: 40px; }
+}
+@media (pointer: coarse) { .chart-radio { min-height: 40px; } }

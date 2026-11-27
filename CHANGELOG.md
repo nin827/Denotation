@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+Added: inline charts (sparkline, mini bar, pie, progress) and a chart block, fed by numbers, a database column or a
+formula, updating live, with an editor.
+
 Added: function graphs (block and inline chip) with an editor, drawn from the sandboxed formula engine; formulas gain
 trigonometry (SIN, COS, TAN, ATAN2, …).
 

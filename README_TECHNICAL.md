@@ -29,6 +29,15 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
 `strict:"ignore"`, `maxSize:20`, `maxExpand:200`; output is built by KaTeX DOM calls, never `innerHTML`. UI in
 `ui/mathUi.js`, registered by `ui/plugins/math.js`. Tests: `work/test/math.test.js`, `work/test/e2e/math.cjs`.
 
+### Inline charts
+
+Chip `{{chart:<json>}}` (≤ 4000 characters, `CHART_TOKEN_MAX`) and block `chart` share one spec: `k` kind (spark, bar,
+pie, progress), data source (`s` numbers / database column with view, read-as and aggregate / formula), `h` hue, `t`
+caption, `m` progress maximum, `z` block size. `js/chart/chart.js` is pure (cleaning, numbers, downsampling to 200
+points, pie "Other" past 12 slices, SVG geometry, text alternative, Markdown fenced `chart` block). `ui/chartUi.js` draws
+and loads data; `watchChart` listens to `ws.onDataChange` (debounced 300 ms) and stops once the element leaves the page.
+Formula sources use `runFormula` from `ui/inlineChips.js`. Registered by `ui/plugins/chart.js`.
+
 ### Function graphs
 
 Block `{type:"plot", fns:[{expr, hue?}], xmin, xmax, ymin?, ymax?, points, grid}` and chip `{{plot:<json>}}` (short keys,

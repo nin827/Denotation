@@ -1,6 +1,6 @@
 # 022: Inline charts, function graphs and math (LaTeX), with dedicated editors
 
-Status: in progress
+Status: resolved (built; see commits "Math", "Function graphs", "Inline charts")
 Raised: 2026-11-27
 
 Request: inline charts, graphs and functions (LaTeX), as inline chips and blocks, each opening a **dedicated editor**
@@ -33,4 +33,4 @@ when clicked into.
 
 ## Owner decision (2026-11-27)
 - Database-fed charts in text refresh **live, debounced** (~0.3 s after a change) while the page is open.
-- Status: in progress (math, function graphs and inline charts built in parallel).
+- Status: resolved (built; see commits "Math", "Function graphs", "Inline charts") (math, function graphs and inline charts built in parallel).

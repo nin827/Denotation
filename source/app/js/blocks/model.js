@@ -33,7 +33,8 @@ const BLOCK_TYPES = [
   "graph",
   "flow",
   "math",
-  "plot"
+  "plot",
+  "chart"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);

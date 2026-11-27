@@ -242,7 +242,7 @@ async function formulaEnv(ctx, expr) {
   };
 }
 const formulaText = (r) => r.ok ? formatResult(r.value) : r.error;
-async function runFormula(ctx, expr) {
+export async function runFormula(ctx, expr) {
   return evalExpression(expr, await formulaEnv(ctx, expr));
 }
 function formulaChip(n, ctx) {

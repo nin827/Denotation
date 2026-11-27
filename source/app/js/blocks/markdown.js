@@ -2,6 +2,7 @@ import { previewLine } from "../preview.js";
 import { replaceTokens, tokenFallback } from "./inline.js";
 import { cleanFlow, parseFlow, serializeFlow } from "../flow/layout.js";
 import { serializePlot, parsePlot } from "../plot/plot.js";
+import { fenceText, specFromLines } from "../chart/chart.js";
 import { blockToMarkdown as mathBlockToMarkdown, parseMathBlock, convertDollars } from "../math/latex.js";
 import { numbering, hasChildren, newBlock, normalizeBlocks, flattenBlocks, MAX_DEPTH } from "./model.js";
 
@@ -75,6 +76,9 @@ ${b.text}
       }
       case "math":
         text = mathBlockToMarkdown(b.text);
+        break;
+      case "chart":
+        text = fenceText(b);
         break;
       case "plot":
         text = `\`\`\`plot\n${serializePlot(b)}\n\`\`\``;
@@ -177,6 +181,7 @@ export function markdownToBlocks(md) {
       const body = [];
       while (++i < lines.length && !/^```\s*$/.test(lines[i].trim())) body.push(lines[i]);
       if (m[1] === "flow") push(flowFromText(body));
+      else if (m[1] === "chart") push(newBlock("chart", specFromLines(body)));
       else if (m[1] === "plot") push(newBlock("plot", parsePlot(body.join("\n"))));
       else push(newBlock("code", { text: body.join("\n"), lang: m[1] || "plain" }));
       continue;
