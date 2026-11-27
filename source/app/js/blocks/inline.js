@@ -1,4 +1,5 @@
 const ESCAPABLE = "\\`*_~[]()#>-+!{";
+import { plotFromArg, PLOT_ARG_MAX, PLOT_TOKEN_MAX } from "../plot/plot.js";
 export const isSafeHref = (href) => /^(https?:\/\/|mailto:|#page-|#row-)/i.test(String(href).trim());
 export function detectShortcut(text) {
   let m;
@@ -18,7 +19,7 @@ export function detectShortcut(text) {
 // status ({{status:<id>}}) and formula ({{= expression}}: the text up to }} is one argument; only \\ and \} need escaping).
 // Page links and embeds (stored by id, see js/links.js): {{link:<pageId>}}, {{xlink:<pageId>}} (hidden link: no graph edge),
 // {{embed:<pageId>|h|<headingBlockId>}} (a heading section) and {{embed:<pageId>|b|<blockId>,<blockId>,...}} (chosen blocks).
-export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed", "img", "term", "math"];
+export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed", "img", "term", "math", "plot"];
 export const EMBED_MAX_BLOCKS = 12;
 export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -81,6 +82,11 @@ function checkToken(kind, args) {
     if (ids.length > EMBED_MAX_BLOCKS || !ids.every(isTokenId) || new Set(ids).size !== ids.length) return null;
     return { t: "inline", kind, args: [args[0], "b", ids.join(",")] };
   }
+  if (kind === "plot") {
+    // {{plot:<json>}}: compact graph spec, see plot/plot.js (plotToArg)
+    const a = args.length === 1 ? String(args[0]) : "";
+    return a && a.length <= PLOT_ARG_MAX && plotFromArg(a) ? { t: "inline", kind, args: [a] } : null;
+  }
   if (kind === "math") {
     const l = args.length === 1 ? String(args[0]).trim() : "";
     return l && l.length <= 400 && !/[\r\n]/.test(l) ? { t: "inline", kind, args: [l] } : null;
@@ -94,7 +100,7 @@ function checkToken(kind, args) {
 /** Read a token starting at s[i] ("{{"). Returns { end, node } or null. */
 export function readToken(s, i) {
   if (s[i] !== "{" || s[i + 1] !== "{") return null;
-  const limit = Math.min(s.length, i + (s.startsWith("{{img:", i) ? IMG_TOKEN_MAX : s.startsWith("{{math:", i) ? MATH_TOKEN_MAX : TOKEN_MAX));
+  const limit = Math.min(s.length, i + (s.startsWith("{{img:", i) ? IMG_TOKEN_MAX : s.startsWith("{{math:", i) ? MATH_TOKEN_MAX : s.startsWith("{{plot:", i) ? PLOT_TOKEN_MAX : TOKEN_MAX));
   let j = i + 2;
   const parts = [""];
   let kind = null;

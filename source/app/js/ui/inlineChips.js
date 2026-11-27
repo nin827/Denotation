@@ -92,7 +92,8 @@ const miss = (label, title) => h("span", { class: "ichip ichip-miss", title }, i
 
 // ---------- plug-in chip kinds ----------
 // Feature modules (ui/plugins/*.js) register extra token kinds here instead of editing this file.
-// spec: { render(n, ctx) -> Node, text?(n, ctx) -> string (search/export), pick?(ctx, { onPick(token), onCancel }) }
+// spec: { render(n, ctx) -> Node, text?(n, ctx) -> string (search/export), pick?(ctx, { onPick(token), onCancel }),
+//         action?(el, ctx, apply(token)) for clicks on the chip }
 const PLUGIN_KINDS = new Map();
 export function registerChipKind(kind, spec) {
   PLUGIN_KINDS.set(kind, spec);
@@ -184,6 +185,8 @@ function statusChip(n, ctx) {
 /** What a click on a checkbox or status chip does: apply(newTokenText) persists the changed token. */
 export function chipAction(el, ctx, apply) {
   const kind = el.dataset.tok;
+  const plug = PLUGIN_KINDS.get(kind);
+  if (plug?.action) return plug.action(el, ctx, apply);
   if (kind === "check") return apply(buildToken("check", [el.getAttribute("aria-checked") === "true" ? "0" : "1"]));
   if (kind !== "status") return;
   const repo = repoFor(ctx);

@@ -33,6 +33,7 @@ import "./ui/plugins/images.js";
 import "./ui/plugins/terms.js";
 import "./ui/plugins/flowchart.js";
 import "./ui/plugins/math.js";
+import "./ui/plugins/plot.js";
 import { focusFlowBox } from "./ui/flowBlock.js";
 
 const appEl = document.getElementById("app");

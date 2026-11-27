@@ -840,3 +840,22 @@ export function evalExpression(src, env = {}) {
 }
 /** An error for env lookup callbacks to throw: code is one of the "#..." codes. */
 export const lookupError = (code, detail) => err(code, detail);
+
+// Trigonometry and friends (numbers in radians; RADIANS / DEGREES convert). NaN results are #NUM!.
+const trigArg = (v) => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : typeof v === "boolean" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) throw lookupError("#VALUE!");
+  return n;
+};
+const trigUnit = (fn) => (v) => {
+  const r = fn(trigArg(v));
+  if (Number.isNaN(r)) throw lookupError("#NUM!");
+  return r;
+};
+const TRIG = {
+  SIN: trigUnit(Math.sin), COS: trigUnit(Math.cos), TAN: trigUnit(Math.tan), ASIN: trigUnit(Math.asin), ACOS: trigUnit(Math.acos), ATAN: trigUnit(Math.atan),
+  SINH: trigUnit(Math.sinh), COSH: trigUnit(Math.cosh), TANH: trigUnit(Math.tanh), CBRT: trigUnit(Math.cbrt),
+  RADIANS: trigUnit((d) => d * Math.PI / 180), DEGREES: trigUnit((r) => r * 180 / Math.PI),
+  ATAN2: (y, x) => Math.atan2(trigArg(y), trigArg(x))
+};
+for (const [name, fn] of Object.entries(TRIG)) if (!Object.hasOwn(FUNCTIONS, name)) FUNCTIONS[name] = fn;

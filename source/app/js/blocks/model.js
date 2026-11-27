@@ -32,7 +32,8 @@ const BLOCK_TYPES = [
   "dbview",
   "graph",
   "flow",
-  "math"
+  "math",
+  "plot"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);

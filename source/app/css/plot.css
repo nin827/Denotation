@@ -1,0 +1,70 @@
+/* function graphs: inline SVG drawn by ui/plotUi.js. Line colours come from the block variables (--blk-fg, --blk-grey)
+   and a per-line hue (--ph), so light, neutral and dark all work. Every line is named in the "y = ..." legend, so colour
+   never carries meaning alone; alternate lines are dashed as well. */
+.plot { margin: 4px 0; min-width: 0; }
+.plot-hit { max-width: 560px; border-radius: var(--radius); outline: none; }
+.plot-hit[role="button"] { cursor: pointer; }
+.plot-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.plot-svg { display: block; width: 100%; height: auto; max-width: 100%; overflow: visible; font-family: inherit; }
+.plot-frame { fill: var(--bg); stroke: var(--border-ctl); stroke-width: 1; }
+.plot-grid { fill: none; stroke: var(--border); stroke-width: 1; }
+.plot-axis { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+.plot-tick { fill: none; stroke: var(--muted); stroke-width: 1; }
+.plot-ticks text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.plot-line { fill: none; stroke: oklch(var(--blk-fg) var(--ph, 250)); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.plot-line.is-grey { stroke: var(--muted); }
+.plot-line.is-alt { stroke-dasharray: 7 3; }
+.plot-point circle { fill: var(--bg); stroke: var(--text); stroke-width: 2; }
+.plot-point text { fill: var(--text); font-size: 11px; font-family: inherit; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.plot-dot { fill: var(--text); }
+.plot-legend { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-md); }
+.plot-leg { display: inline-flex; align-items: center; gap: var(--sp-6); min-width: 0; overflow-wrap: anywhere; }
+.plot-eq { font-family: var(--mono); }
+.plot-sw { flex: none; width: 14px; height: 4px; border-radius: 2px; background: oklch(var(--blk-fg) var(--ph, 250)); }
+.plot-sw.is-grey { background: var(--muted); }
+.plot-note { color: var(--muted); font-style: italic; }
+.plot-err { display: inline-flex; align-items: center; gap: var(--sp-4); color: var(--danger); }
+.plot-err .icon-svg { width: 1em; height: 1em; display: inline-flex; flex: none; }
+.plot-err .icon-svg svg { width: 100%; height: 100%; }
+
+/* inline chip: a sparkline-sized graph in the text */
+.ichip-plot { cursor: pointer; padding: 0 4px; font: inherit; }
+.ichip-plot:hover, .ichip-plot:focus-visible { background: var(--bg-hover); }
+.ichip-plot .plot-svg { width: 96px; height: 28px; display: inline-block; vertical-align: middle; overflow: hidden; }
+.ichip-plot .plot-line { stroke-width: 1.6; }
+.ichip-plot .plot-frame { stroke: var(--border); }
+
+/* editor */
+.modal:has(.plot-edit) { width: min(820px, 100%); }
+.plot-edit { display: grid; gap: 12px; }
+.pe-preview { min-width: 0; }
+.pe-form { min-width: 0; }
+.pe-form h4 { margin: 12px 0 6px; font-size: var(--fs-ui); }
+.pe-form h4:first-child { margin-top: 0; }
+.pe-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-8); }
+.pe-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6); }
+.pe-row input[type="text"] { flex: 1 1 120px; min-width: 0; }
+.pe-row select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.pe-row .pe-err { flex: 1 1 100%; }
+.pe-y { font-family: var(--mono); color: var(--muted); }
+.pe-pt input { flex: 1 1 70px; }
+.pe-row button.icon { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+.pe-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-8); }
+.pe-field { margin-bottom: 0 !important; min-width: 0; }
+.pe-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.pe-err { display: flex; align-items: center; gap: var(--sp-4); color: var(--danger); font-size: var(--fs-md); }
+.pe-err:empty { display: none; }
+.pe-err .icon-svg { width: 1em; height: 1em; display: inline-flex; flex: none; }
+.pe-err .icon-svg svg { width: 100%; height: 100%; }
+.pe-check { display: flex !important; align-items: center; gap: var(--sp-6); margin: 8px 0 0 !important; }
+.pe-actions { margin-top: 6px; }
+.pe-help { margin: 6px 0; font-size: var(--fs-sm); }
+@media (min-width: 720px) {
+  .plot-edit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .pe-preview { position: sticky; top: 0; }
+}
+@media (max-width: 719px) {
+  .pe-preview { position: sticky; top: 0; z-index: 1; background: var(--bg); padding-bottom: 6px; }
+  .pe-preview .plot-svg { max-height: 34vh; }
+  .pe-preview .plot-legend { display: none; }
+}

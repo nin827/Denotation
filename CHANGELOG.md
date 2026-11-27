@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+Added: function graphs (block and inline chip) with an editor, drawn from the sandboxed formula engine; formulas gain
+trigonometry (SIN, COS, TAN, ATAN2, …).
+
 Added: inline math and math blocks (KaTeX, vendored for offline use) with an editor (live preview, symbol palette)
 and Markdown `$` / `$$` export and import.
 

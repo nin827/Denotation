@@ -29,6 +29,16 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
 `strict:"ignore"`, `maxSize:20`, `maxExpand:200`; output is built by KaTeX DOM calls, never `innerHTML`. UI in
 `ui/mathUi.js`, registered by `ui/plugins/math.js`. Tests: `work/test/math.test.js`, `work/test/e2e/math.cjs`.
 
+### Function graphs
+
+Block `{type:"plot", fns:[{expr, hue?}], xmin, xmax, ymin?, ymax?, points, grid}` and chip `{{plot:<json>}}` (short keys,
+argument ≤ 1000 characters, `PLOT_TOKEN_MAX` in `inline.js`). `js/plot/plot.js` is pure: `cleanPlot`, `compileExpr`
+(formula engine, `x` via the constant hook, then pi/e/tau and repository constants), `sampleFn` / `refineSamples`
+(401 samples, 120 ms / 1800-evaluation budget, breaks at poles and jumps), `plotModel`, `niceTicks`,
+`serializePlot` / `parsePlot` (Markdown fenced `plot` block), `plotToArg` / `plotFromArg`. UI in `ui/plotUi.js`,
+registered by `ui/plugins/plot.js`. Chip kinds may supply `action(el, ctx, apply)` for clicks (`chipAction`).
+Formula engine: SIN, COS, TAN, ASIN, ACOS, ATAN, ATAN2, SINH, COSH, TANH, CBRT, RADIANS, DEGREES (radians).
+
 ### Flowchart block
 
 Stored as `{ type: "flow", layout, dir, rotate, turn, spacing, nodes: [{id, text, shape, hue?, bg?}], edges: [{from, to,
