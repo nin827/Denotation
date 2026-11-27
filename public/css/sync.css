@@ -31,3 +31,17 @@
 @media (max-width: 480px) {
   .loc-mode { max-width: none; }
 }
+/* Add Google Drive / OneDrive dialog */
+.cloud-add { display: grid; gap: var(--sp-8); }
+.cloud-add label { display: grid; gap: var(--sp-4); }
+.cloud-add .set-label { margin: 0; }
+.cloud-add .hint { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.cloud-space { max-width: 340px; }
+.cloud-space button { padding: var(--sp-4) var(--sp-6); font-size: var(--fs-md); }
+@media (max-width: 480px) {
+  .cloud-space { max-width: none; }
+  .cloud-add input { font-size: 16px; }
+}
+@media (pointer: coarse) {
+  .cloud-space button { min-height: 44px; }
+}

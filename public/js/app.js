@@ -12,6 +12,7 @@ import { toast } from "./ui/dialogs.js";
 import { pickCsv } from "./ui/csvFile.js";
 import { createVaultUi } from "./ui/vaultUi.js";
 import { createFolderAdapter, folderSupported } from "./adapters/folder.js";
+import { handleRedirect, cloudConfigured } from "./adapters/oauth.js";
 import { renderDatabase } from "./ui/dbView.js";
 import { makePersistence, renderRowPage, renderHeader, renderDocPage, archiveWithConfirm } from "./ui/pageView.js";
 import { renderTrash, renderArchive, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
@@ -88,6 +89,7 @@ const lockUi = createLockScreen({
 });
 const lockNow = () => lockUi.lock();
 async function main() {
+  if ((await handleRedirect()).stop) return; // OAuth popup / iframe: the response went to the window that asked
   await finishPendingReset();
   if (hasPin()) await lockUi.lock(); // nothing is loaded or drawn before the PIN is entered
   lockUi.watchIdle();
@@ -103,7 +105,7 @@ async function main() {
   } catch (e) {
     return showFatal(e);
   }
-  if (folderSupported() && store.name === "local") store = createFolderAdapter(store, { keyring });
+  if ((folderSupported() || cloudConfigured()) && store.name === "local") store = createFolderAdapter(store, { keyring });
   if (store.auth) {
     store.auth.onChange((u) => u ? start(u) : showLogin());
   } else {

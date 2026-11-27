@@ -126,6 +126,19 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
     powers the footer counts. Connect, make main and permission grants run at once and start the cooldown.
   - **Backups**: copy-only. The app writes changed records, tombstones, `denotation.json` and `permissions.json` after each push / sync of the main (or on the push interval with no main), and when the page is hidden; never reads them during sync. Restore = JSON restore with fresh
     `updatedAt`.
+  - **Cloud providers:** `adapters/oauth.js` handles OAuth with no third-party script. Microsoft: code + PKCE with
+    rotating refresh tokens (24 h cap). Google: token response (a Web client needs a secret to redeem codes), renewed by a
+    hidden `prompt=none` iframe or a one-click popup. Random `state` + pending `oauth:<state>` record (10 min), nonce/aud/iss
+    checks on the Microsoft id_token, popup hand-off over a same-origin BroadcastChannel or a full-page redirect;
+    `handleRedirect()` runs first in `main()`. `authedFetch` retries network errors, 408/429/5xx and Drive rate limits
+    (Retry-After, ≤ 4) and renews once on 401 (else `NotAllowedError` → "needs permission"). `adapters/gdrive.js`: Drive v3,
+    name→id resolution, duplicates (newest wins, older deleted), search-lag merging, deletes to Drive trash.
+    `adapters/onedrive.js`: Graph `approot:/<folder>/<path>:`, If-Match on `denotation.json` / `keys.json` (a manifest
+    conflict rewrites ours with `rev` past both). A location's handle is a descriptor `{ cloud, v, tokenKey, folder,
+    space?, account }` at `loc:<id>`; its token is at `tok:<provider>:<hex>` in the same `handles` store and is deleted
+    with the location. Files over 4 MB are refused with a warning (`onCloudWarning`). Config:
+    `config.oauth.{google,microsoft}.clientId`, optional `redirectUri`. Tests: fakes in `test/fixtures/cloud-fakes.js`,
+    browser test `test/e2e/cloud.cjs`.
 - **`sync.js`** (pure): `planSync({ local, remote, localTombstones, remoteTombstones, direction: "merge"|"push"|"pull" })`
   returns `{ toLocal, toRemote, deleteLocal, deleteRemote, writeTombstones, removeTombstones, conflicts: { newerRemote,
   olderRemote } }`; `applyPlan(plan, io)` applies it. Merge is per-record last-write-wins on `updatedAt` (fallback

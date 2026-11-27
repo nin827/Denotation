@@ -534,7 +534,11 @@ In Chrome or Edge on a computer, **⋯ → Storage…** lets you choose where yo
 
 **Remove** stops using a location; its files stay where they are. After a restart, your browser may need your permission again: the footer says so, and your first click anywhere asks for all locations at once (Chrome can offer **Allow on every visit**).
 
-Other browsers (Firefox, Safari, phones) can't use folders. Use the ZIP export instead.
+Other browsers (Firefox, Safari, phones) can't use folders. Use Google Drive, OneDrive or the ZIP export instead.
+
+**Adding Google Drive or OneDrive.** Open **⋯ → Storage… → Add location…**, then choose Google Drive or OneDrive as main or as backup. Enter a workspace folder name (default "Denotation"; use the same name on every device). For Google Drive, pick **Folder in My Drive** (visible in Drive) or **Hidden app folder**. Press **Sign in…** and allow access in the window that opens. Denotation can only see the files it creates. If pop-ups are blocked, you can sign in in the same tab; the page reloads and adds the location.
+
+Google sign-ins last about an hour and OneDrive sign-ins about a day. When one runs out, the location shows **Signed out**: press **Sign in…** to resume; your edits stay in this browser meanwhile. Encryption, Pull / Push, auto sync and restoring from a backup work as they do for folders. Items over 4 MB stay in this browser only (a warning says so). If the menu says **Not configured**, the site owner hasn't added a client ID yet.
 
 ### Let an AI assistant use your workspace
 

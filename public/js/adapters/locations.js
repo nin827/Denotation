@@ -4,21 +4,33 @@
 //   seen: the main's manifest stamp ({ rev, writer, updatedAt }) this device last synced with, or null.
 // - Directory handles in IndexedDB (db "denotation", store "handles"), keyed "loc:<id>". The old single
 //   handle (key "folder", before locations existed) is migrated to a main location on first load.
-// - A provider is the file-level interface the sync code talks to, so Google Drive / OneDrive can plug in
-//   later with the same shape:
+// - A provider is the file-level interface the sync code talks to; Google Drive (gdrive.js) and OneDrive
+//   (onedrive.js) plug in with the same shape:
 //     { type, name, handle?, permission(request) -> "granted"|"prompt"|"denied",
 //       readText(path) -> string|null, writeText(path, text), remove(path), list(dir) -> [{ name, kind }] }
 //   Paths are "<dir>/<file>" or "<file>" relative to the location root.
+// - Cloud locations store a plain descriptor as their "handle" ({ cloud: "gdrive" | "onedrive", tokenKey, folder,
+//   ... }); their OAuth token sits next to it in the same store under its tokenKey ("tok:<provider>:<hex>") and is
+//   deleted with the location.
 
 import { manifestStamp } from "../sync.js";
+import { gdriveProvider, sanitizeGdriveHandle } from "./gdrive.js";
+import { onedriveProvider, sanitizeOnedriveHandle } from "./onedrive.js";
+import { clientId } from "./oauth.js";
 
 export const LOCATIONS_KEY = "denotion:storage-locations";
 export const SYNC_MODE_KEY = "denotion:folder-sync";
 export const LOCATION_TYPES = [
   { type: "folder", label: "Folder", available: true },
-  { type: "gdrive", label: "Google Drive", available: false },
-  { type: "onedrive", label: "OneDrive", available: false }
+  { type: "gdrive", label: "Google Drive", available: true, oauth: "google" },
+  { type: "onedrive", label: "OneDrive", available: true, oauth: "microsoft" }
 ];
+const TYPES = new Set(LOCATION_TYPES.map((t) => t.type));
+/** Cloud types need a client ID in config.js (set by the site owner). */
+export const locationTypeConfigured = (type, cfg) => {
+  const t = LOCATION_TYPES.find((x) => x.type === type);
+  return !!t && (!t.oauth || !!clientId(t.oauth, cfg));
+};
 const ID_RE = /^loc-[A-Za-z0-9-]{1,40}$/;
 const newId = () => `loc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -97,7 +109,7 @@ export function sanitizeLocations(list) {
   const out = [];
   let main = false;
   for (const l of Array.isArray(list) ? list : []) {
-    if (!l || typeof l !== "object" || !ID_RE.test(String(l.id)) || l.type !== "folder") continue;
+    if (!l || typeof l !== "object" || !ID_RE.test(String(l.id)) || !TYPES.has(l.type)) continue;
     if (out.some((x) => x.id === l.id)) continue;
     const role = l.role === "main" && !main ? "main" : "backup";
     if (role === "main") main = true;
@@ -181,9 +193,19 @@ export function createLocationRegistry({ storage, handles } = {}) {
     newId,
     list: () => read() ?? [],
     save: write,
-    getHandle: (id) => hs.get(`loc:${id}`),
+    /** The stored handle; a cloud descriptor comes back as its provider (reading tokens from this store). */
+    async getHandle(id) {
+      const h = await hs.get(`loc:${id}`);
+      return cloudProvider(h, { handles: hs }) ?? h;
+    },
     putHandle: (id, h) => hs.put(`loc:${id}`, h),
-    deleteHandle: (id) => hs.delete(`loc:${id}`),
+    /** Forget a location's handle and, for a cloud location, its sign-in token. */
+    async deleteHandle(id) {
+      const h = await hs.get(`loc:${id}`).catch(() => null);
+      const tok = sanitizeGdriveHandle(h)?.tokenKey ?? sanitizeOnedriveHandle(h)?.tokenKey;
+      if (tok) await hs.delete(tok);
+      await hs.delete(`loc:${id}`);
+    },
     /** First run with locations: turn the old single remembered folder into the main location. */
     async migrate(now = Date.now()) {
       const current = read();
@@ -268,4 +290,11 @@ export function folderProvider(dir) {
     }
   };
 }
-export const asProvider = (x) => (x && typeof x.readText === "function" ? x : folderProvider(x));
+/** A cloud descriptor's provider, or null when `h` isn't one. A damaged descriptor throws. */
+export function cloudProvider(h, deps = {}) {
+  if (!h || typeof h !== "object" || typeof h.readText === "function") return null;
+  if (h.cloud === "gdrive") return gdriveProvider(h, deps);
+  if (h.cloud === "onedrive") return onedriveProvider(h, deps);
+  return null;
+}
+export const asProvider = (x) => (x && typeof x.readText === "function" ? x : cloudProvider(x) ?? folderProvider(x));

@@ -113,10 +113,10 @@ Full details in `README_TECHNICAL.md`. In short:
    "Share → Add to Home Screen"). Call `navigator.storage.persist()`.
 2. **Local storage upgrade.** `js/adapters/indexeddb.js` (same interface) as the working cache, with a one-time
    migration from localStorage. (Folder locations, main + backups, auto/manual sync and tombstones are done.)
-3. **Google Drive sync.** Google Identity Services token flow, scope `drive.appdata` (or `drive.file`), Web OAuth
+3. **Google Drive sync (built, untested against the real service; see ticket 020).** Hand-written OAuth token flow (no GIS script), scope `drive.appdata` (or `drive.file`), Web OAuth
    client with the Pages origin. Tokens last ~1 h with no refresh token, so re-authorise quietly. Check whether the scope
    needs Google verification. GIS is a Google-hosted script: confirm with the owner, or use a hand-written OAuth redirect flow.
-4. **OneDrive sync.** Microsoft identity platform auth-code + PKCE (SPA, redirect = Pages URL), scope
+4. **OneDrive sync (built, untested against the real service).** Microsoft identity platform auth-code + PKCE (SPA, redirect = Pages URL), scope
    `Files.ReadWrite.AppFolder`, Graph over CORS. Refresh tokens last ~24 h.
 5. **Sync design** (implemented in `js/sync.js` for folders): per-record last-write-wins on `updatedAt`, tombstones,
    main + copy-only backups, auto/manual with Pull/Push warnings, status in the sidebar footer. Still to do: chunk or

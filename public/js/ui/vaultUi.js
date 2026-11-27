@@ -9,12 +9,18 @@ import { saveTextFile, saveBinaryFile } from "./files.js";
 import { createZip, readZip } from "../zip.js";
 import { toJsonFiles, toMarkdownFiles, importFiles } from "../vault.js";
 import { folderSupported } from "../adapters/folder.js";
-import { LOCATION_TYPES, PUSH_MINUTES } from "../adapters/locations.js";
+import { LOCATION_TYPES, PUSH_MINUTES, locationTypeConfigured, cloudProvider } from "../adapters/locations.js";
+import { connectGdrive, gdriveName, cleanFolderName } from "../adapters/gdrive.js";
+import { connectOnedrive, onedriveName } from "../adapters/onedrive.js";
+import { tokenStore, onCloudWarning, takeRedirectNotice } from "../adapters/oauth.js";
 import { openUnlockKeyDialog } from "./security.js";
 
 const READ_EXT = /\.(md|markdown|csv|tsv|json|png|jpe?g|gif|webp)$/i;
 const READ_MAX = 256 * 1024 * 1024;
 const NO_FOLDERS = "Folders need Chrome or Edge on a computer. Use ZIP instead.";
+const NOT_CONFIGURED = "Not configured \u2014 the site owner must add a client ID";
+const CLOUD = { gdrive: "Google Drive", onedrive: "OneDrive" };
+const locIcon = (type) => (CLOUD[type] ? "cloud" : "folder");
 const today = () => new Date().toISOString().slice(0, 10);
 const aborted = (e) => e?.name === "AbortError";
 
@@ -412,6 +418,82 @@ export function createVaultUi(ctx) {
     else if (r.counts) toast(`Syncing with "${name}"${r.counts.pulled || r.counts.pushed ? `: ${r.counts.pulled} loaded, ${r.counts.pushed} saved` : ""}.`);
     else toast(`Added "${name}". Click anywhere to allow access.`);
   });
+  /**
+   * Google Drive / OneDrive: ask for the workspace folder name (and, for Drive, where it lives), then sign in.
+   * The sign-in popup must open inside the click, so the dialog's button starts it before anything is awaited.
+   */
+  const addCloud = (type, role) => {
+    const label = CLOUD[type];
+    const folder = h("input", { type: "text", class: "cloud-folder", value: "Denotation", maxlength: 60, autocomplete: "off", spellcheck: "false" });
+    let space = "drive";
+    const seg = h("div", { class: "seg cloud-space", role: "group", "aria-label": "Where in Google Drive" });
+    const drawSeg = () => seg.replaceChildren(...[["drive", "Folder in My Drive"], ["appdata", "Hidden app folder"]].map(([v, text]) => h("button", {
+      type: "button",
+      "aria-pressed": String(space === v),
+      onClick: () => {
+        space = v;
+        drawSeg();
+      }
+    }, space === v ? ico("check") : null, text)));
+    drawSeg();
+    const nameFor = () => (type === "gdrive" ? gdriveName({ folder: cleanFolderName(folder.value), space }) : onedriveName({ folder: cleanFolderName(folder.value) }));
+    const body = h("div", { class: "cloud-add" },
+      h("label", {}, "Workspace folder", folder),
+      type === "gdrive" ? h("p", { class: "set-label" }, "Where") : null,
+      type === "gdrive" ? seg : null,
+      h("p", { class: "hint" }, type === "gdrive"
+        ? "Denotation can only see the files it creates. \u201cFolder in My Drive\u201d is visible in Drive; the hidden app folder isn't (Drive settings \u203a Manage apps can delete it)."
+        : "Files go to Apps \u203a Denotation in your OneDrive. Denotation can't see your other files."),
+      h("p", { class: "hint" }, `${role === "main" ? "The main location syncs both ways." : "A backup only receives copies."} Use the same folder name on every device.`));
+    openModal({
+      title: `${label} as ${role === "main" ? (mainLoc() ? "new main" : "main") : "backup"}`,
+      content: body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Sign in\u2026", class: "primary cloud-signin", run: () => {
+          const name = cleanFolderName(folder.value);
+          if (!name) throw new Error("Use a folder name of 1\u201360 characters without / \\ : * ? \" < > | # %.");
+          if (st().locations.some((l) => l.type === type && l.name === nameFor())) throw new Error(`"${nameFor()}" is already connected.`);
+          const opts = { folder: name, space, role };
+          const started = type === "gdrive" ? connectGdrive(opts) : connectOnedrive(opts); // opens the popup now
+          finishCloud(type, role, opts, started);
+        } }
+      ]
+    });
+    folder.focus();
+  };
+  const finishCloud = (type, role, opts, started) => run("Add location", async () => {
+    let r;
+    try {
+      r = await started;
+    } catch (e) {
+      if (e?.code === "access_denied") return toast("Sign-in was cancelled.");
+      if (e?.code !== "popup-blocked") throw e;
+      const ok = await confirmDialog(`The sign-in window was blocked. Sign in to ${CLOUD[type]} in this tab instead? Denotation reloads when you come back, and adds the location then.`, { title: "Sign in in this tab", confirmLabel: "Continue", danger: false });
+      if (!ok) return;
+      await ctx.flush();
+      await store.flush().catch(() => {});
+      return void (type === "gdrive" ? connectGdrive({ ...opts, mode: "redirect" }) : connectOnedrive({ ...opts, mode: "redirect" }));
+    }
+    await ctx.flush();
+    let added;
+    try {
+      added = await store.addLocation(cloudProvider(r.handle), { role });
+    } catch (e) {
+      await tokenStore().delete(r.handle.tokenKey).catch(() => {});
+      if (e?.code === "locked") {
+        const loc = st().locations.find((l) => l.state === "locked" && l.type === type);
+        if (loc && /unlock to sync/.test(loc.error)) return unlockLoc(loc);
+      }
+      throw e;
+    }
+    const loc = st().locations.find((l) => l.id === added.id);
+    const name = loc?.name ?? CLOUD[type];
+    if (loc?.state === "error") toast(`Added "${name}", but it failed: ${loc.error}`, "error");
+    else if (role === "backup") toast(`Backing up to "${name}".`);
+    else if (added.counts?.manual) toast(`"${name}" is the main location. Manual sync: use Pull or Push.`);
+    else toast(`Syncing with "${name}"${added.counts?.pulled || added.counts?.pushed ? `: ${added.counts.pulled} loaded, ${added.counts.pushed} saved` : ""}.`);
+  });
   const makeMain = (loc) => run("Make main", async () => {
     const ok = await confirmDialog(`Make "${loc.name}" the main location? It syncs both ways from now on${mainLoc() ? ` and "${mainLoc().name}" becomes a backup` : ""}. ${store.mode === "manual" ? "Manual mode: nothing changes until you Pull or Push." : "The first sync keeps the newest version of each item."}`, { title: "Make main", confirmLabel: "Make main", danger: false });
     if (!ok) return;
@@ -451,8 +533,13 @@ export function createVaultUi(ctx) {
       ]
       : [{ label: NO_FOLDERS, disabled: true }]),
     { header: true, label: "Cloud" },
-    ...LOCATION_TYPES.filter((t) => !t.available).map((t) => ({ label: `${t.label} (coming soon)`, icon: ico("cloud"), disabled: true }))
-  ], { width: 250 });
+    ...LOCATION_TYPES.filter((t) => CLOUD[t.type]).flatMap((t) => (locationTypeConfigured(t.type)
+      ? [
+        { label: mainLoc() ? `${t.label} as new main\u2026` : `${t.label} as main\u2026`, icon: ico("cloud-sync"), hint: mainLoc() ? "current main \u2192 backup" : "", onSelect: () => addCloud(t.type, "main") },
+        { label: `${t.label} as backup\u2026`, icon: ico("cloud-upload"), onSelect: () => addCloud(t.type, "backup") }
+      ]
+      : [{ label: `${t.label}: ${NOT_CONFIGURED}`, icon: ico("cloud-off"), disabled: true }]))
+  ], { width: 270 });
   const locRow = (loc) => {
     const isMain = loc.role === "main";
     const s = st();
@@ -463,8 +550,8 @@ export function createVaultUi(ctx) {
     return h(
       "li",
       { class: `loc-row${isMain ? " main" : ""}` },
-      h("div", { class: "loc-head" }, ico("folder"), h("strong", { class: "loc-name" }, loc.name || "Folder"), h("span", { class: "chip" }, isMain ? "Main" : "Backup"), loc.encrypted ? h("span", { class: "chip enc-chip" }, ico("lock-keyhole"), " Encrypted") : null),
-      h("div", { class: "hint loc-meta" }, `${type} · ${STATE_LABEL[loc.state] ?? loc.state}${loc.error ? `: ${loc.error}` : ""} · last ${isMain ? "synced" : "copied"} ${when(loc.lastSyncAt)}`),
+      h("div", { class: "loc-head" }, ico(locIcon(loc.type)), h("strong", { class: "loc-name" }, loc.name || type), h("span", { class: "chip" }, isMain ? "Main" : "Backup"), loc.encrypted ? h("span", { class: "chip enc-chip" }, ico("lock-keyhole"), " Encrypted") : null),
+      h("div", { class: "hint loc-meta" }, `${type} · ${(CLOUD[loc.type] && loc.state === "needs-permission" ? "Signed out" : STATE_LABEL[loc.state]) ?? loc.state}${loc.error ? `: ${loc.error}` : ""} · last ${isMain ? "synced" : "copied"} ${when(loc.lastSyncAt)}`),
       isMain && !needs
         ? h(
           "div",
@@ -497,7 +584,7 @@ export function createVaultUi(ctx) {
       h(
         "div",
         { class: "loc-actions" },
-        loc.state === "needs-permission" ? btn("Reconnect", "refresh-cw", reconnectAll) : null,
+        loc.state === "needs-permission" ? btn(CLOUD[loc.type] ? "Sign in\u2026" : "Reconnect", CLOUD[loc.type] ? "log-in" : "refresh-cw", reconnectAll) : null,
         locked && /unlock to sync/.test(loc.error) ? btn("Unlock…", "lock-keyhole-open", () => unlockLoc(loc), "loc-unlock") : null,
         isMain && !needs ? btn(coolLabel("Pull"), "download", () => transfer("pull"), "", !!coolLeft()) : null,
         isMain && !needs ? btn(coolLabel("Push"), "upload", () => transfer("push"), "", !!coolLeft()) : null,
@@ -546,6 +633,14 @@ export function createVaultUi(ctx) {
       renderDialog?.();
     });
     store.onRemoteChange(() => ctx.onRemote());
+    const warned = new Set();
+    onCloudWarning((w) => {
+      if (w?.type !== "too-large" || warned.has(`${w.location}/${w.path}`)) return;
+      warned.add(`${w.location}/${w.path}`);
+      toast(`${w.path} is too large (${Math.ceil(w.size / 1048576)} MB) for "${w.location}" and wasn't copied there. It is kept in this browser.`, "error");
+    });
+    const notice = takeRedirectNotice();
+    if (notice) toast(notice.text, notice.kind === "error" ? "error" : "info");
     const r = await store.init();
     if (r.needsPermission.length) arm();
   }
@@ -597,7 +692,7 @@ export function createVaultUi(ctx) {
     if (!m) lines.push(h("div", {}, where + backups));
     else {
       const tag = { syncing: " · syncing…", "needs-permission": " · paused", locked: " · locked", error: " · error" }[m.state] ?? "";
-      lines.push(h("div", { title: "Pages sync with the main location and are cached in this browser." }, ico("folder"), ` Main: ${m.name}${tag}${s.mode === "manual" ? " · manual" : ""}${backups}${user ? ` · ${user}` : ""}`));
+      lines.push(h("div", { title: "Pages sync with the main location and are cached in this browser." }, ico(locIcon(m.type)), ` Main: ${m.name}${tag}${s.mode === "manual" ? " · manual" : ""}${backups}${user ? ` · ${user}` : ""}`));
       if (s.mode === "auto" && m.state !== "needs-permission" && s.unpushed) {
         lines.push(h("div", { class: "note sync-pending", role: "status", title: "Pushed to the main location at the interval set in Storage, and when this tab is hidden or closed." }, autoPending(s)));
         watchMinutes();
@@ -618,8 +713,8 @@ export function createVaultUi(ctx) {
       lines.push(h(
         "div",
         { class: "note", role: "status" },
-        `Click anywhere to resume ${waiting.map((l) => `"${l.name}"`).join(", ")}. `,
-        h("button", { class: "folder-reconnect", onClick: reconnectAll }, ico("refresh-cw"), " Reconnect")
+        waiting.every((l) => CLOUD[l.type]) ? `Sign in again to resume ${waiting.map((l) => `"${l.name}"`).join(", ")}. ` : `Click anywhere to resume ${waiting.map((l) => `"${l.name}"`).join(", ")}. `,
+        h("button", { class: "folder-reconnect", onClick: reconnectAll }, ico("refresh-cw"), waiting.every((l) => CLOUD[l.type]) ? " Sign in\u2026" : " Reconnect")
       ));
     }
     for (const l of s.locations.filter((x) => x.state === "locked")) {
