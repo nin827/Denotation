@@ -12,11 +12,15 @@ import {
   HEADING_STEP,
   HEADING_INTERCEPT,
   PRESETS,
-  DEFAULTS
+  DEFAULTS,
+  ACCENT_HUES,
+  resolveAccent,
+  accentTokens,
+  effectiveDark
 } from "../prefs.js";
 
 const KEY = "denotion:prefs";
-const TOKEN_NAMES = ["--bg", "--bg-soft", "--bg-hover", "--border", "--scrim", "--text", "--muted", "--accent", "--on-accent", "color-scheme"];
+const TOKEN_NAMES = ["--bg", "--bg-soft", "--bg-hover", "--border", "--scrim", "--text", "--muted", "--accent", "--accent-soft", "--accent-ink", "--accent-h", "--accent-c", "--on-accent", "color-scheme"];
 export function loadPrefs() {
   try {
     return sanitizePrefs(JSON.parse(localStorage.getItem(KEY)));
@@ -30,9 +34,23 @@ export function savePrefs(p) {
   } catch {
   }
 }
+let randomHue = null;
+const pageEnv = () => ({
+  theme: document.documentElement.dataset.theme,
+  prefersDark: !!(window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches)
+});
+// The accent actually in use: "random" is drawn once per page load and never gives grey.
+export function currentAccent(p) {
+  if (p.accent !== "random") return p.accent;
+  if (randomHue === null) randomHue = resolveAccent("random");
+  return randomHue;
+}
 export function applyPrefs(p) {
   const root = document.documentElement;
-  const t = tokens(p);
+  const acc = currentAccent(p);
+  const t = tokens(p, acc, pageEnv());
+  if (acc === "grey") root.dataset.accent = "grey";
+  else delete root.dataset.accent;
   for (const name of TOKEN_NAMES) {
     if (name in t) root.style.setProperty(name, t[name]);
     else root.style.removeProperty(name);
@@ -81,6 +99,25 @@ export function openSettings({ prefs: prefs, onChange }) {
       h("label", {}, label),
       input,
       h("button", { class: "icon", title: `Reset ${label.toLowerCase()}`, "aria-label": `Reset ${label}`, disabled: !cur[key], onClick: () => set({ [key]: "" }) }, ico("rotate-ccw"))
+    );
+  }
+  function swatches() {
+    const dark = effectiveDark(cur, pageEnv());
+    const mk = (value, label, extra, child) => h("button", {
+      class: `swatch${extra ? " " + extra : ""}`,
+      type: "button",
+      title: label,
+      "aria-label": label,
+      "aria-pressed": String(cur.accent === value),
+      style: value === "random" ? null : `--sw:${accentTokens(value, dark)["--accent"]};--sw-on:${dark ? "#16150f" : "#ffffff"}`,
+      onClick: () => set({ accent: value })
+    }, cur.accent === value ? ico("check") : child ?? null);
+    return h(
+      "div",
+      { class: "swatch-grid", role: "group", "aria-label": "Accent color" },
+      mk("random", "Random", "swatch-random"),
+      ACCENT_HUES.map((hue) => mk(hue, `Hue ${hue}`)),
+      mk("grey", "Grey")
     );
   }
   const stepsPreview = h("p", { class: "hint steps-preview" });
@@ -179,12 +216,13 @@ export function openSettings({ prefs: prefs, onChange }) {
           class: "preset",
           title: pr.label,
           "aria-label": pr.label,
-          onClick: () => set({ bg: pr.bg, text: pr.text, accent: pr.accent }),
-          style: pr.bg ? `background:${pr.bg};color:${pr.text};border-color:${pr.accent}` : null
+          onClick: () => set({ bg: pr.bg, text: pr.text }),
+          style: pr.bg ? `background:${pr.bg};color:${pr.text}` : null
         }, pr.bg ? "Aa" : ico("rotate-ccw")))),
         colorRow("Background", "bg", "--bg", "#ffffff"),
         colorRow("Font color", "text", "--text", "#1f2530"),
-        colorRow("Accent color", "accent", "--accent", "#2a6fdb")
+        h("h4", {}, "Accent"),
+        swatches()
       ),
       h(
         "section",

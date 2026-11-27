@@ -57,7 +57,7 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 ## Testing
 
 ```bash
-npm test                     # node --test test/  (built-in runner only)
+npm test                     # node --test test/*.test.js  (built-in runner only)
 node test/e2e/smoke.cjs      # Playwright smoke test on port 8099
 ```
 - Add `node:test` unit tests (seeded fuzz where useful) for pure logic modules as they're touched: `schema`, `dbviews`,

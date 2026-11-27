@@ -13,7 +13,7 @@ How Denotation is built, how to run and test it, and where things live. For usin
 
 ```bash
 npm start                  # python3 -m http.server 8080 -d public  ->  http://localhost:8080
-npm test                   # node --test test/  (unit tests, built-in runner, no packages)
+npm test                   # node --test test/*.test.js  (unit tests, built-in runner, no packages)
 node test/e2e/smoke.cjs    # browser smoke test on port 8099 (needs Playwright + Chromium, dev-only)
 ```
 
