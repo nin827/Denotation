@@ -17,4 +17,7 @@ Plan:
   Columns-as-JSON (ticket 010) includes `columnGroups`.
 - Collapsed state is per view. Groups themselves are per database.
 
-Open question: should groups also nest (a group inside a group), or is one level enough?
+## Owner decision
+Groups can nest, **two levels at most**: a group may hold columns and subgroups; a subgroup holds only columns.
+Stored as `columnGroups: [{ id, label, parentId?, colIds }]` (a `parentId` must point to a top-level group).
+Table and sheet then show up to two label rows above the column names. Moving a subgroup moves its columns with it.
