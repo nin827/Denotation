@@ -1,6 +1,6 @@
 # 002: "Denotion" or "Denotation"?
 
-Status: decided: Denotation (to do)
+Status: resolved (visible name is Denotation; keys keep denotion:)
 Raised: 2026-11-27
 
 The repo is called Denotation, but the app shows "Denotion": sidebar brand, `<title>`, export files

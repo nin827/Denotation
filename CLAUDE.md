@@ -14,6 +14,8 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
   Dev-only exception: Playwright (preinstalled) for the browser smoke test.
 - **Served over HTTP:** `npm start` (`python3 -m http.server 8080 -d public`, binds 127.0.0.1). Port 8080 is the
   owner's real data; agents test on **8090–8099**, never 8080.
+- After adding, removing or renaming any file under `public/`, run `node tools/gen-sw-files.mjs` (service-worker
+  precache list; `test/pwa.test.js` checks it).
 - Every path is relative (GitHub Pages serves under `/<repo>/`). No leading `/` in fetches, imports or links.
 - No native `alert` / `confirm` / `prompt` (use `ui/dialogs.js`, `ui/modal.js`).
 - Never put personal details (names, emails) in project files.
@@ -104,7 +106,7 @@ Full details in `README_TECHNICAL.md`. In short:
 
 ## Roadmap: GitHub Pages + PWA + local files + cloud sync (feasible, no backend)
 
-1. **Deploy + PWA.** GitHub Actions workflow publishing `public/` to Pages, plus `.nojekyll`. `manifest.webmanifest`
+1. **Deploy + PWA (done).** GitHub Actions workflow publishing `public/` to Pages, plus `.nojekyll`. `manifest.webmanifest`
    (relative `start_url`/`scope` `./`), icons generated in house, `sw.js` (precache app shell, versioned
    `CACHE_VERSION`, stale-while-revalidate for same-origin GETs, never cache cross-origin, delete old caches on
    activate). "Update available · Reload" toast. Install button in Settings (`beforeinstallprompt`; iOS shows
