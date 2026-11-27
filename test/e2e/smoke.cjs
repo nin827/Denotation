@@ -35,6 +35,15 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await page.waitForSelector(".modal");
     await page.keyboard.press("Escape");
     await page.waitForSelector(".modal", { state: "detached" });
+    // Storage dialog (only where the folder adapter is active): opens, lists nothing yet, closes
+    await page.locator(".act-more").click();
+    if (await page.locator(".menu-item", { hasText: "Storage" }).count()) {
+      await page.locator(".menu-item", { hasText: "Storage" }).click();
+      await page.waitForSelector(".storage-dialog");
+      if (!(await page.locator(".modal-actions .loc-add").count())) errs.push("Storage dialog: no Add location button");
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".modal", { state: "detached" });
+    } else await page.keyboard.press("Escape");
     // Feedback: write with the block editor, file it, find it in the Feedback database
     await page.locator(".act-more").click();
     await page.locator(".menu-item", { hasText: "Feedback" }).click();

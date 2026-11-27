@@ -203,8 +203,11 @@ test("writes with and without permission; permissions.json never modified", asyn
   const delRow = await s.call("delete_row", { id: "row-eggs" });
   assert.equal(delRow.error, false, delRow.text);
   assert.ok(!fs.existsSync(path.join(dir, "rows", "row-eggs.json")));
-  const tombs = JSON.parse(fs.readFileSync(path.join(dir, "rows", ".deleted.json"), "utf8"));
-  assert.ok(tombs.deleted["row-eggs"] > NOW);
+  const tomb = JSON.parse(fs.readFileSync(path.join(dir, "tombstones", "row-eggs.json"), "utf8"));
+  assert.equal(tomb.id, "row-eggs");
+  assert.equal(tomb.collection, "rows");
+  assert.ok(tomb.deletedAt > NOW);
+  assert.ok(!fs.existsSync(path.join(dir, "rows", ".deleted.json")), "no legacy delete log is written");
 
   // delete_page on the database is allowed (granular delete yes; rows inherit) and only trashes it
   const delDb = await s.call("delete_page", { id: "db-groc" });

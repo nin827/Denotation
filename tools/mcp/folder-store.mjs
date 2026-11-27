@@ -1,6 +1,6 @@
 // File access for the Denotation MCP server: reads and writes the Denotation JSON folder layout
 // (denotation.json, pages/<id>.json, rows/<id>.json) with strict path rules:
-//   - writes only pages/<id>.json, rows/<id>.json and rows/.deleted.json (external delete log)
+//   - writes only pages/<id>.json, rows/<id>.json and tombstones/<id>.json (delete markers)
 //   - never writes permissions.json (or anything else)
 //   - never follows symlinks; pages/ and rows/ must be real directories inside the folder
 //   - writes go to a temp file in the same directory, then rename
@@ -12,12 +12,11 @@ import { sanitize, PERMISSIONS_FILE } from "../../public/js/permissions.js";
 
 export const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
 const FILE_RE = /^([A-Za-z0-9-]{1,100})\.json$/;
-const WRITABLE_RE = /^(?:[A-Za-z0-9-]{1,100}|\.deleted)\.json$/;
 const COLS = ["pages", "rows"];
+const DIRS = [...COLS, "tombstones"]; // tombstones/ is written, never read as records
 const READ_MAX = 5 * 1024 * 1024; // skip absurdly large files
 export const RECORD_MAX = 250 * 1024; // same limit the app keeps per record
-export const TOMBS_FILE = ".deleted.json";
-const TOMBS_KEEP_MS = 90 * 24 * 3600 * 1000;
+export const TOMBS_DIR = "tombstones";
 
 export class FolderStore {
   constructor(folder, { readOnly = false, permissionsPath = null } = {}) {
@@ -41,8 +40,8 @@ export class FolderStore {
 
   /** Resolve <col>/<name> inside the folder, refusing anything that could escape it. */
   async safePath(col, name, { forWrite = false } = {}) {
-    if (!COLS.includes(col)) throw new Error("Denotation: refused path outside pages/ and rows/.");
-    if (!(forWrite ? WRITABLE_RE : FILE_RE).test(name) && name !== TOMBS_FILE) throw new Error("Denotation: refused unsafe file name.");
+    if (!DIRS.includes(col)) throw new Error("Denotation: refused path outside pages/, rows/ and tombstones/.");
+    if (!FILE_RE.test(name)) throw new Error("Denotation: refused unsafe file name.");
     const dir = path.join(this.root, col);
     let st = await fs.lstat(dir).catch(() => null);
     if (!st && forWrite) {
@@ -126,17 +125,15 @@ export class FolderStore {
     await this.writeAtomic(file, text);
   }
 
-  /** Delete rows/<id>.json and log it in rows/.deleted.json so the app drops its cached copy. */
+  /**
+   * Delete rows/<id>.json and write tombstones/<id>.json ({ id, collection, deletedAt }) so the app
+   * (and other devices) drop their copies instead of writing them back. The app prunes old tombstones.
+   */
   async deleteRow(id) {
     this.assertWritable();
     if (!ID_RE.test(id)) throw new Error("Denotation: invalid id.");
-    const logFile = await this.safePath("rows", TOMBS_FILE, { forWrite: true });
-    const log = (await this.readJson(logFile)) ?? {};
-    const now = Date.now();
-    const deleted = {};
-    for (const [k, at] of Object.entries(log.deleted ?? {})) if (ID_RE.test(k) && Number(at) > now - TOMBS_KEEP_MS) deleted[k] = Number(at);
-    deleted[id] = now;
-    await this.writeAtomic(logFile, JSON.stringify({ app: "denotation", note: "Rows deleted outside the app (AI assistant).", deleted }, null, 2));
+    const tomb = await this.safePath(TOMBS_DIR, `${id}.json`, { forWrite: true });
+    await this.writeAtomic(tomb, JSON.stringify({ id, collection: "rows", deletedAt: Date.now() }, null, 2));
     const file = await this.safePath("rows", `${id}.json`, { forWrite: true });
     await fs.rm(file, { force: true });
   }

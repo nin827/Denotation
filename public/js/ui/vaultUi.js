@@ -1,4 +1,5 @@
-// Export / import menus (JSON file, ZIP, folder) and the "Connect folder" live-storage controls.
+// Export / import menus (JSON file, ZIP, folder) and the Storage dialog (main location + backups,
+// sync mode, Pull / Push with warnings, restore from a backup).
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openMenu } from "./popover.js";
@@ -7,7 +8,8 @@ import { toast, confirmDialog } from "./dialogs.js";
 import { saveTextFile, saveBinaryFile } from "./files.js";
 import { createZip, readZip } from "../zip.js";
 import { toJsonFiles, toMarkdownFiles, importFiles } from "../vault.js";
-import { folderSupported, saveHandle, loadHandle, clearHandle } from "../adapters/folder.js";
+import { folderSupported } from "../adapters/folder.js";
+import { LOCATION_TYPES } from "../adapters/locations.js";
 
 const READ_EXT = /\.(md|markdown|csv|tsv|json|png|jpe?g|gif|webp)$/i;
 const READ_MAX = 256 * 1024 * 1024;
@@ -126,102 +128,248 @@ export function createVaultUi(ctx) {
     await doImport(files, { name: dir.name || "Imported" });
   });
 
-  // ---------- live folder ----------
-  const connectNow = async (handle, { quiet = false } = {}) => {
-    await ctx.flush();
-    const c = await store.connect(handle);
-    if (!quiet || c.pulled) toast(`Syncing to "${store.status().folderName}"${c.pulled || c.pushed ? `: ${c.pulled} loaded, ${c.pushed} saved` : ""}.`);
-  };
-  const resume = (handle) => {
-    resuming ??= (async () => {
-      try {
-        const p = await handle.requestPermission({ mode: "readwrite" });
-        if (p === "granted") await connectNow(handle);
-        else toast(`No access to "${handle.name}". Changes stay in this browser until you reconnect.`, "error");
-      } catch (e) {
-        toast(`Could not reconnect the folder: ${e?.message ?? e}`, "error");
-      } finally {
-        resuming = null;
-      }
-    })();
-    return resuming;
-  };
+  // ---------- storage locations (main + backups) ----------
+  const st = () => store.status();
+  const mainLoc = () => st().locations.find((l) => l.role === "main") ?? null;
+  const backupLocs = () => st().locations.filter((l) => l.role === "backup");
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  const when = (t) => (t ? new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "never");
+  const STATE_LABEL = { synced: "Connected", syncing: "Syncing…", "needs-permission": "Needs permission", error: "Error" };
+
+  const reconnectAll = () => run("Reconnect", async () => {
+    disarm();
+    const failed = await store.requestPermissions();
+    if (failed.length) toast(`No access to ${failed.map((n) => `"${n}"`).join(", ")}. Changes stay in this browser until you reconnect.`, "error");
+  });
   const disarm = () => {
     if (!armed) return;
     window.removeEventListener("pointerdown", armed, true);
     window.removeEventListener("keydown", armed, true);
     armed = null;
   };
-  const arm = (handle) => {
+  /** One user gesture anywhere asks for access to every location that needs it. */
+  const arm = () => {
     disarm();
     armed = () => {
       disarm();
-      resume(handle);
+      resuming ??= reconnectAll().finally(() => {
+        resuming = null;
+      });
     };
     window.addEventListener("pointerdown", armed, true);
     window.addEventListener("keydown", armed, true);
   };
-  const reconnect = () => run("Reconnect", async () => {
-    disarm();
-    const handle = await loadHandle();
-    if (!handle) throw new Error("No folder is remembered. Use Connect folder.");
-    await resume(handle);
+
+  // Titles for the warning lists: page title, or a row's first column value.
+  const titleOf = async (c) => {
+    const r = c.local ?? c.remote;
+    if (c.collection === "pages") return r?.title || "Untitled";
+    const db = r?.dbId ? await store.get("pages", r.dbId).catch(() => null) : null;
+    const col = db?.columns?.[0];
+    const v = col ? r?.values?.[col.id] : "";
+    const name = v === undefined || v === null || v === "" ? "Untitled row" : String(v).slice(0, 80);
+    return db ? `${name} (row in ${db.title || "Untitled"})` : name;
+  };
+  const conflictLine = (dir, c) => {
+    const L = when(c.localAt);
+    const R = when(c.remoteAt);
+    if (dir === "push") {
+      return {
+        newer: `Folder: ${R} · here: ${L}`,
+        "only-remote": `Only in the folder (${R}): push deletes it`,
+        "deleted-locally": `Deleted here ${L} · changed in the folder ${R}`,
+        "deleted-remotely": `Deleted in the folder ${R} · here: ${L}`
+      }[c.reason];
+    }
+    return {
+      newer: `Here: ${L} · folder: ${R}`,
+      "only-local": `Only in this browser (${L}): pull removes it`,
+      "deleted-locally": `Deleted here ${L} · folder copy ${R}`,
+      "deleted-remotely": `Edited here ${L} · deleted in the folder ${R}`
+    }[c.reason];
+  };
+  /** Ask before a one-way overwrite that would lose newer state. Resolves "cancel" | "force" | "merge". */
+  const warnDialog = async (dir, list) => {
+    const SHOW = 5;
+    const titles = await Promise.all(list.slice(0, SHOW).map(titleOf));
+    const folder = mainLoc()?.name ?? "the folder";
+    const push = dir === "push";
+    return new Promise((resolve) => {
+      let answer = "cancel";
+      openModal({
+        title: push ? "The folder has newer changes" : "This browser has newer changes",
+        content: h(
+          "div",
+          { class: "sync-warn" },
+          h("p", {}, push
+            ? `${plural(list.length, "item")} in "${folder}" changed after this browser's copy. Pushing replaces ${list.length === 1 ? "it" : "them"} with this browser's version.`
+            : `${plural(list.length, "item")} in this browser ${list.length === 1 ? "is" : "are"} newer than in "${folder}". Pulling replaces ${list.length === 1 ? "it" : "them"} with the folder's version.`),
+          h("ul", { class: "sync-warn-list" }, ...list.slice(0, SHOW).map((c, i) => h("li", {}, h("strong", {}, titles[i]), h("span", { class: "hint" }, conflictLine(dir, c))))),
+          list.length > SHOW ? h("p", { class: "hint" }, `and ${list.length - SHOW} more.`) : null,
+          h("p", { class: "hint" }, "Merge keeps the newest version of each item on both sides.")
+        ),
+        actions: [
+          { label: "Cancel" },
+          { label: "Merge (keep newest)", run: () => void (answer = "merge") },
+          { label: push ? "Push anyway" : "Pull anyway", class: "danger", run: () => void (answer = "force") }
+        ],
+        onClose: () => resolve(answer)
+      });
+    });
+  };
+  const summaryToast = (kind, c) => {
+    const del = c.deleted ? `, ${c.deleted} deleted` : "";
+    if (kind === "push") toast(c.pushed || c.deleted ? `Pushed ${c.pushed}${del} to "${mainLoc()?.name}".` : "Nothing to push: the folder already matches.");
+    else if (kind === "pull") toast(c.pulled || c.deleted ? `Pulled ${c.pulled}${del} from "${mainLoc()?.name}".` : "Nothing to pull: this browser already matches.");
+    else toast(c.pulled || c.pushed || c.deleted ? `Synced: ${c.pulled} loaded, ${c.pushed} saved${del}.` : "Everything is in sync.");
+  };
+  const syncNow = () => run("Sync", async () => {
+    await ctx.flush();
+    summaryToast("merge", (await store.syncNow()).counts);
   });
-  const connectFolder = () => openModal({
-    title: "Connect a folder",
-    content: h(
-      "div",
-      {},
-      h("p", {}, "Denotation will save every page as a JSON file in the folder you choose (denotation.json, pages/ and rows/). This browser keeps a copy, so the app stays fast and works if access lapses."),
-      h("p", { class: "hint" }, "If the folder already holds a Denotation workspace, the two are merged: for each page the newer version wins. Nothing else in the folder is touched. A folder inside Google Drive or OneDrive syncs across devices.")
-    ),
-    actions: [
-      { label: "Cancel" },
-      {
-        label: "Choose folder…",
-        class: "primary",
-        run: async () => {
-          let handle;
-          try {
-            handle = await globalThis.showDirectoryPicker({ id: "denotation-data", mode: "readwrite" });
-          } catch (e) {
-            if (aborted(e)) return false;
-            throw e;
-          }
-          await saveHandle(handle);
-          disarm();
-          await connectNow(handle);
-        }
-      }
-    ]
+  const transfer = (dir) => run(dir === "push" ? "Push" : "Pull", async () => {
+    await ctx.flush();
+    const r = await store[dir]();
+    if (r.applied) return summaryToast(dir, r.counts);
+    const list = dir === "push" ? r.conflicts.newerRemote : r.conflicts.olderRemote;
+    const answer = await warnDialog(dir, list);
+    if (answer === "force") summaryToast(dir, (await store[dir]({ force: true })).counts);
+    else if (answer === "merge") summaryToast("merge", (await store.syncNow()).counts);
   });
-  const disconnect = async () => {
-    const { folderName } = store.status();
-    const ok = await confirmDialog(`Stop syncing to "${folderName}"? Your pages stay in this browser and in the folder.`, { title: "Disconnect folder", confirmLabel: "Disconnect", danger: false });
+  const setMode = (mode) => run("Sync mode", async () => {
+    await ctx.flush();
+    await store.setMode(mode);
+    toast(mode === "manual" ? "Manual sync: use Pull and Push to sync with the main location." : "Automatic sync is on.");
+  });
+  const addFolder = (role) => run("Add location", async () => {
+    let handle;
+    try {
+      handle = await globalThis.showDirectoryPicker({ id: "denotation-data", mode: "readwrite" });
+    } catch (e) {
+      if (aborted(e)) return;
+      throw e;
+    }
+    await ctx.flush();
+    const r = await store.addLocation(handle, { role });
+    const name = handle.name;
+    if (role === "backup") toast(`Backing up to "${name}".`);
+    else if (r.counts?.manual) toast(`"${name}" is the main location. Manual sync: use Pull or Push.`);
+    else if (r.counts) toast(`Syncing with "${name}"${r.counts.pulled || r.counts.pushed ? `: ${r.counts.pulled} loaded, ${r.counts.pushed} saved` : ""}.`);
+    else toast(`Added "${name}". Click anywhere to allow access.`);
+  });
+  const makeMain = (loc) => run("Make main", async () => {
+    const ok = await confirmDialog(`Make "${loc.name}" the main location? It syncs both ways from now on${mainLoc() ? ` and "${mainLoc().name}" becomes a backup` : ""}. ${store.mode === "manual" ? "Manual mode: nothing changes until you Pull or Push." : "The first sync keeps the newest version of each item."}`, { title: "Make main", confirmLabel: "Make main", danger: false });
+    if (!ok) return;
+    await ctx.flush();
+    const r = await store.makeMain(loc.id);
+    if (r.needsPermission) arm();
+    else if (r.counts && !r.counts.manual) summaryToast("merge", r.counts);
+  });
+  const removeLoc = (loc) => run("Remove", async () => {
+    const ok = await confirmDialog(`Stop using "${loc.name}"? Its files stay where they are, and your pages stay in this browser.`, { title: loc.role === "main" ? "Remove main location" : "Remove backup", confirmLabel: "Remove", danger: false });
     if (!ok) return;
     await store.flush().catch(() => {});
-    store.disconnect();
-    disarm();
-    await clearHandle().catch(() => {});
-    toast("Folder disconnected.");
+    await store.removeLocation(loc.id);
+    toast(`Removed "${loc.name}".`);
+  });
+  const restoreFrom = (loc) => run("Restore", async () => {
+    await ctx.flush();
+    const [b, localNewest] = await Promise.all([store.readBackup(loc.id), store.localNewest()]);
+    if (!b.count) throw new Error(`"${loc.name}" holds no pages to restore.`);
+    const older = b.newest < localNewest;
+    const ok = await confirmDialog(
+      `"${loc.name}" was last changed ${when(b.newest)}; this browser was last changed ${when(localNewest)}. Restoring replaces ${plural(b.count, "page or row", "pages and rows")} here with the backup's version${older ? ", including newer edits made since" : ""}. Pages created after the backup are kept.`,
+      { title: older ? "Restore an older backup?" : "Restore from backup", confirmLabel: "Restore", danger: older }
+    );
+    if (!ok) return;
+    await doImport(b.files, {});
+  });
+
+  // ---------- storage dialog ----------
+  let renderDialog = null;
+  const addMenu = (anchor) => openMenu(anchor, [
+    { header: true, label: "Folder" },
+    ...(folderSupported()
+      ? [
+        { label: mainLoc() ? "Folder as new main…" : "Folder as main…", icon: ico("folder-sync"), hint: mainLoc() ? "current main → backup" : "", onSelect: () => addFolder("main") },
+        { label: "Folder as backup…", icon: ico("folder-output"), onSelect: () => addFolder("backup") }
+      ]
+      : [{ label: NO_FOLDERS, disabled: true }]),
+    { header: true, label: "Cloud" },
+    ...LOCATION_TYPES.filter((t) => !t.available).map((t) => ({ label: `${t.label} (coming soon)`, icon: ico("cloud"), disabled: true }))
+  ], { width: 250 });
+  const locRow = (loc) => {
+    const isMain = loc.role === "main";
+    const s = st();
+    const type = LOCATION_TYPES.find((t) => t.type === loc.type)?.label ?? loc.type;
+    const btn = (label, icon, onClick, cls = "") => h("button", { class: `chip-btn ${cls}`.trim(), onClick }, ico(icon), ` ${label}`);
+    const needs = loc.state === "needs-permission";
+    return h(
+      "li",
+      { class: `loc-row${isMain ? " main" : ""}` },
+      h("div", { class: "loc-head" }, ico("folder"), h("strong", { class: "loc-name" }, loc.name || "Folder"), h("span", { class: "chip" }, isMain ? "Main" : "Backup")),
+      h("div", { class: "hint loc-meta" }, `${type} · ${STATE_LABEL[loc.state] ?? loc.state}${loc.error ? `: ${loc.error}` : ""} · last ${isMain ? "synced" : "copied"} ${when(loc.lastSyncAt)}`),
+      isMain && !needs
+        ? h(
+          "div",
+          { class: "seg loc-mode", role: "group", "aria-label": "Sync mode" },
+          h("button", { "aria-pressed": String(s.mode === "auto"), onClick: () => setMode("auto") }, s.mode === "auto" ? ico("check") : null, "Auto"),
+          h("button", { "aria-pressed": String(s.mode === "manual"), onClick: () => setMode("manual") }, s.mode === "manual" ? ico("check") : null, "Manual")
+        )
+        : null,
+      isMain && !needs && s.mode === "manual" && (s.unpushed || s.incoming)
+        ? h("div", { class: "hint" }, [s.unpushed ? `${plural(s.unpushed, "change")} not pushed` : "", s.incoming ? "Folder has newer changes" : ""].filter(Boolean).join(" · "))
+        : null,
+      h(
+        "div",
+        { class: "loc-actions" },
+        needs ? btn("Reconnect", "refresh-cw", reconnectAll) : null,
+        isMain && !needs ? btn("Pull", "download", () => transfer("pull")) : null,
+        isMain && !needs ? btn("Push", "upload", () => transfer("push")) : null,
+        isMain && !needs ? btn("Sync now", "refresh-cw", syncNow) : null,
+        !isMain ? btn("Make main", "folder-sync", () => makeMain(loc)) : null,
+        !isMain && !needs ? btn("Restore from this backup…", "rotate-ccw", () => restoreFrom(loc)) : null,
+        btn("Remove", "unplug", () => removeLoc(loc))
+      )
+    );
+  };
+  const openStorage = () => {
+    const body = h("div", { class: "storage-dialog" });
+    renderDialog = () => {
+      const locs = st().locations;
+      const ordered = [...locs.filter((l) => l.role === "main"), ...locs.filter((l) => l.role === "backup")];
+      body.replaceChildren(
+        h("p", { class: "hint" }, "Pages are always kept in this browser. The main location syncs both ways (a folder inside Google Drive or OneDrive syncs across devices); backups only receive copies."),
+        ordered.length ? h("ul", { class: "loc-list" }, ...ordered.map(locRow)) : h("p", {}, "No storage locations yet: pages are saved in this browser only.")
+      );
+    };
+    renderDialog();
+    openModal({
+      title: "Storage",
+      content: body,
+      actions: [
+        { label: "Add location…", class: "primary loc-add", run: () => {
+          addMenu(document.querySelector(".modal-actions .loc-add"));
+          return false;
+        } },
+        { label: "Close" }
+      ],
+      onClose: () => {
+        renderDialog = null;
+      }
+    });
   };
 
-  /** Boot: reattach a remembered folder. Never opens the picker. */
+  /** Boot: load the storage locations (migrating an old single folder). Never opens the picker. */
   async function init() {
     if (!live) return;
-    store.onStatus(() => ctx.redraw());
+    store.onStatus(() => {
+      ctx.redraw();
+      renderDialog?.();
+    });
     store.onRemoteChange(() => ctx.onRemote());
-    const handle = await loadHandle();
-    if (!handle) return;
-    store.attach(handle);
-    let perm = "prompt";
-    try {
-      perm = await handle.queryPermission({ mode: "readwrite" });
-    } catch {
-      // treat as prompt
-    }
-    if (perm === "granted") await connectNow(handle, { quiet: true }).catch(() => {});
-    else if (perm === "prompt") arm(handle);
+    const r = await store.init();
+    if (r.needsPermission.length) arm();
   }
 
   // ---------- menus ----------
@@ -244,41 +392,55 @@ export function createVaultUi(ctx) {
       ? { label: "From folder… (Markdown or JSON)", icon: ico("folder-input"), onSelect: importFolder }
       : { label: NO_FOLDERS, disabled: true }
   ];
-  const folderItems = () => {
-    const st = store.status();
-    return st.state === "off"
-      ? [{ label: "Connect folder…", icon: ico("folder-sync"), onSelect: connectFolder }]
-      : [
-        st.state === "synced" || st.state === "syncing"
-          ? { label: "Sync now", icon: ico("refresh-cw"), onSelect: () => run("Sync", () => connectNow(undefined)) }
-          : { label: "Reconnect", icon: ico("refresh-cw"), onSelect: reconnect },
-        { label: "Choose another folder…", icon: ico("folder-sync"), onSelect: connectFolder },
-        { label: "Disconnect", icon: ico("unplug"), onSelect: disconnect }
-      ];
+  /** Entries for the sidebar's workspace (⋯) menu. */
+  const menuItems = () => {
+    const m = live ? mainLoc() : null;
+    const ok = m && m.state !== "needs-permission";
+    const s = live ? st() : {};
+    return [
+      { label: "Export", icon: ico("file-down"), items: exportItems() },
+      { label: "Import", icon: ico("upload"), items: importItems() },
+      live ? { label: "Storage…", icon: ico("hard-drive"), hint: m ? (s.mode === "manual" ? "manual" : "auto") : "", onSelect: openStorage } : null,
+      ok ? { label: "Pull", icon: ico("download"), hint: s.incoming ? "new" : "", onSelect: () => transfer("pull") } : null,
+      ok ? { label: "Push", icon: ico("upload"), hint: s.unpushed ? String(s.unpushed) : "", onSelect: () => transfer("push") } : null,
+      ok ? { label: "Sync now", icon: ico("refresh-cw"), onSelect: syncNow } : null,
+      m && !ok ? { label: "Reconnect storage", icon: ico("refresh-cw"), onSelect: reconnectAll } : null
+    ].filter(Boolean);
   };
-  /** Submenu entries for the sidebar's workspace (⋯) menu. */
-  const menuItems = () => [
-    { label: "Export", icon: ico("file-down"), items: exportItems() },
-    { label: "Import", icon: ico("upload"), items: importItems() },
-    live ? { label: "Folder", icon: ico("folder-sync"), items: folderItems() } : null
-  ].filter(Boolean);
 
   /** Footer pieces: storage line, notes, and the hidden import file input. */
   function footer({ where, user }) {
-    const st = live ? store.status() : { state: "off" };
     const lines = [];
-    if (st.state === "off") lines.push(h("div", {}, where));
+    const s = live ? st() : { state: "off", locations: [] };
+    const m = s.locations.find((l) => l.role === "main");
+    const nb = s.locations.length - (m ? 1 : 0);
+    const backups = nb ? ` · ${plural(nb, "backup")}` : "";
+    if (!m) lines.push(h("div", {}, where + backups));
     else {
-      const tag = { syncing: " · syncing…", "needs-permission": " · paused", error: " · error" }[st.state] ?? "";
-      lines.push(h("div", { title: "Pages are saved to this folder and cached in this browser." }, ico("folder"), ` Folder: ${st.folderName}${tag}${user ? ` · ${user}` : ""}`));
+      const tag = { syncing: " · syncing…", "needs-permission": " · paused", error: " · error" }[m.state] ?? "";
+      lines.push(h("div", { title: "Pages sync with the main location and are cached in this browser." }, ico("folder"), ` Main: ${m.name}${tag}${s.mode === "manual" ? " · manual" : ""}${backups}${user ? ` · ${user}` : ""}`));
+      if (s.mode === "manual" && m.state === "synced" && (s.unpushed || s.incoming)) {
+        lines.push(h(
+          "div",
+          { class: "note sync-pending", role: "status" },
+          [s.unpushed ? `${plural(s.unpushed, "change")} not pushed` : "", s.incoming ? "Folder has newer changes" : ""].filter(Boolean).join(" · "),
+          " ",
+          s.incoming ? h("button", { onClick: () => transfer("pull") }, ico("download"), " Pull") : null,
+          s.unpushed ? h("button", { onClick: () => transfer("push") }, ico("upload"), " Push") : null
+        ));
+      }
     }
-    if (st.state === "needs-permission" || st.state === "error") {
+    const waiting = s.locations.filter((l) => l.state === "needs-permission");
+    if (waiting.length) {
       lines.push(h(
         "div",
         { class: "note", role: "status" },
-        st.state === "error" ? `Folder sync stopped: ${st.error}. Your changes are kept in this browser. ` : `Click anywhere to resume syncing to ${st.folderName}. `,
-        h("button", { class: "folder-reconnect", onClick: reconnect }, ico("refresh-cw"), " Reconnect")
+        `Click anywhere to resume ${waiting.map((l) => `"${l.name}"`).join(", ")}. `,
+        h("button", { class: "folder-reconnect", onClick: reconnectAll }, ico("refresh-cw"), " Reconnect")
       ));
+    }
+    for (const l of s.locations.filter((x) => x.state === "error")) {
+      lines.push(h("div", { class: "note", role: "status" }, l.role === "main" ? `Sync with "${l.name}" stopped: ${l.error}. Your changes are kept in this browser.` : `Backup to "${l.name}" failed: ${l.error}.`));
     }
     return { lines, buttons: [], input: fileInput };
   }

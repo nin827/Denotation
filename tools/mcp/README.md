@@ -9,7 +9,8 @@ writes the **connected folder** (the JSON layout the app keeps there: `denotatio
 
 ## 1. Set it up in the app
 
-1. Connect a folder: sidebar **⋯** menu → **Folder → Connect folder…** (Chrome or Edge on a computer).
+1. Connect a folder as the main storage location: sidebar **⋯** menu → **Storage… → Add location… → Folder as
+   main…** (Chrome or Edge on a computer).
 2. Open **⋯ → AI access…** and choose what assistants may do: Read, Create, Edit, Delete, each
    **Yes**, **No** or **Ignore**. Right-click a repository, page or database → **AI access…** to override it there.
    Everything is **No** until you change it.
@@ -75,15 +76,21 @@ Any client that starts stdio servers works. For example, in Claude Desktop's `cl
 
 ## When changes show up in the app
 
-The server writes the same JSON files the app does (each with a new `updatedAt`). The app picks them up on its next
-folder sync: **Sync now** / reconnect, or automatically when the app window regains focus. For each page or row the
+The server writes the same JSON files the app does (each with a new `updatedAt`). In **Auto** sync mode the app picks
+them up when its window regains focus, every ~30 seconds while it is open, or on **Sync now**. In **Manual** mode use
+**Pull** (the footer says "Folder has newer changes" after the window regains focus). For each page or row the
 newer version wins, so an edit you make in the app after the assistant's edit is kept.
 
-Deleted rows are logged in `rows/.deleted.json` so the app removes its cached copy instead of writing it back.
+Deleted rows leave a tombstone, `tombstones/<id>.json` (`{ "id", "collection", "deletedAt" }`), so the app (and
+every other device syncing the folder) removes its copy instead of writing it back. The app prunes tombstones after
+90 days. Older versions logged deletes in `rows/.deleted.json`; the app still reads that file.
+
+Point `--folder` at the app's **main** storage location. Backup locations are copy-only: the app writes to them
+but never reads them back, so changes the assistant makes in a backup are never seen by the app.
 
 ## Security notes and limits
 
-- The server writes only `pages/<id>.json`, `rows/<id>.json` and `rows/.deleted.json`. It never writes
+- The server writes only `pages/<id>.json`, `rows/<id>.json` and `tombstones/<id>.json`. It never writes
   `permissions.json`, refuses ids that aren't Denotation ids, and doesn't follow symbolic links.
 - **The permissions are only enforced by this server.** An assistant that also has general file access to the folder
   (a shell, a file-system MCP server, Claude Code started inside the folder) can read or change the files directly,
