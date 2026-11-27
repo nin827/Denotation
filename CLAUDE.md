@@ -32,6 +32,8 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
   URLs. Imported files are validated as data and never executed.
 - **Sync / sign-in:** never load third-party scripts (any script on the page can read tokens). OAuth client IDs are public
   config in `js/config.js`; tokens live only in IndexedDB.
+- **CSP:** the `<meta>` in `source/app/index.html` allows only same-origin scripts (no inline script, no eval). Add new
+  remote hosts to `connect-src`; never add `'unsafe-eval'` or script `'unsafe-inline'`.
 - **Commands:** no `rm -rf` outside scratch/build output, no `git reset --hard`, no force-push, no installers or downloads
   without the owner's OK.
 

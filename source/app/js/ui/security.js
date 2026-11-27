@@ -6,6 +6,7 @@ import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
 import { toast } from "./dialogs.js";
 import { createLocationRegistry } from "../adapters/locations.js";
+import { defaultTokenLock } from "../adapters/oauth.js";
 import {
   createKeyFile,
   replaceRecovery,
@@ -35,7 +36,7 @@ import {
 } from "../lock.js";
 
 const DB_NAME = "denotation";
-export const HONEST = "The PIN hides the app on this device. On its own it doesn't encrypt your data (see Encryption below).";
+export const HONEST = "The PIN hides the app on this device and encrypts its cloud sign-ins. On its own it doesn't encrypt your pages (see Encryption below).";
 export const ENC_HONEST = "Files are encrypted with a key unlocked by your PIN. A 4\u20136 digit PIN can be guessed by someone who has a copy of the files; keep the files private. If you forget the PIN and lose the recovery key, encrypted data can't be recovered.";
 
 /** Whole seconds (at least 1) for a wait in milliseconds. */
@@ -264,6 +265,10 @@ export function openPinDialog(mode, { onDone, keyring = null, store = null } = {
             }
             if (mode === "remove") {
               if (keyring?.inUse()) throw new Error("Encryption uses this PIN. Turn encryption off first (below), then remove the PIN.");
+              // Cloud sign-ins go back to plain storage first; if that fails the PIN stays.
+              const tokens = await defaultTokenLock();
+              if ((await tokens.state()) === "locked") await tokens.open(cur.input.value);
+              await tokens.disable();
               removePin();
             } else {
               if (!validPin(next.input.value, length)) throw new Error(`The new PIN must be exactly ${length} digits.`);
@@ -290,10 +295,32 @@ export function openPinDialog(mode, { onDone, keyring = null, store = null } = {
 }
 
 /**
- * Set the new PIN and re-wrap the data key for it (this browser's key file first, then every reachable encrypted
- * location). If saving the PIN fails, the old key file is put back so the old PIN keeps opening everything.
+ * Set the new PIN and re-wrap the keys for it: the sign-in token key, then the data key (this browser's key file
+ * first, then every reachable encrypted location). If a step fails, the old wraps are put back so the old PIN keeps
+ * opening everything. A first PIN (no current one) encrypts the stored sign-in tokens.
  */
 async function changePinEverywhere(pin, length, { keyring, store, current }) {
+  const tokens = await defaultTokenLock();
+  if (!current) {
+    await setDataKeyPin(pin, length, { keyring, store, current });
+    try {
+      await tokens.open(pin);
+    } catch (e) {
+      removePin(); // tokens must not stay plain under a PIN: no PIN rather than a half-done one
+      throw e;
+    }
+    return;
+  }
+  if ((await tokens.state()) !== "open") await tokens.open(current);
+  await tokens.rekey(pin);
+  try {
+    await setDataKeyPin(pin, length, { keyring, store, current });
+  } catch (e) {
+    await tokens.rekey(current).catch(() => {});
+    throw e;
+  }
+}
+async function setDataKeyPin(pin, length, { keyring, store, current }) {
   const old = keyring?.file() ?? null;
   if (!old) return setPin(pin, length);
   const dek = keyring.key ?? (current ? await unwrapWithPin(old, current) : null);

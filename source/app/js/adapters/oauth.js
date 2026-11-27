@@ -15,6 +15,8 @@
 //
 // Where things live
 //   Tokens: IndexedDB only (db "denotation", store "handles", keys "tok:<provider>:<random>"), via locations.js.
+//     While the PIN lock is on they are stored encrypted with a key opened by the PIN (tokenLock.js); while the
+//     app is locked they can't be read or written and cloud sync pauses (errors with code "locked").
 //     They share the existing store instead of adding one so no second module has to bump the database version
 //     (two upgrade paths racing would be worse than a key prefix). Never localStorage, never logged.
 //     "Reset local cache" deletes the whole database; removing a location deletes its token.
@@ -25,6 +27,7 @@
 //   cleans the address bar (history.replaceState) whenever it sees an OAuth response; in a popup / iframe it hands
 //   the response to the window that asked (BroadcastChannel, same origin only) and tells the caller to stop.
 import { config } from "../config.js";
+import { tokenLockFor, isTokenKey } from "./tokenLock.js";
 // locations.js is loaded lazily: it imports the providers, which import this module (no import cycle at load).
 const locations = () => import("./locations.js");
 
@@ -48,7 +51,6 @@ const POPUP_TIMEOUT_MS = 5 * 60_000;
 const SILENT_TIMEOUT_MS = 8000;
 const MS_REFRESH_LIFETIME_MS = 24 * 3600_000; // SPA refresh tokens: 24 h from sign-in, not extended by use
 const CHANNEL = "denotation-oauth";
-const TOKEN_KEY_RE = /^tok:(google|microsoft):[a-z0-9]{16,40}$/;
 const STATE_RE = /^[A-Za-z0-9_-]{22,64}$/;
 const RESPONSE_KEYS = ["code", "access_token", "error", "id_token", "state", "token_type", "expires_in", "scope", "session_state", "error_description", "error_uri", "authuser", "prompt", "hd", "iss", "client_info"];
 
@@ -81,7 +83,7 @@ export async function pkceChallenge(verifier) {
   return b64url(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
 }
 export const newTokenKey = (provider) => `tok:${provider}:${randomHex(12)}`;
-export const validTokenKey = (k) => typeof k === "string" && TOKEN_KEY_RE.test(k);
+export const validTokenKey = isTokenKey;
 
 /** The authorization URL for one request. */
 export function buildAuthUrl({ provider, clientId: id, redirectUri: uri, state, nonce, challenge, scope, prompt, loginHint }) {
@@ -174,31 +176,30 @@ export function tokenRecord(provider, res, { now = Date.now(), wantScope, previo
   return rec;
 }
 
-/** Token storage over the IndexedDB handle store. Keys must look like "tok:<provider>:<hex>". */
+/**
+ * Token storage over the IndexedDB handle store. Keys must look like "tok:<provider>:<hex>". Encrypted while the
+ * PIN lock is on; get / put throw code "locked" while the app is locked.
+ */
 export function tokenStore(handles = null) {
-  const hs = async () => handles ?? (await defaultHandles());
+  const lk = async () => tokenLockFor(handles ?? (await defaultHandles()));
   return {
     async get(key) {
       if (!validTokenKey(key)) return null;
-      const v = await (await hs()).get(key);
-      return v && typeof v === "object" && typeof v.accessToken === "string" ? v : null;
+      return (await lk()).read(key);
     },
     async put(key, rec) {
       if (!validTokenKey(key)) throw new Error("Bad token key.");
-      await (await hs()).put(key, rec);
+      await (await lk()).write(key, rec);
     },
-    delete: async (key) => (validTokenKey(key) ? (await hs()).delete(key) : undefined)
+    delete: async (key) => (validTokenKey(key) ? (await lk()).remove(key) : undefined)
   };
 }
-let sharedHandles = null;
 /** The IndexedDB handle store (memory when IndexedDB is missing), shared with locations.js. */
 export async function defaultHandles() {
-  if (!sharedHandles) {
-    const { idbHandles, memoryHandles } = await locations();
-    sharedHandles ??= globalThis.indexedDB ? idbHandles() : memoryHandles();
-  }
-  return sharedHandles;
+  return (await locations()).sharedHandles();
 }
+/** The token lock of the app's handle store (opened at unlock, closed at lock; see tokenLock.js). */
+export const defaultTokenLock = async () => tokenLockFor(await defaultHandles());
 
 // ---------- token endpoint (Microsoft) ----------
 async function postForm(fetchFn, url, form, { refreshing = false } = {}) {
@@ -435,15 +436,31 @@ export async function handleRedirect({ win = globalThis.window, handles, fetch: 
   }
   await hs.delete(key).catch(() => {});
   clean(typeof pending.returnHash === "string" && /^#[A-Za-z0-9_-]{0,200}$/.test(pending.returnHash) ? pending.returnHash : "");
-  try {
-    const rec = await completeResponse(params, pending, { fetch: fetchFn, now });
-    const run = purposes.get(pending.purpose?.kind);
-    if (!run) throw new Error("Nothing was waiting for this sign-in.");
-    notice = { kind: "info", text: await run(rec, pending.purpose, { handles: hs, fetch: fetchFn }) };
-  } catch (e) {
-    notice = { kind: "error", text: `Sign-in failed: ${e?.message ?? e}` };
+  const finish = async (at) => {
+    try {
+      const rec = await completeResponse(params, pending, { fetch: fetchFn, now: at });
+      const run = purposes.get(pending.purpose?.kind);
+      if (!run) throw new Error("Nothing was waiting for this sign-in.");
+      notice = { kind: "info", text: await run(rec, pending.purpose, { handles: hs, fetch: fetchFn }) };
+    } catch (e) {
+      notice = { kind: "error", text: `Sign-in failed: ${e?.message ?? e}` };
+    }
+  };
+  // With the PIN lock on, the new token can only be stored encrypted: finish after the PIN is entered. The
+  // response stays in memory only until then (finishDeferredRedirect).
+  if ((await tokenLockFor(hs).state().catch(() => "locked")) === "locked") {
+    deferred = finish;
+    return { stop: false, handled: true, deferred: true };
   }
+  await finish(now);
   return { stop: false, handled: true };
+}
+let deferred = null;
+/** Finish a redirect sign-in that waited for the unlock (call after the PIN opened the token key). */
+export async function finishDeferredRedirect({ now = Date.now() } = {}) {
+  const run = deferred;
+  deferred = null;
+  if (run) await run(now);
 }
 
 // ---------- HTTP with a bearer token, retries and backoff ----------

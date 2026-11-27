@@ -120,8 +120,7 @@ export function gdriveProvider(handle, deps = {}) {
   const win = deps.win ?? globalThis.window;
   const space = h.space === "appdata" ? "appDataFolder" : "drive";
   const parentRoot = h.space === "appdata" ? "appDataFolder" : "root";
-  let token = null;
-  let renewing = null;
+  let renewing = null; // the token is read from the (maybe encrypted) store each time, never kept here
   let rootP = null;
   const dirs = new Map(); // dir -> Promise<string[]> (folder ids, oldest first)
   const files = new Map(); // path -> { id, dups: [id], at, mine }
@@ -130,7 +129,7 @@ export function gdriveProvider(handle, deps = {}) {
   // ---------- tokens ----------
   async function getToken(force) {
     if (!force) {
-      token ??= await tokens.get(h.tokenKey);
+      const token = await tokens.get(h.tokenKey);
       if (token && token.expiresAt - 60_000 > now()) return token.accessToken;
     }
     renewing ??= (async () => {
@@ -148,7 +147,6 @@ export function gdriveProvider(handle, deps = {}) {
     if (h.account?.id && acct.id && acct.id !== h.account.id) throw permissionError("That's a different Google account than this location uses.");
     rec.account = h.account?.id ? h.account : acct;
     await tokens.put(h.tokenKey, rec);
-    token = rec;
   }
   const http = (url, init = {}) => authedFetch(url, init, { getToken, label: "Google Drive", fetch: fetchFn, sleep: deps.sleep, isRateLimit });
   const json = async (url, init) => {
@@ -271,8 +269,9 @@ export function gdriveProvider(handle, deps = {}) {
           return "denied";
         }
       }
-      token ??= await tokens.get(h.tokenKey).catch(() => null);
-      return token ? "granted" : "prompt";
+      // Locked (PIN lock on, app locked): the sign-in is kept, so it counts; using it throws code "locked".
+      const stored = await tokens.get(h.tokenKey).catch((e) => (e?.code === "locked" ? "locked" : null));
+      return stored ? "granted" : "prompt";
     },
     async readText(path) {
       for (let attempt = 0; attempt < 2; attempt++) {

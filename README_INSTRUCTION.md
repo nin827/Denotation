@@ -603,7 +603,8 @@ It needs [Node.js](https://nodejs.org) on your computer. Other assistants and op
 Open **⋯ → Settings → Security** to set a 4- or 6-digit PIN for this browser.
 
 - With a PIN, Denotation opens on a lock screen, and locks itself after the idle time you choose (Never, 1, 5, 15 minutes or 1 hour; default 5). **⋯ → Lock now** locks at once.
-- On its own, the PIN hides the app on this device; it doesn't encrypt anything. For that, turn on encryption (below).
+- On its own, the PIN hides the app on this device; it doesn't encrypt your pages. For that, turn on encryption (below).
+- With a PIN set, your Google Drive / OneDrive sign-ins are stored encrypted. While the app is locked, cloud sync pauses ("Locked") and picks up again when you unlock. Removing the PIN keeps you signed in.
 - After a wrong PIN, input is blocked for 3 seconds, then you can try again.
 - **There is no PIN reset.** If you forget it, choose **Forgot PIN? Reset this browser** on the lock screen.
 - **Reset local cache** (Settings → Security) deletes all Denotation data in this browser: pages and rows, preferences, the PIN, the AI access copy and storage-location links. Folders on disk are not touched. To confirm, type the 8-digit number shown (a new one each time). Export first if you have no main storage location or have unpushed changes.

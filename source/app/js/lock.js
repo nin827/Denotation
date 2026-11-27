@@ -7,8 +7,9 @@
 //   denotion:pin-attempts  (legacy, older versions only: removed on the next right PIN / PIN change; never written)
 //   denotion:lock-idle     minutes of inactivity before the app locks itself (0 = never)
 //
-// The verified PIN is handed to onUnlock() listeners and then dropped; a later step can derive an
-// encryption key from it there. It is never persisted.
+// The verified PIN is handed to onUnlock() listeners and then dropped (they open the data key and the sign-in token
+// key with it). It is never persisted.
+import { KDF_MIN_ITERATIONS, KDF_MAX_ITERATIONS } from "./crypto.js";
 
 export const PIN_KEY = "denotion:pin";
 export const ATTEMPTS_KEY = "denotion:pin-attempts";
@@ -70,7 +71,8 @@ export function sanitizeRecord(r) {
   const salt = fromB64(r.salt);
   const hash = fromB64(r.hash);
   const iterations = Number(r.iterations);
-  if (!salt || salt.length < 16 || !hash || hash.length !== 32 || !Number.isInteger(iterations) || iterations < 1) return null;
+  // Same range as key files: too low is a weak hash, too high hangs every unlock.
+  if (!salt || salt.length < 16 || !hash || hash.length !== 32 || !Number.isInteger(iterations) || iterations < KDF_MIN_ITERATIONS || iterations > KDF_MAX_ITERATIONS) return null;
   return { v: 1, length: r.length, salt: r.salt, iterations, hash: r.hash };
 }
 

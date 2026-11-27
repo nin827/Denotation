@@ -2,6 +2,7 @@
 // clicks through the sidebar and quick find, and fails on any page/console error.
 // usage: node work/test/e2e/smoke.cjs   (needs Playwright + Chromium, dev-only)
 const { chromium } = require("playwright");
+const { watchCsp } = require("./csp-watch.cjs");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -15,6 +16,13 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
   const targets = ["/source/app/index.html"];
   
   const browser = await chromium.launch();
+  // Every context reports Content-Security-Policy violations as "[csp]" console errors, which fail the test.
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...a) => {
+    const ctx = await newContext(...a);
+    await watchCsp(ctx);
+    return ctx;
+  };
   let failed = false;
   for (const t of targets) {
     const page = await (await browser.newContext()).newPage();

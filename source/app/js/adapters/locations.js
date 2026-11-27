@@ -17,6 +17,7 @@ import { manifestStamp } from "../sync.js";
 import { gdriveProvider, sanitizeGdriveHandle } from "./gdrive.js";
 import { onedriveProvider, sanitizeOnedriveHandle } from "./onedrive.js";
 import { clientId } from "./oauth.js";
+import { tokenLockFor } from "./tokenLock.js";
 
 export const LOCATIONS_KEY = "denotion:storage-locations";
 export const SYNC_MODE_KEY = "denotion:folder-sync";
@@ -154,17 +155,26 @@ async function tx(mode, run) {
     db.close();
   }
 }
-/** Handle store over IndexedDB: get/put/delete by key. */
-export const idbHandles = () => ({
+let idbSingleton = null;
+/**
+ * Handle store over IndexedDB: get/put/delete by key, keys() and strictGet (get that throws instead of returning
+ * null, for the token lock). One shared object, so the token key opened at unlock is seen by every caller.
+ */
+export const idbHandles = () => (idbSingleton ??= {
   get: (key) => tx("readonly", (s) => s.get(key)).catch(() => null),
+  strictGet: (key) => tx("readonly", (s) => s.get(key)).then((v) => v ?? null),
   put: (key, h) => tx("readwrite", (s) => s.put(h, key)),
-  delete: (key) => tx("readwrite", (s) => s.delete(key)).catch(() => {})
+  delete: (key) => tx("readwrite", (s) => s.delete(key)).catch(() => {}),
+  keys: () => tx("readonly", (s) => s.getAllKeys()).then((a) => (Array.isArray(a) ? a : []))
 });
 /** In-memory handle store (tests, and browsers without IndexedDB). */
 export const memoryHandles = (init = {}) => {
   const m = new Map(Object.entries(init));
-  return { map: m, get: async (k) => m.get(k) ?? null, put: async (k, h) => void m.set(k, h), delete: async (k) => void m.delete(k) };
+  return { map: m, get: async (k) => m.get(k) ?? null, put: async (k, h) => void m.set(k, h), delete: async (k) => void m.delete(k), keys: async () => [...m.keys()] };
 };
+let memorySingleton = null;
+/** The app's handle store: IndexedDB, or one in-memory store when IndexedDB is missing. */
+export const sharedHandles = () => (globalThis.indexedDB ? idbHandles() : (memorySingleton ??= memoryHandles()));
 const memoryStorage = () => {
   const m = new Map();
   return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k) };
@@ -173,7 +183,7 @@ const memoryStorage = () => {
 /** Config + handles for this device. */
 export function createLocationRegistry({ storage, handles } = {}) {
   const store = storage ?? (globalThis.localStorage ? globalThis.localStorage : memoryStorage());
-  const hs = handles ?? (globalThis.indexedDB ? idbHandles() : memoryHandles());
+  const hs = handles ?? sharedHandles();
   const read = () => {
     try {
       const raw = store.getItem(LOCATIONS_KEY);
@@ -203,7 +213,7 @@ export function createLocationRegistry({ storage, handles } = {}) {
     async deleteHandle(id) {
       const h = await hs.get(`loc:${id}`).catch(() => null);
       const tok = sanitizeGdriveHandle(h)?.tokenKey ?? sanitizeOnedriveHandle(h)?.tokenKey;
-      if (tok) await hs.delete(tok);
+      if (tok) await tokenLockFor(hs).remove(tok);
       await hs.delete(`loc:${id}`);
     },
     /** First run with locations: turn the old single remembered folder into the main location. */

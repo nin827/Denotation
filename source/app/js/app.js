@@ -12,7 +12,7 @@ import { toast } from "./ui/dialogs.js";
 import { pickCsv } from "./ui/csvFile.js";
 import { createVaultUi } from "./ui/vaultUi.js";
 import { createFolderAdapter, folderSupported } from "./adapters/folder.js";
-import { handleRedirect, cloudConfigured } from "./adapters/oauth.js";
+import { handleRedirect, cloudConfigured, defaultTokenLock, finishDeferredRedirect } from "./adapters/oauth.js";
 import { renderDatabase } from "./ui/dbView.js";
 import { makePersistence, renderRowPage, renderHeader, renderDocPage, archiveWithConfirm } from "./ui/pageView.js";
 import { renderTrash, renderArchive, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
@@ -54,6 +54,15 @@ let prefs = loadPrefs();
 // Encryption: the data key is opened with the PIN at each unlock and dropped when the app locks.
 const keyring = createKeyring();
 onUnlock((pin) => keyring.unlock(pin));
+// Cloud sign-in tokens: encrypted with a key the PIN opens; cloud sync pauses while locked.
+const tokenLock = defaultTokenLock();
+onUnlock(async (pin) => {
+  try {
+    await (await tokenLock).open(pin);
+  } catch (e) {
+    console.error(e);
+  }
+});
 applyPrefs(prefs);
 const layout = createLayout({ appEl, getLocked: () => prefs.sidebarLocked, onChange: () => {
   if (ws) drawSidebar();
@@ -87,6 +96,7 @@ const lockUi = createLockScreen({
     }
     if (!lockUi.isLocked()) return;
     keyring.lock();
+    (await tokenLock).close();
     closeLocalGraph(); // the panel lives outside #main and would keep showing page titles
     sidebarEl.replaceChildren();
     mainEl.replaceChildren();
@@ -105,6 +115,8 @@ async function main() {
   if ((await handleRedirect()).stop) return; // OAuth popup / iframe: the response went to the window that asked
   await finishPendingReset();
   if (hasPin()) await lockUi.lock(); // nothing is loaded or drawn before the PIN is entered
+  else await (await tokenLock).discard().catch(() => {}); // tokens encrypted for a PIN that is gone can't be read
+  await finishDeferredRedirect(); // a redirect sign-in that waited for the PIN
   lockUi.watchIdle();
   showMessage("Opening your workspace\u2026");
   // The PIN opened the lock but not this browser's key file (should not happen): the recovery key opens it.
@@ -223,11 +235,10 @@ async function start(u) {
   vaultUi.init().catch((e) => toast(`Folder sync: ${e.message}`, "error"));
   runBrowserJob(keyring);
 }
-/** After an unlock: finish an interrupted browser-copy job and retry storage that waited for the key. */
+/** After an unlock: finish an interrupted browser-copy job and retry storage that waited for a key. */
 function afterKeyReady() {
-  if (!keyring.unlocked()) return;
-  runBrowserJob(keyring);
-  store?.retryLocked?.().catch(() => {});
+  if (keyring.unlocked()) runBrowserJob(keyring);
+  store?.retryLocked?.().catch(() => {}); // locations that waited for the data key or the sign-in tokens
   store?.checkNow?.().catch(() => {});
 }
 async function route() {

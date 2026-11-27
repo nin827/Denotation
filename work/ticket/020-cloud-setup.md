@@ -27,8 +27,8 @@ IDs in `public/js/config.js` under `oauth`.
 - ~~Adding the same cloud folder twice is refused by name only.~~ Done: `sameCloudFolder` (provider, folder name, Drive
   space, account) is checked in `addLoc` and in the redirect sign-in path; the folder is looked up by name, so that is
   the cloud folder identity.
-- Tokens in IndexedDB are not encrypted with the PIN key.
-- Optional CSP `<meta>` (GitHub Pages can't set headers): `default-src 'self'; script-src 'self'; connect-src 'self'
+- ~~Tokens in IndexedDB are not encrypted with the PIN key.~~ Done (PIN-wrapped token key).
+- ~~Optional CSP `<meta>`~~ Done; hosts still to confirm with real accounts (OneDrive may also use `*.livefilestore.com` / `*.storage.live.com`). Was: Optional CSP `<meta>` (GitHub Pages can't set headers): `default-src 'self'; script-src 'self'; connect-src 'self'
   https://www.googleapis.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com
   https://*.sharepoint.com; frame-src https://accounts.google.com; img-src 'self' data: blob:; style-src 'self';
   font-src 'self'; object-src 'none'; base-uri 'self'` (download hosts to confirm).

@@ -29,6 +29,24 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
 `strict:"ignore"`, `maxSize:20`, `maxExpand:200`; output is built by KaTeX DOM calls, never `innerHTML`. UI in
 `ui/mathUi.js`, registered by `ui/plugins/math.js`. Tests: `work/test/math.test.js`, `work/test/e2e/math.cjs`.
 
+### Content-Security-Policy and token lock
+
+- A CSP `<meta>` in `source/app/index.html` (Pages can't send headers): `default-src 'self'; script-src 'self';
+  style-src 'self' 'unsafe-inline'; style-src-elem 'self'; img-src 'self' data: blob: https:; font-src 'self';
+  connect-src 'self'` + the Google / Microsoft API, token and OneDrive download hosts; `frame-src 'self'
+  https://accounts.google.com` (silent Google renewal); `worker-src`, `manifest-src 'self'`; `object-src 'none';
+  base-uri 'none'; form-action 'self'`. Scripts are same-origin files only (no inline script, no eval); `<style>`
+  elements are blocked while style attributes are allowed (`h()` and SVG use them). `frame-ancestors` can't be set in a
+  meta. Add new cloud hosts to `connect-src` (`work/test/csp.test.js` checks the adapters). The root `index.html` has a
+  strict CSP allowing its `<style>` by hash (the test prints the expected hash). E2E:
+  `node -r ./work/test/e2e/csp-watch.cjs work/test/e2e/<test>.cjs` fails on any violation; smoke.cjs has it built in.
+- Sign-in tokens (`tok:*` in IndexedDB `handles`) are encrypted while the PIN lock is on with a random AES-GCM key TK,
+  wrapped by PBKDF2(PIN) in record `tokvault` (`adapters/tokenLock.js`; AAD binds each envelope to its name). The PIN
+  opens TK at unlock and locking drops it; while locked, providers throw code `locked`, folder.js shows "Locked", and
+  `retryLocked()` resumes after unlock. A redirect sign-in that returns while locked finishes after unlock
+  (`finishDeferredRedirect`). PIN set encrypts, change re-wraps TK, remove decrypts. PIN records and `tokvault`
+  accept 1,000–10,000,000 PBKDF2 iterations only.
+
 ### Follow-ups (ticket 016, 020)
 
 - Cloud folder identity: provider, folder name (case-insensitive), Drive space and account (`sameCloudFolder` in

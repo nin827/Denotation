@@ -66,20 +66,18 @@ export function onedriveProvider(handle, deps = {}) {
   const tokens = tokenStore(deps.handles ?? null);
   const win = deps.win ?? globalThis.window;
   const etags = new Map(); // guarded path -> eTag from the last read, or null when it was missing
-  let token = null;
-  let renewing = null;
+  let renewing = null; // the token is read from the (maybe encrypted) store each time, never kept here
 
   async function getToken(force) {
     if (!force) {
-      token ??= await tokens.get(h.tokenKey);
+      const token = await tokens.get(h.tokenKey);
       if (token && token.expiresAt - 60_000 > now()) return token.accessToken;
     }
     renewing ??= (async () => {
-      const cur = token ?? (await tokens.get(h.tokenKey));
+      const cur = await tokens.get(h.tokenKey);
       if (!cur) throw permissionError("Sign in to OneDrive again.");
       const next = await refreshAccess(cur, { fetch: fetchFn, now: now() });
       await tokens.put(h.tokenKey, next);
-      token = next;
       return next.accessToken;
     })().finally(() => {
       renewing = null;
@@ -169,7 +167,6 @@ export function onedriveProvider(handle, deps = {}) {
           if (h.account?.id && rec.account?.id && rec.account.id !== h.account.id) throw permissionError("That's a different Microsoft account than this location uses.");
           rec.account = h.account?.id ? h.account : rec.account;
           await tokens.put(h.tokenKey, rec);
-          token = rec;
           return "granted";
         } catch (e) {
           if (e?.code === "popup-blocked" && win?.location) {
@@ -181,8 +178,9 @@ export function onedriveProvider(handle, deps = {}) {
       }
       // A stored sign-in counts; a request finds out whether it still works (and the location then shows
       // "Sign in again" instead of opening a sign-in window on the next click anywhere).
-      token ??= await tokens.get(h.tokenKey).catch(() => null);
-      return token ? "granted" : "prompt";
+      // Locked (PIN lock on, app locked): the sign-in is kept, so it counts; using it throws code "locked".
+      const stored = await tokens.get(h.tokenKey).catch((e) => (e?.code === "locked" ? "locked" : null));
+      return stored ? "granted" : "prompt";
     },
     async readText(path) {
       if (GUARDED.has(path)) return readGuarded(path);

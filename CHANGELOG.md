@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+- Security: Content-Security-Policy on the app and the redirect page; cloud sign-in tokens are encrypted with the
+  PIN (cloud sync pauses while locked); PIN records with an out-of-range iteration count are rejected.
+
 - Search finds constant values, status labels, page-chip titles and term text. Markdown export resolves constants and
   statuses correctly, also from row pages. Changing a constant refreshes its databases' formulas in the background.
 - Sheet group label rows stay visible when scrolling; freezing no longer freezes extra columns when a group is collapsed.

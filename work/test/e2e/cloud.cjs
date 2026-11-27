@@ -183,6 +183,48 @@ async function routeCloud(context, fakes, configured = true) {
     await page.goto(`${APP}#access_token=forged&token_type=Bearer&state=${"x".repeat(32)}`);
     await page.waitForSelector(".side-item");
     check(!(await page.evaluate(() => location.href)).includes("forged"), "forged token left in the address bar");
+
+    // ---------- PIN lock: the stored sign-in is encrypted, sync waits while locked, PIN off makes it plain ----------
+    const handlesDump = () => page.evaluate(() => new Promise((res) => {
+      const r = indexedDB.open("denotation");
+      r.onsuccess = () => {
+        const s = r.result.transaction("handles").objectStore("handles");
+        const keys = s.getAllKeys();
+        const vals = s.getAll();
+        vals.onsuccess = () => res({ keys: keys.result, text: JSON.stringify(vals.result) });
+      };
+    }));
+    const pinDialog = async (cls, fields) => {
+      await page.locator(".act-more").click();
+      await page.locator(".menu-item", { hasText: "Settings" }).click();
+      await page.locator(cls).click();
+      if (cls === ".pin-set") await page.locator(".pin-length button", { hasText: "4 digits" }).click();
+      for (const [sel, v] of fields) await page.fill(sel, v);
+      await page.locator(".pin-go").click();
+      await page.waitForFunction(() => document.querySelectorAll(".modal").length === 1, null, { timeout: 15000 });
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".modal", { state: "detached" });
+    };
+    check(/mtoken|mrefresh/.test((await handlesDump()).text), "test setup: the OneDrive token should be plain before a PIN");
+    await pinDialog(".pin-set", [[".pin-new", "2468"], [".pin-again", "2468"]]);
+    let dump = await handlesDump();
+    check(dump.keys.includes("tokvault"), "PIN on: no token key record");
+    check(!/mtoken|mrefresh/.test(dump.text) && dump.text.includes("denotation-tok"), "PIN on: the sign-in token is still stored in plain text");
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item", { hasText: "Lock now" }).click();
+    await page.waitForSelector("#lock");
+    await page.keyboard.type("2468");
+    await page.waitForSelector("#lock", { state: "detached", timeout: 15000 }).catch(() => errs.push("PIN lock: unlock failed"));
+    await page.waitForTimeout(800);
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item", { hasText: "Storage" }).click();
+    await page.waitForSelector(".storage-dialog");
+    check(await page.locator(".loc-row", { hasText: "Connected" }).count() === 1, "PIN lock: OneDrive not connected after unlock");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    await pinDialog(".pin-remove", [[".pin-current", "2468"]]);
+    dump = await handlesDump();
+    check(!dump.keys.includes("tokvault") && /mtoken|mrefresh/.test(dump.text), "PIN off: the token was not stored plain again");
     await context.close();
 
     // ---------- pop-ups blocked: sign in in this tab (full-page redirect), finished at the next boot ----------
