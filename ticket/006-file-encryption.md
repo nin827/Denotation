@@ -1,6 +1,6 @@
 # 006: Encrypted files, unlocked with the PIN
 
-Status: decided (owner, 2026-11-27)
+Status: resolved (built; see commit "Optional encryption")
 Raised: 2026-11-27
 
 Goal: an option to keep the workspace files (storage locations, main and backups) encrypted, so they're readable only
@@ -39,3 +39,9 @@ exports (ZIP/JSON)?
 - **Recovery key:** shown once when encryption is turned on. Plus an optional **Keep recovery key in the app**
   toggle: when on (and the dialog is closed), the key is stored wrapped by the data key and can be viewed in
   Settings → Security whenever the app is unlocked. Off by default.
+
+## Follow-ups
+- `bumpManifest` in `sync.js` drops unknown manifest fields, so an older app version could strip `encrypted` and write
+  plain files. Make it keep unknown fields; meanwhile update every device.
+- Not yet tried in real 7-Zip / WinRAR / Keka / Archive Utility (checked against an independent implementation only).
+- Optional `DENOTATION_PIN` for the MCP server.
