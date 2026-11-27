@@ -10,7 +10,8 @@ import { openModal } from "./ui/modal.js";
 import { loadPrefs, applyPrefs, savePrefs, openSettings } from "./ui/appearance.js";
 import { toast } from "./ui/dialogs.js";
 import { pickCsv } from "./ui/csvFile.js";
-import { saveTextFile } from "./ui/files.js";
+import { createVaultUi } from "./ui/vaultUi.js";
+import { createFolderAdapter, folderSupported } from "./adapters/folder.js";
 import { renderDatabase } from "./ui/dbView.js";
 import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./ui/pageView.js";
 import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
@@ -28,6 +29,7 @@ let currentId = null;
 let view = null;
 let persistence = null;
 let env = null;
+let vaultUi = null;
 let prefs = loadPrefs();
 applyPrefs(prefs);
 const layout = createLayout({ appEl, getLocked: () => prefs.sidebarLocked, onChange: () => {
@@ -47,6 +49,7 @@ async function main() {
   } catch (e) {
     return showFatal(e);
   }
+  if (folderSupported() && store.name === "local") store = createFolderAdapter(store);
   if (store.auth) {
     store.auth.onChange((u) => u ? start(u) : showLogin());
   } else {
@@ -111,6 +114,22 @@ async function start(u) {
       }
     }
   };
+  vaultUi = createVaultUi({
+    store,
+    ws: () => ws,
+    flush: () => persistence.flush(),
+    activeRepoId: () => activeRepo(pages, currentId)?.id ?? null,
+    redraw: () => drawSidebar(),
+    onRemote: async () => {
+      await refresh();
+      await route();
+    },
+    afterImport: async (r) => {
+      await refresh();
+      if (r.rootId && r.format === "markdown") env.open(r.rootId);
+      else await route();
+    }
+  });
   loginEl.hidden = true;
   appEl.hidden = false;
   try {
@@ -126,6 +145,7 @@ async function start(u) {
     return showFatal(e);
   }
   await route();
+  vaultUi.init().catch((e) => toast(`Folder sync: ${e.message}`, "error"));
 }
 async function route() {
   layout.afterNavigate();
@@ -301,51 +321,20 @@ async function trashPage(p) {
   if (currentId && isTrashed(pages, pages.find((x) => x.id === currentId))) env.leave([p.id]);
 }
 function buildFooter() {
-  const where = `Storage: ${store.label ?? store.name}${user ? ` \xB7 ${user.name}` : ""}`;
-  const fileInput = h("input", {
-    type: "file",
-    accept: "application/json",
-    hidden: true,
-    onChange: async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const r = await ws.importAll(JSON.parse(await file.text()));
-        toast(`Imported ${r.pages} pages and ${r.rows} rows.`);
-        await refresh();
-        await route();
-      } catch (err) {
-        toast(`Import failed: ${err.message}`, "error");
-      }
-      e.target.value = "";
-    }
-  });
+  const where = `Storage: ${store.cache?.label ?? store.label ?? store.name}${user ? ` \xB7 ${user.name}` : ""}`;
+  const { lines, buttons } = vaultUi.footer({ where, user: user?.name });
   return h(
     "div",
     { class: "side-footer" },
-    h("div", {}, where),
+    ...lines,
     store.note ? h("div", { class: "note" }, store.note) : null,
     h(
       "div",
       { class: "row" },
-      h("button", { onClick: exportData }, ico("file-down"), " Export"),
-      h("button", { onClick: () => fileInput.click() }, ico("upload"), " Import"),
-      store.auth ? h("button", { onClick: () => store.auth.signOut() }, ico("log-out"), " Sign out") : null,
-      fileInput
+      ...buttons,
+      store.auth ? h("button", { onClick: () => store.auth.signOut() }, ico("log-out"), " Sign out") : null
     )
   );
-}
-async function exportData() {
-  try {
-    const data = await ws.exportAll();
-    const status = await saveTextFile(
-      `denotion-${(new Date()).toISOString().slice(0, 10)}.json`,
-      JSON.stringify(data, null, 2)
-    );
-    if (status === "copied") toast("Downloads are unavailable here, so the export was copied to your clipboard.");
-  } catch (e) {
-    if (e?.code !== "declined") toast(`Export failed: ${e?.message ?? e}`, "error");
-  }
 }
 async function seed() {
   const N = newBlock;

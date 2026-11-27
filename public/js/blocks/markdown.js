@@ -66,7 +66,7 @@ ${b.text}
         text = b.children.map((c) => blocksToMarkdown(c.children, ctx)).filter(Boolean).join("\n\n");
         break;
       case "image":
-        text = `![${b.caption || ""}](${b.src?.startsWith("data:") ? "embedded-image" : b.src || ""})`;
+        text = `![${b.caption || ""}](${ctx.imageSrc ? ctx.imageSrc(b) : b.src?.startsWith("data:") ? "embedded-image" : b.src || ""})`;
         break;
       case "bookmark":
         text = b.url ? `[${b.title || b.url}](${b.url})` : "";
@@ -75,7 +75,7 @@ ${b.text}
         text = blocksToMarkdown(ctx.syncBlocks?.(b.ref) ?? [], ctx);
         break;
       case "page":
-        text = `\u{1F4C4} ${ctx.pageTitle?.(b.ref) ?? "Untitled"}`;
+        text = ctx.pageLink ? ctx.pageLink(b.ref) : `\u{1F4C4} ${ctx.pageTitle?.(b.ref) ?? "Untitled"}`;
         break;
       default:
         text = "";

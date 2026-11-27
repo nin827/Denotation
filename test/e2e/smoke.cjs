@@ -28,6 +28,23 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".qf-input");
     await page.keyboard.press("Escape");
+    // Export as ZIP (Markdown and JSON) and re-import both
+    const zips = {};
+    for (const [kind, label] of [["md", "ZIP \u2014 Markdown"], ["json", "ZIP \u2014 Denotation JSON"]]) {
+      await page.locator(".side-footer button", { hasText: "Export" }).click();
+      const [dl] = await Promise.all([page.waitForEvent("download"), page.locator(".menu-item", { hasText: label }).click()]);
+      zips[kind] = await dl.path();
+      if (fs.readFileSync(zips[kind]).subarray(0, 2).toString() !== "PK") errs.push(`${kind} export is not a ZIP`);
+    }
+    const toastText = async (re) => (await page.locator(".toast", { hasText: re }).first().textContent({ timeout: 5000 }).catch(() => "")) || "";
+    await page.setInputFiles(".side-footer input[type=file]", { name: "backup.zip", mimeType: "application/zip", buffer: fs.readFileSync(zips.json) });
+    if (!(await toastText(/Restored \d+ pages/))) errs.push("JSON ZIP import: no success toast");
+    const before = await page.locator(".side-item").count();
+    await page.setInputFiles(".side-footer input[type=file]", { name: "notes-md.zip", mimeType: "application/zip", buffer: fs.readFileSync(zips.md) });
+    if (!(await toastText(/Imported \d+ page/))) errs.push("Markdown ZIP import: no success toast");
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".side-item", { hasText: "notes-md" }).count())) errs.push("Markdown ZIP import: no new repository");
+    if ((await page.locator(".side-item").count()) <= before) errs.push("Markdown ZIP import: sidebar did not grow");
     const ok = errs.length === 0 && n > 0;
     failed ||= !ok;
     console.log(`${ok ? "ok  " : "FAIL"} ${t} (${n} sidebar items)${errs.length ? "\n  " + errs.join("\n  ") : ""}`);

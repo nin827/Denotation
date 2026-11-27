@@ -127,7 +127,10 @@ export function createWorkspace(store) {
     await put("rows", row.id, row);
     return row;
   };
-  const saveRow = (row) => put("rows", row.id, row);
+  const saveRow = (row) => {
+    row.updatedAt = Date.now();
+    return put("rows", row.id, row);
+  };
   const deleteRow = (id) => del("rows", id);
   const updateColumns = async (db, columns) => {
     const rows = await listRows(db.id);
