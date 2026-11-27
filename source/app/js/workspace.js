@@ -11,6 +11,8 @@ import { cleanRules } from "./autoCallouts.js";
 import { summarize, isComposite } from "./schema.js";
 import { formatResult } from "./formula.js";
 import { toText } from "./dbviews.js";
+import { createWorkspaceLinks } from "./graph/workspaceLinks.js";
+import { termsOf } from "./terms.js";
 
 // id -> page index per pages array, so isTrashed / ancestors over a whole list stay O(n) instead of rebuilding the map per call.
 // Holds references, so in-place edits (trashedAt, parentId) are seen; a changed length drops it.
@@ -79,20 +81,46 @@ export function createWorkspace(store) {
       }
     }
   };
+  // Page links (graph, backlinks): every write through the workspace re-indexes that one record.
+  const links = createWorkspaceLinks();
+  const track = (col, rec) => {
+    try {
+      if (col === "pages") links.updatePage(rec);
+      else if (col === "rows") links.updateRow(rec);
+    } catch {
+    }
+  };
   const put = async (...a) => {
     await store.set(...a);
+    track(a[0], a[2]);
     notify();
   };
   const del = async (...a) => {
     await store.remove(...a);
+    links.remove(a[1]);
     notify();
+  };
+  /** Rows are indexed lazily (graph, backlinks): lists them once, then saves keep the index current. */
+  let rowsLoading = null;
+  const ensureLinkRows = () => {
+    if (links.rowsReady) return Promise.resolve(links);
+    return rowsLoading ??= store.list("rows").then((rows) => {
+      links.setRows(rows);
+      return links;
+    }).finally(() => {
+      rowsLoading = null;
+    });
   };
   const onDataChange = (f) => {
     listeners.add(f);
     return () => listeners.delete(f);
   };
   const byCreated = (a, b) => a.createdAt - b.createdAt;
-  const listPages = async () => (await store.list("pages")).sort(byCreated);
+  const listPages = async () => {
+    const list = (await store.list("pages")).sort(byCreated);
+    links.syncPages(list); // pages changed outside the workspace (sync pulls, imports) are re-indexed here
+    return list;
+  };
   const getPage = (id) => store.get("pages", id);
   const savePage = async (page) => {
     page.updatedAt = Date.now();
@@ -180,6 +208,7 @@ export function createWorkspace(store) {
     if (!list.length) return;
     if (typeof store.setMany === "function") await store.setMany(col, list);
     else for (const r of list) await store.set(col, r.id, r);
+    for (const r of list) track(col, r);
     notify();
   };
   const createRow = async (db, patch = {}) => {
@@ -502,10 +531,26 @@ export function createWorkspace(store) {
       if (i < 0) return "";
       return (i > 30 ? "\u2026" : "") + text.slice(Math.max(0, i - 30), i + 60).replace(/\n/g, " ");
     };
+    // term chips are searched by their text and definition (the repository of each page holds its terms)
+    const byId = new Map(pages.map((x) => [x.id, x]));
+    const repoOf = (p) => {
+      for (let q = p, n = 0; q && n < 100; q = byId.get(q.parentId), n++) if (q.type === "repo") return q;
+      return null;
+    };
+    const termResolver = (repo) => {
+      const list = termsOf(repo);
+      if (!list.length) return undefined;
+      return (n) => {
+        if (n.kind !== "term") return undefined;
+        const t = list.find((x) => x.id === n.args[0]);
+        return t ? `${t.text} ${t.definition ?? ""}` : undefined;
+      };
+    };
     const hits = [];
     for (const p of live) {
+      const termInline = termResolver(repoOf(p));
       const inTitle = (p.title || "").toLowerCase().includes(q);
-      const body = `${p.props?.length ? `${propsSearchText(p.props, titleOf)}\n` : ""}${p.blocks ? plainText(p.blocks) : ""}`;
+      const body = `${p.props?.length ? `${propsSearchText(p.props, titleOf)}\n` : ""}${p.blocks ? plainText(p.blocks, termInline) : ""}`;
       const snip = snippetOf(body);
       const archived = isArchived(pages, p);
       if (inTitle || snip) hits.push({ kind: "page", id: p.id, pageId: p.id, title: p.title || "Untitled", snippet: inTitle ? "" : snip, rank: inTitle ? 0 : 1, ...(archived ? { archived: true } : {}), ...(p.template ? { template: true } : {}) });
@@ -513,7 +558,7 @@ export function createWorkspace(store) {
         const nameCol = p.columns[0]?.id;
         for (const r of await listRows(p.id)) {
           const title = String(r.values?.[nameCol] ?? "");
-          const text = r.blocks ? plainText(r.blocks) : "";
+          const text = r.blocks ? plainText(r.blocks, termInline) : "";
           const rs = snippetOf(text);
           if (title.toLowerCase().includes(q) || rs) {
             hits.push({ kind: "row", id: r.id, pageId: p.id, title: title || "Untitled", snippet: rs, rank: title.toLowerCase().includes(q) ? 0 : 1 });
@@ -637,6 +682,8 @@ export function createWorkspace(store) {
     updateColumns,
     exportAll,
     importAll,
-    onDataChange
+    onDataChange,
+    links,
+    ensureLinkRows
   };
 }

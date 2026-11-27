@@ -13,7 +13,9 @@
 //   attachments/image-<n>.<ext>     embedded images, linked relatively
 // Names are sanitised (no characters illegal on Windows/macOS, max 80 characters, no reserved
 // names) and made unique per folder, case-insensitively ("Notes", "Notes 2"). Trashed pages are left out.
-// Links between pages become relative links to the target .md (or .csv for databases).
+// Markdown links between pages become relative links to the target .md (or .csv for databases); page link tokens
+// export as [[Title]] (x[[Title]] for hidden links) and heading embeds as ![[Title#Heading]]. On import, [[wiki links]]
+// to pages become link tokens again.
 import { previewMarkdown, resolveValue, findChipPreset, resolvePreset, presetKey } from "./preview.js";
 import { blocksToMarkdown, markdownToBlocks } from "./blocks/markdown.js";
 import { newBlock } from "./blocks/model.js";
@@ -21,6 +23,7 @@ import { databaseToCsv } from "./csv.js";
 import { toText } from "./dbviews.js";
 import { isHidden } from "./workspace.js";
 import { frontMatter, propsFromFrontMatter, cleanProps } from "./pageProps.js";
+import { exportCtx } from "./links.js";
 
 export const MANIFEST = "denotation.json";
 const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
@@ -259,7 +262,8 @@ export function toMarkdownFiles({ pages, rows }) {
         return p ? linkPath(relPath(here, p)) : "";
       }
     };
-    const body = md(job.blocks, ctx).replace(/\[([^\]]*)\]\(#(?:page|row)-([A-Za-z0-9-]+)\)/g, (m0, text, id) => {
+    // page links export as [[Title]] / x[[Title]], heading embeds as ![[Title#Heading]] (Obsidian style)
+    const body = md(job.blocks, exportCtx(live, ctx, { style: "wiki", embeds: "wiki" })).replace(/\[([^\]]*)\]\(#(?:page|row)-([A-Za-z0-9-]+)\)/g, (m0, text, id) => {
       const to = link(id);
       return to ? `[${text}](${to})` : text;
     });
@@ -547,11 +551,19 @@ async function importMarkdown(ws, input, { name, parentId }) {
         const to = p && targetOf.get(p);
         return to ? `${pre}[${text}](${to})` : m;
       })
-      .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (m, file, alias) => {
+      // [[Page]] / ![[Page]] / ![[Page#Heading]] -> a page link token (shown with the live title); x[[Page]] at a word
+      // start -> a hidden link; links to rows stay markdown links (#row-); unknown targets become their text
+      .replace(/(x|!)?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (m, pre, file, alias, off, str) => {
+        const inWord = pre === "x" && off > 0 && /[\p{L}\p{N}_]/u.test(str[off - 1]);
+        const lead = inWord ? "x" : "";
         const p = byBase.get(file.trim().replace(/\.md$/i, "").split("/").pop().toLowerCase());
         const to = p && targetOf.get(p);
         const text = (alias ?? file).trim();
-        return to ? `[${text}](${to})` : text;
+        if (!to) return lead + text;
+        const page = /^#page-([A-Za-z0-9-]{1,64})$/.exec(to);
+        // an alias (`[[Page|text]]`) keeps its text as a markdown link: a token always shows the live title
+        if (!page || (alias != null && pre !== "x")) return `${lead}[${text}](${to})`;
+        return lead + (pre === "x" && !inWord ? `{{xlink:${page[1]}}}` : `{{link:${page[1]}}}`);
       });
     const blocks = markdownToBlocks(body).map((b) => {
       const m = b.type === "p" && /^\[[^\]]*\]\(#page-([A-Za-z0-9-]+)\)$/.exec(b.text);

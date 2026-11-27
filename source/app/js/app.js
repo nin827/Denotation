@@ -26,6 +26,7 @@ import { createKeyring } from "./crypto.js";
 import { closePopovers } from "./ui/popover.js";
 import { setDataSource } from "./sources.js";
 import { registerServiceWorker, requestPersistence } from "./pwa.js";
+import { renderGraphPage, followLocalGraph, closeLocalGraph } from "./ui/graphView.js";
 // Feature plug-ins: each registers its chip kinds, slash entries and block types on import.
 import "./ui/plugins/links.js";
 import "./ui/plugins/images.js";
@@ -56,6 +57,8 @@ const hashFor = (id) => `#page-${id}`;
 const parseHash = () => {
   const m = location.hash.match(/^#(page|row)-([A-Za-z0-9-]+)$/);
   if (m) return { kind: m[1], id: m[2] };
+  const g = location.hash.match(/^#graph(?:-([A-Za-z0-9-]+))?$/);
+  if (g) return { kind: "graph", id: g[1] ?? null };
   return location.hash === "#trash" ? { kind: "trash" } : location.hash === "#archive" ? { kind: "archive" } : null;
 };
 const firstLive = () => pages.find((p) => p.type !== "sync" && !isHidden(pages, p) && !inTemplate(pages, p));
@@ -79,6 +82,7 @@ const lockUi = createLockScreen({
     }
     if (!lockUi.isLocked()) return;
     keyring.lock();
+    closeLocalGraph(); // the panel lives outside #main and would keep showing page titles
     sidebarEl.replaceChildren();
     mainEl.replaceChildren();
   },
@@ -185,6 +189,7 @@ async function start(u) {
     activeRepoId: () => activeRepo(pages, currentId)?.id ?? null,
     redraw: () => drawSidebar(),
     onRemote: async () => {
+      ws?.links.invalidateRows(); // rows may have changed in the pull: the link index lists them again when needed
       await refresh();
       await route();
     },
@@ -246,6 +251,13 @@ async function route() {
     drawSidebar();
     return renderArchive(mainEl, env);
   }
+  if (target?.kind === "graph") {
+    view = "graph";
+    currentId = null;
+    drawSidebar();
+    mainEl.scrollTop = 0;
+    return renderGraphPage(mainEl, env, { repoId: target.id });
+  }
   view = null;
   if (target?.kind === "row") {
     const row = await ws.getRow(target.id);
@@ -254,6 +266,7 @@ async function route() {
       currentId = db.id;
       drawSidebar();
       mainEl.scrollTop = 0;
+      followLocalGraph(env, db.id);
       return renderRowPage(mainEl, env, db, row);
     }
   }
@@ -267,6 +280,7 @@ async function route() {
   currentId = page.id;
   drawSidebar();
   mainEl.scrollTop = 0;
+  followLocalGraph(env, page.id);
   const fresh = page;
   if (fresh.type === "repo") {
     const header = renderHeader(env, fresh, { titleValue: fresh.title, setTitle: (v) => {
@@ -355,6 +369,12 @@ function drawSidebar() {
       await persistence.flush();
       if (location.hash === "#archive") route();
       else location.hash = "#archive";
+    },
+    onOpenGraph: async (repoId = null) => {
+      await persistence.flush();
+      const hash = repoId ? `#graph-${repoId}` : "#graph";
+      if (location.hash === hash) route();
+      else location.hash = hash;
     },
     onArchive: async (p) => {
       await persistence.flush();

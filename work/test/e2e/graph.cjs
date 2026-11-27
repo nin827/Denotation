@@ -132,29 +132,46 @@ async function run(browser, { n, worker = true, throttle = 1, dark = false, shot
   await touch("touchEnd", []);
   // let queued input (wheel, touch) land and the view come to rest before picking a node on screen
   await page.waitForTimeout(throttle > 1 ? 400 : 100);
-  await page.evaluate(async () => {
-    const R = window.__view.renderer, key = () => JSON.stringify(R.view);
-    let last = "";
-    for (let i = 0; i < 100 && key() !== last; i++) { last = key(); await new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 50)); }
+  // wait until the view AND the node positions have been still for a while (queued wheel / touch input under CPU
+  // throttling can land late, and a picked node must still be where it was picked when the pointer goes down)
+  const settle = () => page.evaluate(async () => {
+    const v = window.__view, R = v.renderer;
+    const key = () => { const p = R.positions; let s = 0; for (let i = 0; i < p.length; i += 97) s += p[i]; return JSON.stringify(R.view) + s.toFixed(2) + v.runner.settled + R.gesture.mode; };
+    let last = "", same = 0;
+    for (let i = 0; i < 200 && same < 3; i++) { const k = key(); same = k === last ? same + 1 : 0; last = k; await new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 40)); }
   });
-  // node drag: pick the node nearest the centre that is on screen
-  const target = await page.evaluate(([cx, cy]) => {
+  // node drag: pick the node nearest the centre that is on screen (nothing else within a few px, so the pointer hits it)
+  const pick = () => page.evaluate(([cx, cy]) => {
     const v = window.__view, R = v.renderer, n = v.graph.nodes.length;
     let best = -1, bd = Infinity;
-    for (let i = 0; i < n; i++) { const p = R.toScreen(i); const d = Math.hypot(p.x - cx, p.y - cy); if (d < bd && R.hitTest(p.x, p.y, 1) === i) { bd = d; best = i; } }
+    for (let i = 0; i < n; i++) { const p = R.toScreen(i); const d = Math.hypot(p.x - cx, p.y - cy); if (d < bd && R.hitTest(p.x, p.y, 1) === i && R.hitTest(p.x, p.y, 12) === i) { bd = d; best = i; } }
     return best >= 0 ? { i: best, ...R.toScreen(best) } : null;
   }, [cx, cy]);
-  let dragged = false, gesture = null;
+  let dragged = false, gesture = null, target = null;
+  for (let attempt = 0; attempt < 3 && !(gesture?.mode === "node"); attempt++) {
+    if (gesture) { await release(); await page.waitForTimeout(100); }
+    await settle();
+    target = await pick();
+    if (!target) break;
+    const t = target;
+    await dragPath(t.x, t.y, 1, (i) => [t.x + i * 2, t.y + Math.sin(i / 6) * 40]);
+    gesture = await page.evaluate(() => window.__view.renderer.gesture);
+  }
   if (target) {
     const at = (i) => [target.x + i * 2, target.y + Math.sin(i / 6) * 40];
-    await dragPath(target.x, target.y, 1, at);
-    gesture = await page.evaluate(() => window.__view.renderer.gesture);
     for (let i = 2; i <= 60; i++) phone ? await touch("touchMove", [at(i)]) : await page.mouse.move(...at(i));
     await page.waitForTimeout(throttle > 1 ? 300 : 50);
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     if (shot) await page.screenshot({ path: `${shot}-drag.png` });
-    const pos = await page.evaluate((i) => window.__view.renderer.toScreen(i), target.i);
-    dragged = Math.hypot(pos.x - at(60)[0], pos.y - at(60)[1]) < 6;
+    // the last pointer move is applied on the next frame (input is coalesced): poll briefly instead of one fixed wait
+    dragged = await page.evaluate(async ([i, x, y]) => {
+      for (let t = 0; t < 40; t++) {
+        const p = window.__view.renderer.toScreen(i);
+        if (Math.hypot(p.x - x, p.y - y) < 6) return true;
+        await new Promise((r) => setTimeout(() => requestAnimationFrame(r), 50));
+      }
+      return false;
+    }, [target.i, ...at(60)]);
     await release();
   }
   const { deltas, draws } = await stopMeasure();

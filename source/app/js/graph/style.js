@@ -15,7 +15,7 @@
 /** Named node colours → OKLCH hue (the renderer picks lightness/chroma for the current light/dark theme). */
 export const COLORS = Object.freeze({
   red: 25, orange: 55, yellow: 90, lime: 125, green: 145, teal: 185, cyan: 210, blue: 250, indigo: 275,
-  purple: 300, pink: 345, grey: null, gray: null
+  purple: 300, magenta: 325, pink: 345, grey: null, gray: null
 });
 
 export const SIZE = Object.freeze({ min: 4, max: 22, fixed: 6, perLink: 1.6 });

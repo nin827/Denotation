@@ -20,6 +20,9 @@ import { propMap, rowPropMap } from "../autoCallouts.js";
 import { frontMatter, cleanProps } from "../pageProps.js";
 import { applyPreset } from "../blocks/callout.js";
 import { openModal } from "./modal.js";
+import { exportCtx } from "../links.js";
+import { backlinksBox } from "./backlinks.js";
+import { toggleLocalGraph, localGraphOpen, openAppearance } from "./graphView.js";
 
 const COVERS = {
   sunset: "linear-gradient(120deg,#f6d365,#fda085)",
@@ -147,11 +150,12 @@ const exportMarkdown = async (env, title, blocks, props = null) => {
       return p ? { id, state: pageState(env.pages(), p) } : { id, state: "missing" };
     }
   };
-  const ctx = {
+  // links export as [[Title]] / x[[Title]], heading embeds as ![[Title#Heading]], block embeds as their text
+  const ctx = exportCtx(live(), {
     pageTitle: (id) => env.pages().find((p) => p.id === id)?.title || "Untitled",
     syncBlocks: () => [],
     inline: await inlineResolver(lookup, blockTexts(blocks))
-  };
+  }, { style: "wiki", embeds: "wiki" });
   const fm = props?.length ? `---\n${frontMatter(title || "Untitled", cleanProps(props), ctx.pageTitle)}\n---\n\n` : "";
   const md = `${fm}# ${title || "Untitled"}
 
@@ -499,6 +503,10 @@ function pageMenuItems(env, target, opts) {
         ] });
       }
     }
+    if (target.type !== "repo" && target.type !== "sync") {
+      items.push({ label: localGraphOpen() ? "Local graph (on)" : "Local graph", icon: ico("waypoints"), hint: localGraphOpen() ? "close" : null, onSelect: () => toggleLocalGraph(env, target.id) });
+      if (!opts.locked) items.push({ label: "Graph appearance\u2026", icon: ico("palette"), hint: target.graph ? "custom" : null, onSelect: () => openAppearance(env, target) });
+    }
     if (target.type !== "repo") items.push(
       { label: `${target.fullWidth ? "Full width (on)" : "Full width"}`, icon: ico("maximize-2"), onSelect: () => pick("fullWidth") },
       { label: `${target.smallText ? "Small text (on)" : "Small text"}`, icon: ico("a-large-small"), onSelect: () => pick("smallText") },
@@ -618,7 +626,8 @@ export function renderDocPage(root, env, page) {
       page.blocks.push(nb);
       editor.inst.save();
       editor.redraw({ id: nb.id });
-    } })
+    } }),
+    backlinksBox(env, page.id)
   ));
 }
 export function renderRowPage(root, env, db, row) {

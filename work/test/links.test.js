@@ -4,7 +4,8 @@ import { parseInline, stripInline, buildToken, readToken, scanTokens, tokenFallb
 import { blocksToMarkdown } from "../../source/app/js/blocks/markdown.js";
 import {
   normTitle, makeTitleResolver, parseWikiSyntax, toWikiSyntax, extractLinks, uniqueEdges, parseEmbed, embedKey,
-  resolveEmbed, embedChain, detectCycle, embedCycleFrom, exportInline, exportCtx, embedMarkdown, embedPlainText, linkMarkdown
+  resolveEmbed, embedChain, detectCycle, embedCycleFrom, exportInline, exportCtx, embedMarkdown, embedPlainText, linkMarkdown,
+  wikiTrigger, rankPages, headingList, blockChoices
 } from "../../source/app/js/links.js";
 
 const rng = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
@@ -462,4 +463,57 @@ test("recursive embeds export a note instead of looping", () => {
   const two = [P("a", "A", [B("h", "h1", "H"), B("e", "p", E("b", "k"))]), P("b", "B", [B("k", "h1", "K"), B("e2", "p", E("a", "h"))])];
   assert.ok(blocksToMarkdown(two[0].blocks, exportCtx(two)).includes("(recursive embed omitted)"));
   assert.equal(typeof exportInline(two), "function");
+});
+
+test("heading embeds export as ![[Title#Heading]] with embeds: wiki; block embeds stay text", () => {
+  const ctx = exportCtx(XP, {}, { style: "wiki", embeds: "wiki" });
+  assert.equal(blocksToMarkdown([B("x", "p", E("a", "h"))], ctx), "![[Alpha x#Sec]]");
+  assert.equal(blocksToMarkdown([B("x", "p", "{{embed:a|b|l2,l1}}")], ctx), "other\n\npara [[Beta]]");
+  assert.equal(blocksToMarkdown([B("x", "p", E("nope", "h"))], ctx), "(embedded content unavailable)");
+});
+
+// ---------- editor helpers ----------
+test("wikiTrigger: [[, x[[ and ![[ before the caret, with the typed query", () => {
+  assert.deepEqual(wikiTrigger("see [[Al"), { start: 4, form: "link", query: "Al" });
+  assert.deepEqual(wikiTrigger("a x[[B c"), { start: 2, form: "xlink", query: "B c" });
+  assert.deepEqual(wikiTrigger("x[["), { start: 0, form: "xlink", query: "" });
+  assert.deepEqual(wikiTrigger("box[[A"), { start: 3, form: "link", query: "A" }, "x inside a word is text");
+  assert.deepEqual(wikiTrigger("![[Pa"), { start: 0, form: "embed", query: "Pa" });
+  for (const no of ["[[a]] b", "`[[a", "\\[[a", "{{value:[[a", "[a", "[[a\nb", "[[" + "x".repeat(61), ""]) assert.equal(wikiTrigger(no), null, JSON.stringify(no));
+  assert.deepEqual(wikiTrigger("`code` [[a"), { start: 7, form: "link", query: "a" });
+  assert.deepEqual(wikiTrigger("{{link:p1}} [[a"), { start: 12, form: "link", query: "a" });
+});
+test("rankPages: exact, prefix, word prefix, substring; bounded", () => {
+  const pages = ["Beta alpha", "Alphabet", "alpha", "Zalpha", "Other", "ALPHA team"].map((title, i) => ({ id: `p${i}`, title }));
+  assert.deepEqual(rankPages(pages, " Alpha ").map((p) => p.title), ["alpha", "Alphabet", "ALPHA team", "Beta alpha", "Zalpha"]);
+  assert.deepEqual(rankPages(pages, "", 2).map((p) => p.id), ["p0", "p1"]);
+  assert.deepEqual(rankPages(pages, "zzz"), []);
+  assert.equal(rankPages(Array.from({ length: 50 }, (_, i) => ({ id: `q${i}`, title: "same" })), "same", 8).length, 8);
+  assert.deepEqual(rankPages(null, "a"), []);
+});
+test("headingList / blockChoices: document order, any depth, columns flattened", () => {
+  const blocks = [
+    B("h1", "h1", "Top **bold**"),
+    B("t", "toggle", "T", { children: [B("h3", "h3", "Inner"), B("k", "p", "kid")] }),
+    { id: "cols", type: "columns", children: [{ id: "c1", type: "column", children: [B("l", "p", "left")] }] },
+    B("bad id", "h2", "skipped")
+  ];
+  assert.deepEqual(headingList(blocks), [{ id: "h1", level: 1, text: "Top bold" }, { id: "h3", level: 3, text: "Inner" }]);
+  assert.deepEqual(blockChoices(blocks).map((c) => [c.id, c.depth]), [["h1", 0], ["t", 0], ["h3", 1], ["k", 1], ["cols", 0], ["l", 0]]);
+  assert.equal(blockChoices(Array.from({ length: 10 }, (_, i) => B(`b${i}`, "p", "x")), 3).length, 3);
+});
+test("fuzz: wikiTrigger never throws and its start points at the typed syntax", () => {
+  const r = rng(42);
+  const parts = ["[[", "x[[", "![[", "a", " ", "`", "\\", "{{", "}}", "]]", "Title", "\n", "x"];
+  for (let i = 0; i < 3000; i++) {
+    let s = "";
+    for (let j = 0, n = Math.floor(r() * 8); j < n; j++) s += pick(r, parts);
+    const t = wikiTrigger(s);
+    if (!t) continue;
+    const open = t.start + (t.form === "link" ? 0 : 1);
+    assert.equal(s.slice(open, open + 2), "[[", s);
+    assert.equal(s.slice(open + 2), t.query, s);
+    if (t.form === "embed") assert.equal(s[t.start], "!");
+    if (t.form === "xlink") assert.equal(s[t.start], "x");
+  }
 });

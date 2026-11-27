@@ -179,7 +179,7 @@ and search also matches page property values. Details: `source/mcp/README.md`.
   Catalogue entries with `inline` insert tokens instead of blocks.
 - **More token kinds:** `{{const:id}}`, `{{page:id}}`, `{{status:id}}`, `{{check:0|1}}` and `{{= expr}}` (one argument up to
   `}}`; escape `\` and `}`). `replaceNthToken` rewrites one token (checkbox/status clicks). `stripInline(s, resolve?)`.
-- **Links and embeds (core, `js/links.js`, pure; UI wiring pending):** stored by id as tokens `{{link:<pageId>}}`,
+- **Links and embeds (core, `js/links.js`, pure):** stored by id as tokens `{{link:<pageId>}}`,
   `{{xlink:<pageId>}}` (hidden in the graph), `{{embed:<pageId>|h|<headingId>}}`, `{{embed:<pageId>|b|<id>,…}}` (≤ 12
   blocks). Typed `[[Title]]`, `x[[Title]]`, `![[Title]]` (= link), `![[Title][Heading]]`, `![[Title](blocks)]` convert via
   `parseWikiSyntax`; `toWikiSyntax` shows them back. `extractLinks(page)` feeds the graph (also counts `#page-` links and
@@ -252,7 +252,16 @@ and search also matches page property values. Details: `source/mcp/README.md`.
   trashed or archived. Use `isHidden` for every listing (sidebar, `sources.js`, chips, view blocks, vault Markdown, Move
   to). `ws.archivePage` / `unarchivePage` / `listArchive` / `archiveToTrash`; `search(q, limit, { includeArchived })`.
   Archived databases render with `renderDatabase(..., { frozen: true })`. Markdown export skips archived pages; JSON keeps them.
-- **Graph engine** (`js/graph/`, integration pending): `model.js` (link index + `buildGraph`: hidden links draw no edge,
+- **Links and graph (UI):** link tokens are stored by id. `ws.links` (`graph/workspaceLinks.js`) keeps one link index per
+  workspace: workspace writes re-index the saved record, `listPages` re-checks pages by `updatedAt`, rows are indexed
+  lazily (`ensureLinkRows`, `invalidateRows` after a pull). `graphNodes(pages, rows)` builds node records and
+  `repoRules(repos)` scopes each repository's `graphRules` (`[{ when: [{ prop | field, op, value }], icon?, color?, size? }]`,
+  ≤ 40; `graphSize: "fixed"` optional) to its pages; `page.graph = { icon?, color?, size? }`. UI: `ui/graphView.js`
+  (route `#graph[-repoId]`, local panel, `graph` block with `b.graph = { scope, depth, mode }`, appearance and rules
+  dialogs), `ui/linkChips.js`, `ui/linkPicker.js`, `ui/backlinks.js`. Positions: memory plus localStorage
+  `denotation-graph-pos` (6 graphs, 3000 positions). Tests: `work/test/graph-links.test.js`, `work/test/links.test.js`,
+  `work/test/e2e/links.cjs`, `work/test/e2e/graph.cjs`.
+- **Graph engine** (`js/graph/`): `model.js` (link index + `buildGraph`: hidden links draw no edge,
   mutual links are two-way, rows only when their database is included or a page links them), `style.js` (explicit
   per-page `graph` settings, then the first matching rule, then size from link count), `layout.js` (Barnes–Hut force
   layout, deterministic per seed, warm start from cached positions) run by `runner.js` in `layout.worker.js` with a

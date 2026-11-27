@@ -35,6 +35,7 @@ export function renderSidebar(el, props) {
   const onSearch = call("onSearch");
   const onOpenTrash = call("onOpenTrash");
   const onOpenArchive = call("onOpenArchive");
+  const onOpenGraph = call("onOpenGraph");
   const onArchive = call("onArchive");
   const onSettings = call("onSettings");
   const onFeedback = call("onFeedback");
@@ -90,6 +91,8 @@ export function renderSidebar(el, props) {
         { label: "Rename", icon: ico("pencil"), onSelect: () => onRename(p) },
         p.type === "repo" ? { label: "Constants\u2026", icon: ico("variable"), onSelect: () => onRepoSettings(p, "constants") } : null,
         p.type === "repo" ? { label: "Statuses\u2026", icon: ico("circle-dot"), onSelect: () => onRepoSettings(p, "statuses") } : null,
+        p.type === "repo" ? { label: "Terms\u2026", icon: ico("book-a"), onSelect: () => onRepoSettings(p, "terms") } : null,
+        p.type === "repo" ? { label: "Graph", icon: ico("waypoints"), onSelect: () => onOpenGraph(p.id) } : null,
         p.type === "database" && !p.sourceId ? { label: p.dataSource ? "Data source (on)" : "Data source", icon: ico("database-zap"), hint: p.dataSource ? "turn off" : null, onSelect: () => onDataSource(p) } : null,
         p.type !== "repo" ? { label: p.favorite ? "Remove from favorites" : "Add to favorites", icon: ico("star"), onSelect: () => onFavorite(p) } : null,
         { label: "Duplicate", icon: ico("copy"), onSelect: () => onDuplicate(p) },
@@ -213,6 +216,7 @@ export function renderSidebar(el, props) {
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
     { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
     { label: "Archive", icon: ico("archive"), onSelect: onOpenArchive },
+    { label: "Graph", icon: ico("waypoints"), onSelect: () => onOpenGraph(null) },
     // Locking open only exists on wide screens (see ui/layout.js).
     matchMedia("(max-width: 700px)").matches ? null : { label: locked ? "Unlock sidebar" : "Lock sidebar open", icon: ico(locked ? "lock-open" : "lock"), onSelect: onToggleLock },
     { separator: true },

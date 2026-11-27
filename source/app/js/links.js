@@ -513,7 +513,8 @@ const safeTitle = (t) => String(t ?? "").replace(/[[\]{}`\\\r\n]/g, "").trim() |
  *   trip keeps the flag; relative links lose it). A page that no longer exists exports as "(deleted page)".
  *   embeds: the embedded blocks flattened to markdown (headings keep their level; the text is spliced where the
  *   token stood, so put the embed alone in its block for clean output). Embeds that loop, or whose target is gone,
- *   export as a short bracketed note.
+ *   export as a short bracketed note. With opts.embeds === "wiki", a heading embed exports as `![[Title#Heading]]`
+ *   (Obsidian style) instead of its text; chosen-block embeds always export as their text.
  */
 export function exportInline(pages, ctx = {}, opts = {}) {
   const get = pageGetter(pages);
@@ -529,6 +530,10 @@ export function exportInline(pages, ctx = {}, opts = {}) {
       const e = parseEmbed(n);
       const r = resolveWith(get, e);
       if (!r.ok && !r.blocks.length) return "(embedded content unavailable)";
+      if (opts.embeds === "wiki" && e.mode === "h") {
+        const ht = safeTitle(stripInline(r.blocks[0]?.text ?? "")).replace(/#/g, "");
+        return `![[${safeTitle(get(e.pageId)?.title).replace(/#/g, "")}#${ht}]]`;
+      }
       const key = embedKey(e);
       if (stack.includes(key)) return "(recursive embed omitted)";
       return blocksToMarkdown(r.blocks, { ...ctx, inline: make([...stack, key]) });
@@ -555,4 +560,76 @@ export function linkMarkdown(pages, token, ctx = {}) {
   const n = r?.node;
   if (!n || (n.kind !== "link" && n.kind !== "xlink")) return null;
   return exportInline(pages, ctx, { style: "wiki" })(n);
+}
+
+// ---------- editor helpers ----------
+const TRIGGER_RE = /(!|x)?\[\[([^[\]\n\r{}`\\]{0,60})$/;
+/**
+ * Is the caret right after an open `[[`, `x[[` or `![[` (with what was typed since)? `before` = text before the caret.
+ * Returns { start, form: "link" | "xlink" | "embed", query } (start = where the typed syntax begins) or null.
+ * Like parseWikiSyntax: no trigger inside a code span, after a backslash or inside a token; `x` only at a word start.
+ */
+export function wikiTrigger(before) {
+  const s = String(before ?? "");
+  const m = TRIGGER_RE.exec(s);
+  if (!m) return null;
+  let start = m.index;
+  let form = m[1] === "!" ? "embed" : m[1] === "x" ? "xlink" : "link";
+  if (form === "xlink" && wordBefore(s, start)) {
+    form = "link";
+    start++;
+  }
+  const open = start + (form === "link" ? 0 : 1);
+  if (s[open - 1] === "\\") return null;
+  // inside a code span: an odd number of backticks before
+  let ticks = 0;
+  for (let i = 0; i < open; i++) if (s[i] === "`" && s[i - 1] !== "\\") ticks++;
+  if (ticks % 2) return null;
+  // inside an unfinished token `{{...`
+  const lastOpen = s.lastIndexOf("{{", open);
+  if (lastOpen >= 0 && s.indexOf("}}", lastOpen) < 0) return null;
+  return { start, form, query: m[2] };
+}
+/**
+ * Pages for a link picker, best first: exact title, then title prefix, then word prefix, then substring (case-insensitive,
+ * whitespace collapsed). `pages` = [{ id, title }]; the order within a rank is kept. An empty query keeps the first `limit`.
+ */
+export function rankPages(pages, query, limit = 8) {
+  const q = normTitle(query);
+  const list = Array.isArray(pages) ? pages : [];
+  if (!q) return list.slice(0, limit);
+  const ranks = [[], [], [], []];
+  for (const p of list) {
+    const t = normTitle(p?.title || "Untitled");
+    if (t === q) ranks[0].push(p);
+    else if (t.startsWith(q)) ranks[1].push(p);
+    else if (t.includes(` ${q}`)) ranks[2].push(p);
+    else if (t.includes(q)) ranks[3].push(p);
+    if (ranks[0].length >= limit) break;
+  }
+  return ranks.flat().slice(0, limit);
+}
+/** Headings of a page in document order (any depth) as { id, level, text } for the embed picker. */
+export function headingList(blocks) {
+  const out = [];
+  eachBlock(blocks, (b) => {
+    const m = HEADING.exec(b.type);
+    if (m && isTokenId(b.id)) out.push({ id: b.id, level: Number(m[1]), text: stripInline(b.text ?? "").trim() });
+  });
+  return out;
+}
+/** Blocks a user can pick for a block embed, in document order: { id, type, text, depth } (columns themselves skipped). */
+export function blockChoices(blocks, max = 400) {
+  const out = [];
+  const visit = (list, depth) => {
+    if (!Array.isArray(list)) return;
+    for (const b of list) {
+      if (out.length >= max) return;
+      if (!isObj(b)) continue;
+      if (b.type !== "column" && isTokenId(b.id)) out.push({ id: b.id, type: b.type, text: typeof b.text === "string" ? stripInline(b.text).trim() : "", depth });
+      visit(b.children, b.type === "columns" || b.type === "column" ? depth : depth + 1);
+    }
+  };
+  visit(blocks, 0);
+  return out;
 }

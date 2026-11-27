@@ -299,6 +299,12 @@ Type `/` for:
 
 Markdown export writes the resulting text (a checkbox becomes `[x]` or `[ ]`).
 
+### Links, embeds and the graph
+
+Type `[[` to link a page and pick it from the list. The link always shows the page's current title. Start with `x[[` for a **hidden link**, which works the same but draws no line in the graph. `![[` **embeds**: pick a page, then a heading (its section shows inline, read-only) or **Choose blocks…** (up to 12). An embed that would include itself shows a warning instead. Typing `[[Exact title]]` also works. The bottom of every page lists **Linked from**.
+
+Open the **Graph** from the workspace **⋯** menu, or a repository's right-click menu → **Graph**: drag to move, scroll or pinch to zoom, click to open; filter by repository or title, hide unlinked pages, or show every row of chosen databases. The **List** view is a keyboard-friendly alternative. Page **⋯ → Local graph** shows the pages around the current one (1–3 steps). `/graph` adds a graph block. Page **⋯ → Graph appearance** sets a node's icon, colour and size. **Graph → Rules…** (for one repository) styles nodes by property, for example "Status is Done → green". Markdown export writes `[[Title]]`, `x[[Title]]` and `![[Title#Heading]]`.
+
 ### Terms
 
 A term is a named word or phrase you define once and reuse as a bold chip. Right-click your repository, choose **Terms…** and press **Add term**. Give it text and, if you like, a short definition, a category and subcategory, a colour and an icon (a Lucide icon or an emoji, shown to the right of the text). In any text, type `@` and start the term's name, or type `/Term`, to insert it. Edit the term once and every chip updates. Hover, focus or tap a chip to read its definition (Esc closes it).

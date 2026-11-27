@@ -37,6 +37,9 @@ import { pickEmoji } from "./emoji.js";
 import { openInlinePicker, inlineResolver, blockTexts, chipAction } from "./inlineChips.js";
 import { calloutLook, applyPreset, setLook, resetToPreset, hasOverride, DEFAULT_ICON } from "../blocks/callout.js";
 import { CALLOUT_PRESETS } from "../blocks/callout-presets.js";
+import { wikiTrigger, parseWikiSyntax, makeTitleResolver } from "../links.js";
+import { pageMenuItems, embedTargetMenu } from "./linkPicker.js";
+import { termMentionItems } from "./termsUi.js";
 
 let drag = null;
 const clip = { mode: null, block: null };
@@ -252,7 +255,10 @@ export function createBlockEditor(container, ctx) {
   // A click on a checkbox or status chip rewrites that token in the block text and saves like typing would.
   function tokenClick(b, ta, view, el) {
     const kind = el.dataset.tok;
-    const index = [...view.querySelectorAll(`[data-tok="${kind}"]`)].indexOf(el);
+    // tokens drawn inside an embed belong to another page: they are not counted (nor clickable) here
+    const own = () => [...view.querySelectorAll(`[data-tok="${kind}"]`)].filter((x) => !x.closest(".embed"));
+    const index = own().indexOf(el);
+    if (index < 0) return;
     chipAction(el, ctx, (token) => {
       const next = replaceNthToken(b.text ?? "", kind, index, token);
       if (next === null) return;
@@ -260,7 +266,7 @@ export function createBlockEditor(container, ctx) {
       ta.value = next;
       view.replaceChildren(...renderInline(next, ctx));
       save();
-      view.querySelectorAll(`[data-tok="${kind}"]`)[index]?.focus();
+      own()[index]?.focus();
     });
   }
   function marker(b, nums, ta) {
@@ -364,6 +370,7 @@ export function createBlockEditor(container, ctx) {
     return h("div", { class: "code-box" }, h("div", { class: "code-tools" }, select, copy), main);
   }
   function onInput(e, b, ta) {
+    if (b.type !== "code" && !e.isComposing && ta.value.includes("[[") && (e.data?.includes("]") || /^insertFrom(Paste|Drop)/.test(e.inputType ?? ""))) convertTyped(b, ta);
     b.text = ta.value;
     fit(ta);
     if (b.type === "p" && !e.isComposing) {
@@ -400,6 +407,53 @@ export function createBlockEditor(container, ctx) {
     slash = null;
     s?.menu.close();
   }
+  // Typed or pasted [[Title]], x[[Title]], ![[Title][Heading]], ![[Title](ids)] become id tokens (js/links.js). Text before
+  // and after the caret convert separately, so the caret stays where it was relative to the text around it.
+  function convertTyped(b, ta) {
+    const caret = ta.selectionStart;
+    const resolve = makeTitleResolver(ctx.livePages());
+    const a = parseWikiSyntax(ta.value.slice(0, caret), resolve);
+    const c = parseWikiSyntax(ta.value.slice(caret), resolve);
+    const amb = [...a.ambiguous, ...c.ambiguous];
+    if (amb.length && amb[0].what === "page") toast(`More than one page is called "${amb[0].title}". Type [[ and pick one from the list.`, "info");
+    if (!a.replaced && !c.replaced) return;
+    ta.value = a.text + c.text;
+    b.text = ta.value;
+    ta.setSelectionRange(a.text.length, a.text.length);
+  }
+  // [[, x[[ and ![[ open a page list; picking a page puts the link (or, for ![[, an embed or link) in place of the typed text.
+  function openWikiMenu(b, ta, w, caret) {
+    const after = ta.value.slice(caret);
+    const end = caret + (after.startsWith("]]") ? 2 : 0);
+    const id = b.id;
+    const put = (token) => {
+      const cur = b.text ?? "";
+      b.text = cur.slice(0, w.start) + token + cur.slice(end);
+      const el = root.querySelector(`textarea[data-id="${id}"]`);
+      if (el) {
+        el.value = b.text;
+        el.closest(".blk-content")?.classList.add("editing");
+        el.focus();
+        el.setSelectionRange(w.start + token.length, w.start + token.length);
+        fit(el);
+      }
+      save();
+    };
+    const back = () => root.querySelector(`textarea[data-id="${id}"]`)?.focus();
+    const items = pageMenuItems(ctx, w.query, (page) => {
+      if (w.form !== "embed") return put(buildToken(w.form, [page.id]));
+      embedTargetMenu(ta.isConnected ? ta : root, page, { onPick: put, onCancel: back });
+    });
+    if (slash && slash.kind === "wiki" && slash.blockId === b.id) {
+      slash.menu.update(items);
+      return;
+    }
+    closeSlash();
+    const menu = openMenu(ta, items, { width: 280, empty: "No page with that title", onClose: () => {
+      if (slash?.menu === menu) slash = null;
+    } });
+    slash = { menu, kind: "wiki", blockId: b.id };
+  }
   function updateTrigger(b, ta) {
     const caret = ta.selectionStart;
     const before = ta.value.slice(0, caret);
@@ -407,6 +461,8 @@ export function createBlockEditor(container, ctx) {
       closeSlash();
       return openPicker(b, ta, "value", caret - 2, caret);
     }
+    const wiki = b.type !== "code" && before.includes("[[") ? wikiTrigger(before) : null;
+    if (wiki) return openWikiMenu(b, ta, wiki, caret);
     let m = /(?:^|\s)\/([^\n/]{0,24})$/.exec(before);
     if (m && b.type !== "code") return openSlashMenu(b, ta, m, caret, "slash");
     m = /(?:^|\s)@([^\n@]{0,24})$/.exec(before);
@@ -446,7 +502,7 @@ export function createBlockEditor(container, ctx) {
         hint: "chip",
         onSelect: () => put(`${buildToken("page", [p.id])} `)
       }));
-      return [...consts, ...links, ...chips];
+      return [...consts, ...termMentionItems(ctx, query, (tok) => put(`${tok} `)), ...links, ...chips];
     }
     const args = parseArgs(q);
     const entries = [...CATALOG, ...presetEntries(listChipPresets(ctx.livePages()))];
@@ -734,6 +790,12 @@ export function createBlockEditor(container, ctx) {
     if (!t.trim().includes("\n")) return;
     e.preventDefault();
     const blocks = markdownToBlocks(t);
+    if (t.includes("[[")) {
+      const resolve = makeTitleResolver(ctx.livePages());
+      walk(blocks, (x) => {
+        if (isTexty(x) && typeof x.text === "string" && x.text.includes("[[")) x.text = parseWikiSyntax(x.text, resolve).text;
+      });
+    }
     const text = ta.value.slice(0, ta.selectionStart) + ta.value.slice(ta.selectionEnd);
     const r = find(container.blocks, b.id);
     if (text === "" && b.type === "p" && !hasChildren(b)) r.list.splice(r.index, 1, ...blocks);

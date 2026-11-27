@@ -1,6 +1,6 @@
 # 017: Graph view, page/heading/block embeds, hidden links, graph styling
 
-Status: queued (after 013 and 015; graph styling rules use page properties from 015)
+Status: resolved (built; see commit "Links, embeds and graph"). Was: queued (after 013 and 015; graph styling rules use page properties from 015)
 Raised: 2026-11-27
 
 ## Links and embeds (stored by id)
@@ -54,3 +54,8 @@ Left:
   page menu → Graph appearance, rule editor, positions cache per graph key, CSS, list/canvas toggle.
 - Flaky e2e drag check (pick timing).
 - Optional: bitmap reuse while panning; `where` with `field: "links"` sees degree 0; forced neighbour labels may overlap.
+
+## Integration done
+Limitations: edit mode shows raw tokens; links point at pages only (rows join via their own links or the Rows filter);
+`field: "links"` rule condition sees 0; scrolling over a graph block zooms it; a row title change alone doesn't refresh an
+open graph; the rules editor edits only the first condition of a rule.
