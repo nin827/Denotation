@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { rng, seedFor, growth, record, timeIt, HEAVY } from "./fixtures/fuzz.js";
 import { parseInline, scanTokens, buildToken } from "../../source/app/js/blocks/inline.js";
 import { markdownToBlocks, blocksToMarkdown } from "../../source/app/js/blocks/markdown.js";
-import { newBlock, normalizeBlocks } from "../../source/app/js/blocks/model.js";
+import { newBlock, normalizeBlocks, walk, MAX_DEPTH } from "../../source/app/js/blocks/model.js";
 import { applyFormulas, evalExpression } from "../../source/app/js/formula.js";
 import { planSync } from "../../source/app/js/sync.js";
 import { buildGraph } from "../../source/app/js/graph/model.js";
@@ -76,11 +76,35 @@ test("markdown: a huge table doesn't overflow the stack", () => {
   assert.doesNotThrow(() => markdownToBlocks("|a|b|\n|---|---|\n" + "|x|y|\n".repeat(200000)));
 });
 
-test("markdown: deeply nested blocks don't overflow the stack", { todo: "BUG: recursion in normalizeBlocks / blocksToMarkdown throws RangeError beyond ~4000 nesting levels (needs a depth cap; not fixed here)" }, () => {
+test("markdown: deeply nested blocks don't overflow the stack", () => {
   let b = { id: "x", type: "p", text: "" };
   for (let i = 0; i < 6000; i++) b = { id: `t${i}`, type: "toggle", text: "", children: [b] };
-  assert.doesNotThrow(() => normalizeBlocks([b]));
   assert.doesNotThrow(() => blocksToMarkdown([b]));
+  assert.doesNotThrow(() => normalizeBlocks([b]));
+});
+
+test("markdown: nesting deeper than MAX_DEPTH is hoisted, keeping every block's text in order", () => {
+  const N = 6000;
+  let b = { id: "leaf", type: "p", text: "leaf" };
+  for (let i = N - 1; i >= 0; i--) b = { id: `t${i}`, type: "toggle", text: `T${i}`, children: [b, { id: `s${i}`, type: "p", text: `S${i}` }] };
+  // pre-order of the original tree (built directly: walk() itself would recurse 6000 deep)
+  const wantOrder = [...Array.from({ length: N }, (_, i) => `T${i}`), "leaf", ...Array.from({ length: N }, (_, i) => `S${N - 1 - i}`)];
+  const md = blocksToMarkdown([b]);
+  let at = -1;
+  for (const t of ["T0", `T${MAX_DEPTH}`, `T${N - 1}`, "leaf", `S${N - 1}`, `S${MAX_DEPTH}`, "S0"]) {
+    const j = md.indexOf(t + (t.startsWith("T") ? "<" : ""));
+    assert.ok(j > at, `markdown keeps ${t} in order`);
+    at = j;
+  }
+  const list = normalizeBlocks([b]);
+  let maxDepth = 0;
+  const got = [];
+  walk(list, (x, d) => {
+    maxDepth = Math.max(maxDepth, d);
+    got.push(x.text);
+  });
+  assert.ok(maxDepth < MAX_DEPTH, `depth ${maxDepth} is capped`);
+  assert.deepEqual(got, wantOrder, "no block lost or reordered");
 });
 
 test("formulas: recompute over thousands of rows is linear (row formulas and ALL() aggregates)", async () => {

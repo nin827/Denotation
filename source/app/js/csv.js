@@ -2,7 +2,8 @@ import { fromText, toText } from "./dbviews.js";
 
 const DELIMS = [",", ";", "	", "|"];
 function parseDelimited(text, delim) {
-  const s = String(text).replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  // CR / CRLF end a row only outside quotes; inside a quoted cell every character, \r included, is kept as it is
+  const s = String(text).replace(/^﻿/, "");
   const rows = [[]];
   let cell = "";
   let quoted = false;
@@ -22,7 +23,8 @@ function parseDelimited(text, delim) {
       rows[rows.length - 1].push(cell);
       cell = "";
       wasQuoted = false;
-    } else if (ch === "\n") {
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && s[i + 1] === "\n") i++;
       rows[rows.length - 1].push(cell);
       cell = "";
       wasQuoted = false;

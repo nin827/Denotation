@@ -381,8 +381,57 @@ export function columnsSetCount(b, count) {
     }
   }
 }
+/** Deepest nesting kept: a block at depth MAX_DEPTH - 1 (0-based) has no children of its own. Keeps every recursive walker safe. */
+export const MAX_DEPTH = 100;
+const isObj = (b) => !!b && typeof b === "object";
+/**
+ * The blocks under `children`, flattened in document order into childless shallow copies (iterative, so any depth is safe).
+ * The structural wrappers "columns" / "column" carry no text and are dropped; their content is kept.
+ */
+export function flattenBlocks(children) {
+  const out = [];
+  const stack = [{ list: Array.isArray(children) ? children : [], i: 0 }];
+  while (stack.length) {
+    const top = stack[stack.length - 1];
+    if (top.i >= top.list.length) {
+      stack.pop();
+      continue;
+    }
+    const b = top.list[top.i++];
+    if (!isObj(b)) continue;
+    if (b.type !== "columns" && b.type !== "column") {
+      const { children: _kids, ...rest } = b;
+      out.push(rest);
+    }
+    if (Array.isArray(b.children) && b.children.length) stack.push({ list: b.children, i: 0 });
+  }
+  return out;
+}
+/**
+ * Caps nesting at MAX_DEPTH in place, iteratively: whatever sits deeper is hoisted, in order, to the deepest allowed level
+ * as siblings right after its ancestor at that level (text kept, order kept). A column there keeps the hoisted blocks inside.
+ */
+function capDepth(list) {
+  const stack = [{ list, depth: 0 }];
+  while (stack.length) {
+    const { list: arr, depth } = stack.pop();
+    for (let i = 0; i < arr.length; i++) {
+      const b = arr[i];
+      if (!isObj(b) || !Array.isArray(b.children) || !b.children.length) continue;
+      if (depth < MAX_DEPTH - 1) stack.push({ list: b.children, depth: depth + 1 });
+      else if (b.type === "column") b.children = flattenBlocks(b.children);
+      else {
+        const hoisted = flattenBlocks(b.children);
+        delete b.children;
+        arr.splice(i + 1, 0, ...hoisted);
+        i += hoisted.length;
+      }
+    }
+  }
+}
 export function normalizeBlocks(blocks) {
   const list = Array.isArray(blocks) ? blocks : [];
+  capDepth(list);
   const clean = (arr) => {
     for (let i = 0; i < arr.length; i++) {
       const b = arr[i];

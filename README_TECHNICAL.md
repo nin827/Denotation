@@ -37,6 +37,11 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
   reads own keys only. `parseType` returns a parse error for very deeply nested type text. Graph rules and positions
   treat names like `__proto__` and `constructor` as data. Markdown export escapes plain lines that would import as
   another block type; the importer removes the escape.
+- Block nesting is capped at `MAX_DEPTH` (100, `blocks/model.js`) by `normalizeBlocks` on load: deeper blocks move up
+  to the deepest allowed level as siblings, keeping text and order. `blocksToMarkdown` also writes past the cap flat.
+- Sync: equal `updatedAt` with different content (compared with `stableJson`, key-sorted) → merge keeps the copy whose
+  stable JSON sorts last, so devices converge; Push / Pull overwrite such copies. Identical records are never rewritten.
+- CSV import keeps `\r` inside quoted cells; outside quotes CRLF, CR or LF ends a row.
 
 ### Fuzz tests
 

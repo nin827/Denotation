@@ -13,6 +13,9 @@ Fixes from the fuzz tests:
   no longer breaks them; paragraphs starting with `#`, `-`, `1.` or `>` survive a Markdown round trip; embeds that
   fan out are capped (5 levels, 2000 expansions); odd imported blocks, graph rules and sizes no longer crash; formula
   hardening (own-key access, wildcard matching, `REPT` cap, large `MIN`/`MAX`).
+- Blocks nested more than 100 levels deep move up a level instead of crashing (text and order kept).
+- Sync: copies with the same stamp but different content now converge (merge picks the same winner on every
+  device; Push / Pull overwrite them). CSV import keeps a carriage return inside a quoted cell.
 
 First marked version. Highlights:
 - Pages, sub-pages, repositories, blocks, Markdown shortcuts, page properties, templates, callout presets,

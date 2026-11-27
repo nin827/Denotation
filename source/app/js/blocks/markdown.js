@@ -1,6 +1,6 @@
 import { previewLine } from "../preview.js";
 import { replaceTokens, tokenFallback } from "./inline.js";
-import { numbering, hasChildren, newBlock, normalizeBlocks } from "./model.js";
+import { numbering, hasChildren, newBlock, normalizeBlocks, flattenBlocks, MAX_DEPTH } from "./model.js";
 
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
 function renderTable(b) {
@@ -10,7 +10,9 @@ function renderTable(b) {
   const [head, ...body] = b.headerRow || b.header ? b.cells : [b.cells[0].map(() => ""), ...b.cells];
   return [row(head), `| ${head.map(() => "---").join(" | ")} |`, ...body.map(row)].join("\n");
 }
-export function blocksToMarkdown(blocks, ctx = {}) {
+// depth is internal: past MAX_DEPTH the remaining blocks are written flat, so unnormalised deep data cannot overflow the stack
+export function blocksToMarkdown(blocks, ctx = {}, depth = 0) {
+  if (depth >= MAX_DEPTH) blocks = flattenBlocks(blocks);
   const nums = numbering(blocks);
   // an inline image exports as ![alt](src) with its size dropped (an embedded data URL cannot be written out)
   const inl = (s) => replaceTokens(s ?? "", (n) => n.kind === "img" ? `![${(n.args[3] || "").replace(/[\[\]]/g, "")}](${n.args[0].startsWith("data:") ? "embedded-image" : n.args[0]})` : ctx.inline?.(n) ?? tokenFallback(n));
@@ -19,7 +21,7 @@ export function blocksToMarkdown(blocks, ctx = {}) {
     if (!b || typeof b !== "object") continue;
     let text;
     let list = false;
-    const kids = hasChildren(b) && b.type !== "columns" ? blocksToMarkdown(b.children, ctx) : "";
+    const kids = hasChildren(b) && b.type !== "columns" ? blocksToMarkdown(b.children, ctx, depth + 1) : "";
     const withKids = (head) => kids ? `${head}
 ${indentLines(kids, 2)}` : head;
     switch (b.type) {
@@ -69,7 +71,7 @@ ${b.text}
         text = renderTable(b);
         break;
       case "columns":
-        text = b.children.map((c) => blocksToMarkdown(c.children, ctx)).filter(Boolean).join("\n\n");
+        text = b.children.map((c) => blocksToMarkdown(c.children, ctx, depth + 1)).filter(Boolean).join("\n\n");
         break;
       case "image":
         text = `![${b.caption || ""}](${ctx.imageSrc ? ctx.imageSrc(b) : b.src?.startsWith("data:") ? "embedded-image" : b.src || ""})`;
@@ -85,7 +87,7 @@ ${b.text}
         text = !b.sourceId ? "" : b.sourceId.startsWith("tbl-") ? "Database view: table data source" : `Database view: ${ctx.pageLink ? ctx.pageLink(b.sourceId) : ctx.pageTitle?.(b.sourceId) || "source"}`;
         break;
       case "synced":
-        text = blocksToMarkdown(ctx.syncBlocks?.(b.ref) ?? [], ctx);
+        text = blocksToMarkdown(ctx.syncBlocks?.(b.ref) ?? [], ctx, depth + 1);
         break;
       case "page":
         text = ctx.pageLink ? ctx.pageLink(b.ref) : `\u{1F4C4} ${ctx.pageTitle?.(b.ref) ?? "Untitled"}`;

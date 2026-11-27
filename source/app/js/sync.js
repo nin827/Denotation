@@ -10,11 +10,13 @@
 //
 // Directions:
 //   "merge": two-way, per record last write wins (record vs record by stamp, tombstone vs record by
-//            deletedAt >= stamp: the delete wins ties). No conflicts are reported.
-//   "push":  make the remote side equal to this device. Conflicts (`newerRemote`) list remote state that
+//            deletedAt >= stamp: the delete wins ties). Two copies with the same stamp but different content
+//            (same-millisecond edits on two devices) resolve to the copy whose stable JSON sorts last, so every
+//            device picks the same winner. No conflicts are reported.
+//   "push":  make the remote side equal to this device (a same-stamp copy with different content is rewritten too). Conflicts (`newerRemote`) list remote state that
 //            would be lost: a newer remote copy, a remote-only record, a remote edit made after a local
 //            delete, or a remote delete made after the local edit.
-//   "pull":  make this device equal to the remote side. Conflicts (`olderRemote`) list local state that
+//   "pull":  make this device equal to the remote side (likewise for same-stamp copies). Conflicts (`olderRemote`) list local state that
 //            would be lost: a newer local copy, a local-only record, a local delete made after the remote
 //            edit, or a local edit made after the remote delete.
 // Tombstones older than ttlMs are pruned from the remote side (merge and push).
@@ -22,6 +24,13 @@
 export const TOMBSTONE_TTL_MS = 90 * 24 * 3600 * 1000;
 export const stamp = (r) => Number(r?.updatedAt ?? r?.createdAt ?? 0) || 0;
 export const keyOf = (collection, id) => `${collection}/${id}`;
+/** JSON with object keys sorted at every level, so equal content gives an equal string whatever the key order. */
+export const stableJson = (v) => JSON.stringify(v, (_k, x) => {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return x;
+  const out = {};
+  for (const k of Object.keys(x).sort()) out[k] = x[k];
+  return out;
+}) ?? "";
 
 const toMap = (byCol) => {
   const out = new Map();
@@ -83,6 +92,13 @@ export function planSync({ local, remote, localTombstones = [], remoteTombstones
     const conflict = (side, reason, localAt, remoteAt) => plan.conflicts[side].push({ collection, id, reason, localAt, remoteAt, local: l?.record ?? null, remote: r?.record ?? null });
     const put = (list, rec) => list.push(list === plan.toLocal || list === plan.deleteLocal ? { collection, id, record: rec, localStamp: l ? ls : null } : { collection, id, record: rec });
     const tombTo = (at) => tombOut.set(k, at);
+    // only computed for same-stamp pairs, so ordinary syncs never serialise every record
+    let jl, jr;
+    const differs = () => {
+      jl ??= stableJson(l.record);
+      jr ??= stableJson(r.record);
+      return jl !== jr;
+    };
 
     if (direction === "merge") {
       const t = Math.max(tl?.deletedAt ?? 0, tr?.deletedAt ?? 0);
@@ -92,15 +108,16 @@ export function planSync({ local, remote, localTombstones = [], remoteTombstones
         if (r) put(plan.deleteRemote, r.record);
         tombTo(t);
       } else {
-        if (r && (!l || rs > ls)) put(plan.toLocal, r.record);
-        if (l && (!r || ls > rs)) put(plan.toRemote, l.record);
+        const tie = l && r && ls === rs && differs();
+        if (r && (!l || rs > ls || tie && jr > jl)) put(plan.toLocal, r.record);
+        if (l && (!r || ls > rs || tie && jl > jr)) put(plan.toRemote, l.record);
         if (tr) tombTo(null);
       }
     } else if (direction === "push") {
       if (l) {
         if (r && rs > ls) conflict("newerRemote", "newer", ls, rs);
         else if (tr && tr.deletedAt >= ls) conflict("newerRemote", "deleted-remotely", ls, tr.deletedAt);
-        if (!r || rs !== ls) put(plan.toRemote, l.record);
+        if (!r || rs !== ls || differs()) put(plan.toRemote, l.record);
         if (tr) tombTo(null);
       } else if (r) {
         put(plan.deleteRemote, r.record);
@@ -118,7 +135,7 @@ export function planSync({ local, remote, localTombstones = [], remoteTombstones
       if (rEff) {
         if (l) {
           if (ls > rs) conflict("olderRemote", "newer", ls, rs);
-          if (ls !== rs) put(plan.toLocal, rEff.record);
+          if (ls !== rs || differs()) put(plan.toLocal, rEff.record);
         } else {
           if (tl && tl.deletedAt >= rs) conflict("olderRemote", "deleted-locally", tl.deletedAt, rs);
           put(plan.toLocal, rEff.record);

@@ -59,8 +59,8 @@ test("merge: sides converge, a second merge is a no-op, and deletes are never re
     const p1 = plan(w, "merge");
     assert.equal(p1.conflicts.newerRemote.length + p1.conflicts.olderRemote.length, 0, "merge reports no conflicts");
     await applyPlan(p1, io(w));
-    // Both sides hold the same keys with the same stamps.
-    assert.deepEqual(view(w.local).map((x) => x.slice(0, 2)), view(w.remote).map((x) => x.slice(0, 2)), "converged (stamps)");
+    // Both sides hold the same keys with the same stamps and content (same-stamp ties pick one winner).
+    assert.deepEqual(view(w.local), view(w.remote), "converged");
     // Deletes: key gone iff its newest tombstone >= the newest record stamp.
     const keys = new Set([...before.local.keys(), ...before.remote.keys(), ...before.lt.keys(), ...before.rt.keys()]);
     for (const k of keys) {
@@ -84,9 +84,8 @@ test("push: the remote side ends equal to this device; pull: this device ends eq
     const w = randomWorld(r);
     const pushW = clone(w);
     const localBefore = view(pushW.local);
-    const st = (v) => v.map((x) => x.slice(0, 2)); // key + stamp: equal stamps with different content are pinned below
     await applyPlan(plan(pushW, "push"), io(pushW));
-    assert.deepEqual(st(view(pushW.remote)), st(localBefore), "remote == local after push");
+    assert.deepEqual(view(pushW.remote), localBefore, "remote == local after push");
     assert.deepEqual(view(pushW.local), localBefore, "push never changes local records");
     // after a push, a merge has nothing to move
     assert.ok(isNoop(plan(pushW, "merge")), "push then merge is a no-op");
@@ -98,15 +97,55 @@ test("push: the remote side ends equal to this device; pull: this device ends eq
     const p = plan(pullW, "pull");
     assert.equal(p.writeTombstones.length + p.removeTombstones.length + p.toRemote.length + p.deleteRemote.length, 0, "pull never writes remotely");
     await applyPlan(p, io(pullW));
-    assert.deepEqual(st(view(pullW.local)), st(expected), "local == effective remote after pull");
+    assert.deepEqual(view(pullW.local), expected, "local == effective remote after pull");
     assert.deepEqual(view(pullW.remote), remoteBefore, "pull never changes remote records");
   });
 });
 
-test("push / pull mirror content even when both copies carry the same stamp", { todo: "BUG (low): push skips a record when the remote stamp equals the local one (rs !== ls), pull likewise; same-millisecond edits on two devices never converge, even via an explicit Push/Pull" }, async () => {
-  const w = { local: new Map([["pages/a", { col: "pages", rec: { id: "a", updatedAt: 5, v: "mine" } }]]), remote: new Map([["pages/a", { col: "pages", rec: { id: "a", updatedAt: 5, v: "theirs" } }]]), lt: new Map(), rt: new Map() };
+test("push / pull mirror content even when both copies carry the same stamp", async () => {
+  const world = () => ({ local: new Map([["pages/a", { col: "pages", rec: { id: "a", updatedAt: 5, v: "mine" } }]]), remote: new Map([["pages/a", { col: "pages", rec: { id: "a", updatedAt: 5, v: "theirs" } }]]), lt: new Map(), rt: new Map() });
+  const w = world();
   await applyPlan(plan(w, "push"), io(w));
   assert.equal(w.remote.get("pages/a").rec.v, "mine");
+  const w2 = world();
+  await applyPlan(plan(w2, "pull"), io(w2));
+  assert.equal(w2.local.get("pages/a").rec.v, "theirs");
+});
+
+test("same stamp, same content: nothing is rewritten, whatever the key order", () => {
+  const w = { local: new Map([["pages/a", { col: "pages", rec: { id: "a", updatedAt: 5, v: "x", o: { p: 1, q: [1, { r: 2, s: 3 }] } } }]]), remote: new Map([["pages/a", { col: "pages", rec: { o: { q: [1, { s: 3, r: 2 }], p: 1 }, v: "x", updatedAt: 5, id: "a" } }]]), lt: new Map(), rt: new Map() };
+  for (const d of ["merge", "push", "pull"]) assert.ok(isNoop(plan(w, d)), `${d} rewrote an identical record`);
+});
+
+test("merge: same-stamp edits on two devices converge on one deterministic winner", async () => {
+  await fuzz("sync-tie", 1500, async (r) => {
+    // a shared folder plus two devices that each edited the same records in the same millisecond
+    const ids = Array.from({ length: r.int(1, 8) }, (_, i) => `id${i}`);
+    const at = () => r.int(1, 5);
+    const mk = (id, s, who) => ({ id, updatedAt: s, v: `${who}${r.int(0, 3)}`, ...(r.chance(0.5) ? { extra: { b: r.int(0, 2), a: who } } : {}) });
+    const folder = new Map();
+    const devA = new Map();
+    const devB = new Map();
+    for (const id of ids) {
+      const k = keyOf("pages", id);
+      const s = at();
+      if (r.chance(0.8)) devA.set(k, { col: "pages", rec: mk(id, s, "A") });
+      if (r.chance(0.8)) devB.set(k, { col: "pages", rec: mk(id, r.chance(0.7) ? s : at(), "B") });
+      if (r.chance(0.5)) folder.set(k, { col: "pages", rec: mk(id, r.chance(0.7) ? s : at(), "F") });
+    }
+    const order = r.chance(0.5) ? [devA, devB] : [devB, devA];
+    const rt = new Map();
+    // each device merges twice in turn: after that the folder and both devices hold identical records
+    for (let round = 0; round < 2; round++) {
+      for (const dev of order) {
+        const w = { local: dev, remote: folder, lt: new Map(), rt };
+        await applyPlan(plan(w, "merge"), io(w));
+      }
+    }
+    assert.deepEqual(view(devA), view(folder), "device A == folder");
+    assert.deepEqual(view(devB), view(folder), "device B == folder");
+    for (const dev of order) assert.ok(isNoop(plan({ local: dev, remote: folder, lt: new Map(), rt }, "merge")), "settled");
+  });
 });
 
 test("applyPlan: records edited locally between plan and apply are skipped, never overwritten", async () => {

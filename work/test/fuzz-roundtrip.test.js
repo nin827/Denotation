@@ -93,10 +93,12 @@ test("CSV: text tables survive export -> parse exactly (quotes, delimiters, newl
   });
 });
 
-test("CSV: a lone carriage return inside a quoted cell survives", { todo: "BUG (low): parseCsv turns \\r inside quoted cells into \\n (whole-text \\r\\n? -> \\n before parsing)" }, () => {
+test("CSV: a lone carriage return inside a quoted cell survives", () => {
   const cols = [{ id: "a", name: "A", type: "text", config: {} }];
   const csv = databaseToCsv(cols, [{ values: { a: "x\ry" } }]);
   assert.deepEqual(parseCsv(csv, ","), [["A"], ["x\ry"]]);
+  // quoted CRLF stays too; outside quotes CRLF, CR and LF all end a row
+  assert.deepEqual(parseCsv('"a\r\nb",c\r1,2\r\n3,4\n5,6\r\n', ","), [["a\r\nb", "c"], ["1", "2"], ["3", "4"], ["5", "6"]]);
 });
 
 test("CSV: the delimiter sniffer and type guesser never lose cells", async () => {

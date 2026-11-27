@@ -20,11 +20,24 @@ test("merge: last write wins per record, both directions, new records copied", (
   assert.deepEqual(summarize(p), { pulled: 3, pushed: 2, deletedLocal: 0, deletedRemote: 0, deleted: 0 });
 });
 
-test("merge: equal timestamps change nothing; createdAt is the fallback stamp", () => {
-  const p = planSync({ local: { pages: [rec("a", 100), { id: "b", createdAt: 7 }] }, remote: { pages: [rec("a", 100, { title: "other" }), { id: "b", createdAt: 7 }] } });
+test("merge: equal timestamps and content change nothing; createdAt is the fallback stamp", () => {
+  const p = planSync({ local: { pages: [rec("a", 100), { id: "b", createdAt: 7 }] }, remote: { pages: [rec("a", 100), { id: "b", createdAt: 7 }] } });
   assert.ok(isNoop(p));
   assert.equal(stamp({ createdAt: 7 }), 7);
   assert.equal(stamp({}), 0);
+});
+
+test("merge: equal timestamps with different content pick the same winner from either side", () => {
+  const mine = rec("a", 100);
+  const theirs = rec("a", 100, { title: "other" });
+  const p = planSync({ local: { pages: [mine] }, remote: { pages: [theirs] } });
+  assert.deepEqual(ids(p.toLocal), ["pages/a"]);
+  assert.equal(p.toLocal[0].record.title, "other", "the copy whose stable JSON sorts last wins");
+  assert.equal(p.toRemote.length + conflictCount(p), 0);
+  const q = planSync({ local: { pages: [theirs] }, remote: { pages: [mine] } });
+  assert.deepEqual(ids(q.toRemote), ["pages/a"]);
+  assert.equal(q.toRemote[0].record.title, "other");
+  assert.equal(q.toLocal.length, 0);
 });
 
 test("merge: a tombstone newer than every copy deletes both sides and is stored remotely", () => {
