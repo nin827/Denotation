@@ -18,3 +18,8 @@ Plan (column setting `display: { mode, wrap }`, in the column editor and the col
 - Stored on the column, so it applies to every view of the database. Columns-as-JSON (ticket 010) includes it.
 
 Open question: should a view be able to override the column's setting, e.g. show everything in one view?
+
+## Owner decision: marquee
+Add **Marquee**: text too long for its cell scrolls sideways, reusing the sidebar's long-title marquee. It stays still
+under `prefers-reduced-motion` (clipped instead). Marquee, Wrap and Obfuscate are mutually exclusive, so the setting
+becomes one choice: `display: "clip" | "wrap" | "marquee" | "obfuscate" | "hide"` (default `clip`).
