@@ -4,17 +4,22 @@ const PREFIX = "icon:";
 export const iconCount = () => Object.keys(ICONS).length;
 const isIcon = (v) => typeof v === "string" && v.startsWith(PREFIX) && Object.hasOwn(ICONS, v.slice(PREFIX.length));
 export const iconValue = (name) => `${PREFIX}${name}`;
+const protos = new Map(); // one parsed <span><svg>…</svg></span> per icon name, cloned on each use
 export function svgFor(name) {
   if (!Object.hasOwn(ICONS, name)) {
     const e = document.createElement("span");
     e.className = "icon-svg";
     return e;
   }
-  const span = document.createElement("span");
-  span.className = "icon-svg";
-  span.setAttribute("aria-hidden", "true");
-  span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name][0]}</svg>`;
-  return span;
+  let proto = protos.get(name);
+  if (!proto) {
+    proto = document.createElement("span");
+    proto.className = "icon-svg";
+    proto.setAttribute("aria-hidden", "true");
+    proto.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name][0]}</svg>`;
+    protos.set(name, proto);
+  }
+  return proto.cloneNode(true);
 }
 export const ico = svgFor;
 const LEGACY = Object.fromEntries(Object.entries({

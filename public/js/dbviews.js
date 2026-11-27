@@ -121,6 +121,7 @@ function applyFilter(rows, columns, filter) {
   const test = (row) => rules.map((r) => matchRule(byId.get(r.col), row.values?.[r.col], r));
   return rows.filter((row) => filter.op === "or" ? test(row).some(Boolean) : test(row).every(Boolean));
 }
+const collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" }); // same ordering as localeCompare with these options, built once
 function compareValues(col, a, b) {
   switch (col.type) {
     case "number":
@@ -139,29 +140,33 @@ function compareValues(col, a, b) {
     // else fall through to text
     // eslint-disable-next-line no-fallthrough
     default:
-      return String(a).localeCompare(String(b), void 0, { numeric: true, sensitivity: "base" });
+      return collator.compare(String(a), String(b));
   }
 }
 function applySorts(rows, columns, sorts) {
   const keys = (sorts || []).map((s) => ({ col: columns.find((c) => c.id === s.col), dir: s.dir === "desc" ? -1 : 1 })).filter((k) => k.col);
   if (!keys.length) return rows;
-  return rows.map((r, i) => [r, i]).sort(([a, ia], [b, ib]) => {
-    for (const { col, dir } of keys) {
-      const va = a.values?.[col.id];
-      const vb = b.values?.[col.id];
-      const ea = isEmpty(col, va);
-      const eb = isEmpty(col, vb);
+  // read each sort value and its emptiness once per row, not once per comparison
+  const vals = keys.map(({ col }) => rows.map((r) => r.values?.[col.id]));
+  const empty = keys.map(({ col }, k) => vals[k].map((v) => isEmpty(col, v)));
+  const order = Array.from(rows, (_, i) => i);
+  order.sort((ia, ib) => {
+    for (let k = 0; k < keys.length; k++) {
+      const ea = empty[k][ia];
+      const eb = empty[k][ib];
       if (ea || eb) {
         if (ea && eb) continue;
         return ea ? 1 : -1;
       }
-      const c = compareValues(col, va, vb) * dir;
+      const c = compareValues(keys[k].col, vals[k][ia], vals[k][ib]) * keys[k].dir;
       if (c) return c;
     }
     return ia - ib;
-  }).map(([r]) => r);
+  });
+  return order.map((i) => rows[i]);
 }
 export const visibleRows = (db, view, rows) => applySorts(applyFilter(rows, db.columns, view.filter), db.columns, view.sorts);
+const groupCollator = new Intl.Collator(void 0, { numeric: true });
 export function groupRows(rows, columns, colId) {
   const col = columns.find((c) => c.id === colId);
   if (!col) return [{ key: "all", label: "", value: void 0, rows }];
@@ -191,7 +196,7 @@ export function groupRows(rows, columns, colId) {
     const text = col.type === "array" || col.type === "dictionary" ? summarize(col, v) : String(v);
     (index.get(`v:${text}`) ?? add(`v:${text}`, text, col.type === "select" || col.type === "text" ? text : void 0)).rows.push(r);
   }
-  if (col.type !== "select") groups.sort((a, b) => a.label.localeCompare(b.label, void 0, { numeric: true }));
+  if (col.type !== "select") groups.sort((a, b) => groupCollator.compare(a.label, b.label));
   groups.push(none);
   return groups.filter((g) => g.rows.length || col.type === "select" || g === none);
 }

@@ -41,6 +41,25 @@ const fit = (el) => {
   el.style.height = "auto";
   el.style.height = `${el.scrollHeight}px`;
 };
+// Many blocks drawn at once are fitted in one pass (all writes, one layout read, all writes) instead of one forced layout each.
+const fitQueue = new Set();
+let fitFrame = 0;
+const fitLater = (el) => {
+  fitQueue.add(el);
+  if (fitFrame) return;
+  fitFrame = requestAnimationFrame(() => {
+    fitFrame = 0;
+    const els = [...fitQueue];
+    fitQueue.clear();
+    for (const e of els) e.style.height = "auto";
+    const heights = els.map((e) => e.scrollHeight);
+    els.forEach((e, i) => {
+      e.style.height = `${heights[i]}px`;
+    });
+  });
+};
+let touchOnly = null;
+const handleTitle = () => (touchOnly ??= matchMedia("(hover: none)").matches) ? "Tap for options (move, copy, delete...)" : "Drag to move, click for options";
 const listLike = (b) => ["bullet", "numbered", "todo"].includes(b.type);
 const focusable = (b) => isTexty(b) || b.type === "code";
 const colorOf = (b) => {
@@ -108,7 +127,7 @@ export function createBlockEditor(container, ctx) {
         role: "button",
         tabindex: 0,
         draggable: "true",
-        title: matchMedia("(hover: none)").matches ? "Tap for options (move, copy, delete...)" : "Drag to move, click for options",
+        title: handleTitle(),
         "aria-label": "Block options",
         onClick: () => openBlockMenu(handle, b, inst, actions),
         onKeydown: (e) => {
@@ -215,7 +234,7 @@ export function createBlockEditor(container, ctx) {
       content.append(view);
     }
     content.append(ta);
-    requestAnimationFrame(() => fit(ta));
+    fitLater(ta);
     const main = h("div", { class: "blk-main" }, marker(b, nums, ta), content);
     if (isCode) return codeBox(b, main, ta);
     return main;

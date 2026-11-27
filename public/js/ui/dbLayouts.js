@@ -14,6 +14,7 @@ import { ico } from "../icons/index.js";
 import { toast } from "./dialogs.js";
 import { openMenu } from "./popover.js";
 import { bindRowMenu } from "./dbMenus.js";
+import { appendInChunks } from "./bigLists.js";
 
 export function groupSections(a) {
   if (!a.view.groupBy || !a.db.columns.some((c) => c.id === a.view.groupBy)) return [{ label: null, value: void 0, rows: a.rows }];
@@ -118,7 +119,7 @@ export function renderBoard(a) {
           }
         }, ico("plus")) : null
       ),
-      h("div", { class: "board-cards" }, g.rows.map((row) => card(a, row, col.id, {
+      appendInChunks(h("div", { class: "board-cards" }), g.rows, (row) => card(a, row, col.id, {
         draggable: movable ? "true" : null,
         onDragstart: (e) => {
           dragRow = row;
@@ -128,7 +129,7 @@ export function renderBoard(a) {
         onDragend: () => {
           dragRow = null;
         }
-      }, movable ? [{ header: true, label: "Move to" }, ...groups.filter((o) => o !== g && o.value !== void 0).map((o) => ({ label: o.label || "No value", onSelect: () => move(row, o) }))] : null)))
+      }, movable ? [{ header: true, label: "Move to" }, ...groups.filter((o) => o !== g && o.value !== void 0).map((o) => ({ label: o.label || "No value", onSelect: () => move(row, o) }))] : null), { first: 40, chunk: 80 })
     );
     return colEl;
   }));
@@ -148,7 +149,7 @@ export function renderList(a) {
     "div",
     { class: "list-group" },
     g.label !== null ? h("div", { class: "group-head" }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`)) : null,
-    h("ul", {}, g.rows.map(item))
+    appendInChunks(h("ul"), g.rows, item)
   )));
 }
 export function renderGallery(a) {
@@ -156,7 +157,7 @@ export function renderGallery(a) {
     "div",
     { class: "list-group" },
     g.label !== null ? h("div", { class: "group-head" }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`)) : null,
-    h("div", { class: "gallery-grid" }, g.rows.map((row) => card(a, row, null, { class: "card gal-card" })))
+    appendInChunks(h("div", { class: "gallery-grid" }), g.rows, (row) => card(a, row, null, { class: "card gal-card" }), { first: 60, chunk: 120 })
   )));
 }
 const calState = new Map();
@@ -211,12 +212,11 @@ export function renderCalendar(a) {
       } }, "Today")
     ),
     h("div", { class: "cal-grid" }, DAYS.map((d) => h("div", { class: "cal-dow" }, d)), monthGrid(st.year, st.month).flat().map(cell)),
-    unscheduled.length ? h(
+    unscheduled.length ? appendInChunks(h(
       "div",
       { class: "cal-unsched" },
-      h("span", { class: "hint" }, `No date (${unscheduled.length}): `),
-      unscheduled.map((row) => bindRowMenu(h("button", { class: "cal-chip", onClick: () => a.onOpenRow?.(row.id) }, a.title(row)), a, row))
-    ) : null
+      h("span", { class: "hint" }, `No date (${unscheduled.length}): `)
+    ), unscheduled, (row) => bindRowMenu(h("button", { class: "cal-chip", onClick: () => a.onOpenRow?.(row.id) }, a.title(row)), a, row)) : null
   );
 }
 const preview = (row, max = 320) => {
@@ -242,10 +242,9 @@ export function renderFeed(a) {
     ), a, row);
   };
   const newest = (rows) => rows.slice().sort((x, y) => y.createdAt - x.createdAt);
-  return h("div", { class: "feed" }, groupSections(a).map((g) => h(
+  return h("div", { class: "feed" }, groupSections(a).map((g) => appendInChunks(h(
     "div",
     { class: "list-group" },
-    g.label !== null ? h("div", { class: "group-head" }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`)) : null,
-    newest(g.rows).map(post)
-  )));
+    g.label !== null ? h("div", { class: "group-head" }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`)) : null
+  ), newest(g.rows), post)));
 }

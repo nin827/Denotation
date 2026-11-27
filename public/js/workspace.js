@@ -5,28 +5,36 @@ import { newBlock, walk, plainText } from "./blocks/model.js";
 import { markdownToBlocks } from "./blocks/markdown.js";
 import { tableFromCsv, parseCsv, rowsFromCsv } from "./csv.js";
 
-export const isTrashed = (pages, page) => {
+// id -> page index per pages array, so isTrashed / ancestors over a whole list stay O(n) instead of rebuilding the map per call.
+// Holds references, so in-place edits (trashedAt, parentId) are seen; a changed length drops it.
+const indexCache = new WeakMap();
+const indexOf = (pages, page) => {
+  const hit = indexCache.get(pages);
+  // Rebuild if the length changed or the asked-for page was replaced in place.
+  if (hit && hit.n === pages.length && (!page || hit.byId.get(page.id) === page)) return hit.byId;
   const byId = new Map(pages.map((p) => [p.id, p]));
+  indexCache.set(pages, { n: pages.length, byId });
+  return byId;
+};
+export const isTrashed = (pages, page) => {
+  const byId = indexOf(pages, page);
   for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.trashedAt) return true;
   return false;
 };
 export const ancestors = (pages, id) => {
-  const byId = new Map(pages.map((p) => [p.id, p]));
+  const byId = indexOf(pages);
   const chain = [];
   for (let p = byId.get(id), n = 0; p && n < 100; p = byId.get(p.parentId), n++) chain.unshift(p);
   return chain;
 };
 export const descendantIds = (pages, id) => {
+  const kids = new Map();
+  for (const p of pages) if (p.parentId) (kids.get(p.parentId) ?? kids.set(p.parentId, []).get(p.parentId)).push(p.id);
   const out = new Set([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const p of pages) {
-      if (p.parentId && out.has(p.parentId) && !out.has(p.id)) {
-        out.add(p.id);
-        grew = true;
-      }
-    }
+  const todo = [id];
+  while (todo.length) for (const k of kids.get(todo.pop()) ?? []) if (!out.has(k)) {
+    out.add(k);
+    todo.push(k);
   }
   return out;
 };

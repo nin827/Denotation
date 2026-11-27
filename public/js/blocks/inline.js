@@ -142,6 +142,9 @@ function findClose(s, d, from) {
   }
   return -1;
 }
+const SPECIAL_CHARS = "\\`{[*_~"; // every character parseInline treats specially; anything else is plain text
+const NEXT_SPECIAL = /[\\`{[*_~]/g; // lastIndex is set right before each exec, so sharing it (even recursively) is safe
+const LINK_AT = /\[([^\]]+)\]\(([^)\s]+)\)/y;
 export function parseInline(s) {
   const out = [];
   let buf = "";
@@ -154,6 +157,15 @@ export function parseInline(s) {
   };
   while (i < s.length) {
     const ch = s[i];
+    if (!SPECIAL_CHARS.includes(ch)) {
+      // plain run: copy up to the next special character in one go
+      NEXT_SPECIAL.lastIndex = i + 1;
+      const m = NEXT_SPECIAL.exec(s);
+      const end = m ? m.index : s.length;
+      buf += s.slice(i, end);
+      i = end;
+      continue;
+    }
     if (ch === "\\" && i + 1 < s.length && ESCAPABLE.includes(s[i + 1])) {
       buf += s[i + 1];
       i += 2;
@@ -178,7 +190,8 @@ export function parseInline(s) {
       }
     }
     if (ch === "[") {
-      const m = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(s.slice(i));
+      LINK_AT.lastIndex = i;
+      const m = LINK_AT.exec(s);
       if (m) {
         flush();
         out.push({ t: "link", href: m[2], children: parseInline(m[1]) });

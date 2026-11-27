@@ -43,6 +43,7 @@ import { saveTextFile } from "./files.js";
 import { bindContextMenu } from "./contextMenu.js";
 import { bindRowMenu } from "./dbMenus.js";
 import { sortOnly, sortDir, clearSort, hideColumn } from "../dbMenuLogic.js";
+import { windowedRows } from "./bigLists.js";
 
 const activeView = new Map();
 export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } = {}) {
@@ -80,13 +81,17 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     const next = prev.catch(() => {
     }).then(() => ws.saveRow(row));
     queue.set(row.id, next);
+    next.then(() => queue.get(row.id) === next && queue.delete(row.id), () => queue.get(row.id) === next && queue.delete(row.id));
     return next;
   };
   const settle = () => {
     for (const r of applyFormulas(db.columns, rows)) saveRow(r).catch(() => {
     });
-    for (const el of root.querySelectorAll("[data-frow]")) {
-      const row = rows.find((r) => r.id === el.dataset.frow);
+    const els = root.querySelectorAll("[data-frow]");
+    if (!els.length) return;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const el of els) {
+      const row = byId.get(el.dataset.frow);
       const v = row?.values?.[el.dataset.fcol];
       el.textContent = formatResult(v);
       el.classList.toggle("f-err", isErrorValue(v));
@@ -145,14 +150,22 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         rows = rows.filter((r) => r.id !== row.id);
         settle();
       },
-      /** Validates a raw input for one cell and saves it. Returns { ok, error }. */
-      setCell(row, col, raw) {
+      /** Validates a raw input for one cell and saves it. Returns { ok, error }.
+       *  `defer` skips the save and the formula pass: the caller then hands every touched row to commitRows once. */
+      setCell(row, col, raw, { defer = false } = {}) {
         const r = validate(col, raw);
         if (!r.ok) return r;
         row.values[col.id] = r.value;
-        saveRow(row).catch((e) => toast(e.message, "error"));
-        settle();
+        if (!defer) {
+          saveRow(row).catch((e) => toast(e.message, "error"));
+          settle();
+        }
         return r;
+      },
+      /** Saves each distinct row once and recomputes formulas once (after a batch of deferred setCell calls). */
+      commitRows(list) {
+        for (const row of new Set(list)) saveRow(row).catch((e) => toast(e.message, "error"));
+        settle();
       }
     };
   };
@@ -399,10 +412,21 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       )
     ), a, row);
     const sections = groupSections(a);
-    const tbody = h("tbody", {}, sections.flatMap((g) => [
-      g.label !== null ? h("tr", { class: "group-row" }, h("td", { colspan: a.cols.length + 1 }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`))) : null,
-      ...g.rows.map(rowEl)
-    ]));
+    // one flat list of group header rows and data rows, so a long table can draw only the rows near the viewport
+    const items = sections.flatMap((g) => [
+      g.label !== null ? { group: g } : null,
+      ...g.rows.map((row) => ({ row }))
+    ]).filter(Boolean);
+    const tbody = h("tbody");
+    windowedRows(tbody, {
+      count: items.length,
+      colSpan: a.cols.length + 1,
+      kind: (i) => items[i].group ? 1 : 0,
+      render: (i) => {
+        const it = items[i];
+        return it.group ? h("tr", { class: "group-row" }, h("td", { colspan: a.cols.length + 1 }, h("strong", {}, it.group.label), h("span", { class: "hint" }, ` ${it.group.rows.length}`))) : rowEl(it.row);
+      }
+    });
     table.append(h("colgroup", {}, cg, h("col", { style: `width:${ACTIONS}px` })), h("thead", {}, head), tbody);
     return h("div", { class: "tbl-scroll" }, table);
   }

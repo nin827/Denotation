@@ -9,31 +9,34 @@ export function activeRepo(pages, currentId) {
   const chain = ancestors(pages, currentId);
   return chain.find((p) => p.type === "repo") ?? pages.find((p) => p.type === "repo" && !isTrashed(pages, p)) ?? null;
 }
-export function renderSidebar(el, {
-  pages: pages,
-  currentId: currentId,
-  view: view,
-  locked,
-  onOpen,
-  onRedraw,
-  onCreate,
-  onImportCsv,
-  onTrash,
-  onRename,
-  onFavorite,
-  onDuplicate,
-  onSearch,
-  onOpenTrash,
-  onSettings,
-  onFeedback,
-  onAiAccess,
-  onPageAiAccess,
-  vaultItems,
-  onToggleLock,
-  onLockNow,
-  onClose,
-  footer
-}) {
+// Handlers are looked up on the latest props at call time, so a sidebar kept across redraws never calls stale closures.
+let P = {};
+const call = (name) => (...args) => P[name](...args);
+let built = null; // { el, sig, list } of the last full build
+const sigOf = (live, locked) => {
+  let out = `${locked ? 1 : 0}|${[...collapsed].sort().join(",")}`;
+  for (const p of live) out += `\n${p.id}\u0001${p.title ?? ""}\u0001${p.parentId ?? ""}\u0001${p.type}\u0001${p.icon ?? ""}\u0001${p.favorite ? 1 : 0}\u0001${p.sourceId ?? ""}`;
+  return out;
+};
+export function renderSidebar(el, props) {
+  P = props;
+  const { pages, currentId, view, locked, footer, vaultItems } = props;
+  const onOpen = call("onOpen");
+  const onRedraw = call("onRedraw");
+  const onCreate = call("onCreate");
+  const onImportCsv = call("onImportCsv");
+  const onTrash = call("onTrash");
+  const onRename = call("onRename");
+  const onFavorite = call("onFavorite");
+  const onDuplicate = call("onDuplicate");
+  const onSearch = call("onSearch");
+  const onOpenTrash = call("onOpenTrash");
+  const onSettings = call("onSettings");
+  const onFeedback = call("onFeedback");
+  const onAiAccess = call("onAiAccess");
+  const onPageAiAccess = call("onPageAiAccess");
+  const onToggleLock = call("onToggleLock");
+  const onClose = call("onClose");
   const live = pages.filter((p) => p.type !== "sync" && !isTrashed(pages, p));
   const known = new Set(live.map((p) => p.id));
   const children = new Map();
@@ -45,6 +48,15 @@ export function renderSidebar(el, {
   }
   const repos = live.filter((p) => p.type === "repo");
   const here = activeRepo(pages, currentId);
+  props.live = live; // read at click time by the menus
+  props.here = here;
+  const sig = sigOf(live, locked);
+  if (built && built.el === el && built.sig === sig && el.contains(built.list)) {
+    // same tree as the last build: only the highlighted row and the footer change
+    for (const row of el.querySelectorAll(".side-item")) row.classList.toggle("active", row.dataset.id === currentId && !view);
+    if (footer && el.lastElementChild !== footer) el.lastElementChild.replaceWith(footer);
+    return;
+  }
   const iconBtn = (name, title, onClick, extra = "") => h("button", { class: `icon ${extra}`, title, "aria-label": title, onClick }, ico(name));
   const item = (p, depth, { tree }) => {
     const kids = tree ? children.get(p.id) || [] : [];
@@ -57,7 +69,7 @@ export function renderSidebar(el, {
       const canHold = p.type === "doc" || p.type === "repo";
       openMenu(anchor ?? at, stepAside([
         { label: "Open", icon: ico("arrow-up-right"), onSelect: () => onOpen(p.id) },
-        canHold ? { label: p.type === "repo" ? "Add page or database" : "Add sub-page", icon: ico("plus"), items: newItems({ pages: live, parentId: p.id, onCreate, onImportCsv, repoLevel: p.type === "repo" }) } : null,
+        canHold ? { label: p.type === "repo" ? "Add page or database" : "Add sub-page", icon: ico("plus"), items: newItems({ pages: P.live, parentId: p.id, onCreate, onImportCsv, repoLevel: p.type === "repo" }) } : null,
         { label: "Rename", icon: ico("pencil"), onSelect: () => onRename(p) },
         p.type !== "repo" ? { label: p.favorite ? "Remove from favorites" : "Add to favorites", icon: ico("star"), onSelect: () => onFavorite(p) } : null,
         { label: "Duplicate", icon: ico("copy"), onSelect: () => onDuplicate(p) },
@@ -79,6 +91,7 @@ export function renderSidebar(el, {
         "div",
         {
           class: `side-item${p.id === currentId && !view ? " active" : ""}${p.type === "repo" ? " repo" : ""}`,
+          "data-id": p.id,
           style: `padding-left:${6 + depth * 14}px`,
           role: "link",
           tabindex: 0,
@@ -134,7 +147,7 @@ export function renderSidebar(el, {
     ];
   };
   const favorites = live.filter((p) => p.favorite && p.type !== "repo");
-  const newMenu = (e) => openMenu(e.currentTarget, stepAside(newItems({ pages: live, parentId: here?.id, onCreate, onImportCsv })), { width: 230 });
+  const newMenu = (e) => openMenu(e.currentTarget, stepAside(newItems({ pages: P.live, parentId: P.here?.id, onCreate, onImportCsv })), { width: 230 });
   // An overlay sidebar (phones) would cover the dialog a menu entry opens, so it steps aside first.
   const stepAside = (items) => items.map((it) => it.items ? { ...it, items: stepAside(it.items) } : it.onSelect ? { ...it, onSelect: () => {
     onClose();
@@ -145,11 +158,11 @@ export function renderSidebar(el, {
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
     { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
     { separator: true },
-    ...vaultItems(),
+    ...P.vaultItems(),
     { separator: true },
     { label: "AI access…", icon: ico("bot"), onSelect: onAiAccess },
-    onLockNow ? { separator: true } : null,
-    onLockNow ? { label: "Lock now", icon: ico("lock-keyhole"), onSelect: onLockNow } : null
+    P.onLockNow ? { separator: true } : null,
+    P.onLockNow ? { label: "Lock now", icon: ico("lock-keyhole"), onSelect: () => P.onLockNow() } : null
   ].filter(Boolean)), { width: 240 });
   el.replaceChildren(
     h(
@@ -181,6 +194,7 @@ export function renderSidebar(el, {
     ),
     footer
   );
+  built = { el, sig, list: el.querySelector(".side-list") };
   startMarquees(el);
 }
 const HOLD_MS = 2e3;
@@ -193,31 +207,48 @@ function marqueeTiming(distance) {
   const total = HOLD_MS * 2 + travel;
   return { total, from: HOLD_MS / total, to: (HOLD_MS + travel) / total };
 }
-function startMarquee(title) {
-  const text = title.firstElementChild;
-  text.getAnimations?.().forEach((a) => a.cancel());
-  title.classList.remove("roll");
-  const distance = title.scrollWidth - title.clientWidth;
-  if (distance <= 1 || calm() || !text.animate) return;
-  title.classList.add("roll");
-  const d = text.scrollWidth - title.clientWidth + 12;
-  const t = marqueeTiming(d);
-  text.animate([
-    { transform: "translateX(0)", offset: 0 },
-    { transform: "translateX(0)", offset: t.from },
-    { transform: `translateX(${-d}px)`, offset: t.to },
-    { transform: `translateX(${-d}px)`, offset: 1 }
-  ], { duration: t.total, iterations: Infinity, easing: "linear" });
-}
+// Marquees are measured in batches (all writes, one layout read, all writes) so 500 titles cost one layout, not 500.
 function startMarquees(root) {
-  ro ?? (ro = new ResizeObserver((entries) => entries.forEach((e) => {
-    if (e.target.isConnected) startMarquee(e.target);
-  })));
-  requestAnimationFrame(() => root.querySelectorAll(".side-title").forEach((t) => {
-    startMarquee(t);
-    if (!watched.has(t)) {
-      watched.add(t);
-      ro.observe(t);
-    }
+  ro ?? (ro = new ResizeObserver((entries) => {
+    const live = entries.map((e) => e.target).filter((t) => t.isConnected && !fresh.has(t));
+    for (const e of entries) fresh.delete(e.target); // a title's first notification repeats the pass below
+    if (live.length) rollTitles(live);
   }));
+  if (marqueeFrame) return; // several redraws before one frame share one pass over the latest rows
+  marqueeFrame = requestAnimationFrame(() => {
+    marqueeFrame = 0;
+    const titles = [...root.querySelectorAll(".side-title")];
+    rollTitles(titles);
+    for (const t of titles) {
+      if (!watched.has(t)) {
+        watched.add(t);
+        fresh.add(t);
+        ro.observe(t);
+      }
+    }
+  });
+}
+const fresh = new WeakSet();
+let marqueeFrame = 0;
+function rollTitles(titles) {
+  for (const title of titles) {
+    if (!title.classList.contains("roll")) continue; // nothing is animating on a title that never rolled
+    title.firstElementChild.getAnimations?.().forEach((a) => a.cancel());
+    title.classList.remove("roll");
+  }
+  const over = titles.filter((title) => title.scrollWidth - title.clientWidth > 1);
+  if (!over.length || calm()) return;
+  const animated = over.filter((title) => title.firstElementChild.animate);
+  for (const title of animated) title.classList.add("roll");
+  const dists = animated.map((title) => title.firstElementChild.scrollWidth - title.clientWidth + 12);
+  animated.forEach((title, k) => {
+    const d = dists[k];
+    const t = marqueeTiming(d);
+    title.firstElementChild.animate([
+      { transform: "translateX(0)", offset: 0 },
+      { transform: "translateX(0)", offset: t.from },
+      { transform: `translateX(${-d}px)`, offset: t.to },
+      { transform: `translateX(${-d}px)`, offset: 1 }
+    ], { duration: t.total, iterations: Infinity, easing: "linear" });
+  });
 }

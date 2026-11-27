@@ -18,6 +18,7 @@ import { toast } from "./dialogs.js";
 import { bindContextMenu } from "./contextMenu.js";
 import { bindRowMenu } from "./dbMenus.js";
 import { frozenClass, wrapClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
+import { windowedRows } from "./bigLists.js";
 
 const sel = new Map();
 const RN = 38;
@@ -36,15 +37,26 @@ export function renderSheet(a) {
   clamp();
   const range = () => ({ r1: Math.min(s.a.r, s.f.r), r2: Math.max(s.a.r, s.f.r), c1: Math.min(s.a.c, s.f.c), c2: Math.max(s.a.c, s.f.c) });
   const tbody = h("tbody");
-  const cellEls = [];
-  const paint = () => {
+  let rowsView = null; // windowedRows controller: only the rows near the viewport exist in a long sheet
+  const cellAt = (r, c) => rowsView?.rowAt(r)?.querySelectorAll("td.sheet-cell")[c] ?? null;
+  const paintClasses = () => {
+    if (!rowsView) return;
     const g = range();
-    cellEls.forEach((row, r) => row.forEach((td, c) => {
-      const inR = r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2;
-      td.classList.toggle("sel", inR);
-      td.classList.toggle("focus", r === s.f.r && c === s.f.c);
-    }));
-    cellEls[s.f.r]?.[s.f.c]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const [from, to] = rowsView.range();
+    for (let r = from; r < to; r++) {
+      const tds = rowsView.rowAt(r)?.querySelectorAll("td.sheet-cell");
+      if (!tds) continue;
+      tds.forEach((td, c) => {
+        const inR = r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2;
+        td.classList.toggle("sel", inR);
+        td.classList.toggle("focus", r === s.f.r && c === s.f.c);
+      });
+    }
+  };
+  const paint = () => {
+    rowsView?.ensureVisible(s.f.r);
+    paintClasses();
+    cellAt(s.f.r, s.f.c)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   };
   const select = (r, c, extend) => {
     s.f = { r, c };
@@ -58,23 +70,23 @@ export function renderSheet(a) {
     if (col.type === "checkbox") return h("span", { class: `sheet-check${v ? " on" : ""}` }, v ? ico("check") : null);
     return document.createTextNode(toText(col, v));
   };
-  const setText = (r, c, text) => {
+  const setText = (r, c, text, opts) => {
     const col = a.cols[c];
     const row = a.rows[r];
     if (!col || !row || col.type === "formula") return { ok: true };
     const v = fromText(col, text);
     if (v === void 0) return { ok: false, error: `${col.name}: cannot read that value.` };
-    return a.setCell(row, col, v);
+    return a.setCell(row, col, v, opts);
   };
   const refreshCell = (r, c) => {
-    const td = cellEls[r]?.[c];
+    const td = cellAt(r, c);
     if (!td) return;
     td.replaceChildren(display(a.cols[c], a.rows[r].values[a.cols[c].id], a.rows[r].id));
   };
   function edit(r, c, seed) {
     const col = a.cols[c];
     const row = a.rows[r];
-    const td = cellEls[r]?.[c];
+    const td = cellAt(r, c);
     if (!col || !row || !td) return;
     if (col.type === "formula") {
       toast("Formula cells are computed. Click the column name to edit the formula.");
@@ -136,10 +148,13 @@ export function renderSheet(a) {
   function clear() {
     const g = range();
     let bad = 0;
+    const touched = [];
     for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) {
-      if (!setText(r, c, "").ok) bad++;
-      refreshCell(r, c);
+      if (!setText(r, c, "", { defer: true }).ok) bad++;
+      else if (a.rows[r] && a.cols[c]?.type !== "formula") touched.push(a.rows[r]);
     }
+    a.commitRows(touched);
+    for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) refreshCell(r, c);
     if (bad) toast(`${bad} cell${bad > 1 ? "s" : ""} cannot be empty.`, "error");
   }
   const gridText = () => {
@@ -165,14 +180,17 @@ export function renderSheet(a) {
     const targets = a.rows.slice();
     while (g.r1 + rows.length > targets.length) targets.push(await a.addRow());
     let bad = 0;
+    const touched = [];
     rows.forEach((line, i) => line.forEach((t, j) => {
       const c = g.c1 + j;
       const row = targets[g.r1 + i];
       if (c >= C || !row) return;
       const col = a.cols[c];
       const v = fromText(col, t);
-      if (v === void 0 || !a.setCell(row, col, v).ok) bad++;
+      if (v === void 0 || !a.setCell(row, col, v, { defer: true }).ok) bad++;
+      else touched.push(row);
     }));
+    a.commitRows(touched);
     a.redraw();
     if (bad) toast(`${bad} value${bad > 1 ? "s" : ""} skipped (invalid for the column type).`, "error");
   }
@@ -244,7 +262,8 @@ export function renderSheet(a) {
     paste(e.clipboardData.getData("text/plain"));
   });
   let touchTap = false;
-  a.rows.forEach((row, r) => {
+  const renderRow = (r) => {
+    const row = a.rows[r];
     const tds = a.cols.map((col, c) => {
       const td = h("td", {
         class: `sheet-cell t-${col.type}${frozenClass(a, c)}${wrapClass(a, col)}`,
@@ -274,8 +293,7 @@ export function renderSheet(a) {
       }, display(col, row.values[col.id], row.id));
       return td;
     });
-    cellEls.push(tds);
-    tbody.append(bindRowMenu(h(
+    return bindRowMenu(h(
       "tr",
       {},
       h("th", { class: "sheet-rn", title: "Select row; double-click (or tap again) to open as page", onPointerdown: (e) => {
@@ -289,8 +307,9 @@ export function renderSheet(a) {
         root.focus({ preventScroll: true });
       }, onDblclick: () => a.onOpenRow?.(row.id) }, String(r + 1)),
       tds
-    ), a, row));
-  });
+    ), a, row);
+  };
+  rowsView = windowedRows(tbody, { count: R, colSpan: C + 1, estimate: [matchMedia("(hover: none)").matches ? 40 : 28, 28], render: renderRow, onRender: paintClasses });
   let dragging = false;
   const stop = () => {
     dragging = false;
@@ -345,6 +364,6 @@ export function renderSheet(a) {
     } }, ico("plus"), " New row"),
     h("div", { class: "hint sheet-hint" }, "Arrows move, Shift extends, Enter or typing edits, Ctrl+C / V copy and paste from Excel or Sheets.")
   );
-  paint();
+  paintClasses();
   return root;
 }

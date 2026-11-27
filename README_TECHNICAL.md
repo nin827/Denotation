@@ -15,6 +15,7 @@ How Denotation is built, how to run and test it, and where things live. For usin
 npm start                  # python3 -m http.server 8080 -d public  ->  http://localhost:8080
 npm test                   # node --test test/*.test.js  (unit tests, built-in runner, no packages)
 node test/e2e/smoke.cjs    # browser smoke test on port 8099 (needs Playwright + Chromium, dev-only)
+node test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/sheet, chunked boards), PORT env, default 8099
 ```
 
 `npm` is only used as a script runner. There are no dependencies to install.
@@ -145,6 +146,11 @@ Details: `tools/mcp/README.md`.
 ## 8. UI conventions
 
 - `h(tag, props, ...children)` in `ui/dom.js` builds DOM. `replaceChildren` turns `null` into the text "null", so `.filter(Boolean)` child lists.
+- **Big lists** (`ui/bigLists.js`): tables and sheets over 120 rows are windowed (only rows near the viewport are in the
+  DOM, spacer `tr.vspacer` rows keep the height, scroller is `#main`); board/list/gallery/feed cards are drawn in chunks.
+  Use `tbody tr:not(.vspacer)` in selectors. `dbView` batches edits with `setCell(row, col, raw, { defer })` +
+  `commitRows(list)`. The sidebar skips rebuilds when its page signature is unchanged. `isTrashed` / `ancestors` cache an
+  id index per pages array.
 - Never use native `alert` / `confirm` / `prompt`: use `ui/dialogs.js` and `ui/modal.js`.
 - Icons: `ico(name)` from `js/icons/index.js`. Add new icons to `lucide-data.js`; never load them from a CDN.
 - Sidebar rows have no inline buttons: right-click, long-press or Shift+F10 opens the page menu.
