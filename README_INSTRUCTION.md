@@ -388,18 +388,22 @@ Smaller exports are available too: a page's **Export as Markdown** (page options
 
 Click **Settings** in the sidebar to open **Appearance**. Changes apply immediately and are remembered in your browser.
 
-- **Font family:** System sans, System serif, System monospace, or Inter, Nunito, IBM Plex Sans, Lora, Merriweather, Source Serif 4, Playfair Display, JetBrains Mono. Choose **Custom font name…** to type any Google Fonts family (or a font installed on your device). The named web fonts are loaded from Google Fonts, so they need an internet connection the first time.
+- **Theme:** Denotation has one clean theme in four shades:
+  - **Neutral** (the default): a soft, low-glare grey.
+  - **Light:** white pages.
+  - **Dark:** dark pages for night use.
+  - **Variable:** Light from 07:00 to 19:00 your local time, Dark the rest of the day. It switches by itself.
+- **Font:**
+  - **Recommended:** System sans (the default), System serif, System monospace, Noto Sans, Noto Serif and Noto Sans Mono. The Noto fonts come with the app, so they work offline and look the same everywhere.
+  - **On this device:** in Chrome or Edge, **Show fonts installed on this device** lists the fonts on your computer (your browser asks for permission first). In other browsers, type a font name instead. These fonts only work on the device that has them, so they aren't recommended.
 - **Font size:** a slider from 12 to 24 px.
 - **Heading sizes:** two numbers.
   - **Font size steps** is the size added for each heading level. `0` keeps the default heading sizes.
   - **Font size intercept** is added to every heading.
   - A preview line shows the resulting H4 to H1 sizes.
-- **Colors:** a row of theme presets (Theme default, Sepia, Rose, Slate, Midnight, Forest, High contrast), plus **Background** and **Font color** pickers for any colour you like. Each has a reset button.
-- **Accent colour:** Pick one of 24 accent hues or grey in Settings → Appearance. Grey shows as dark grey in light mode and light grey in dark mode. By default the accent is Random: a different hue each time you open the app, never grey. Choose Random again to go back to it.
+- **Accent colour:** pick one of 24 hues or grey. Grey shows as dark grey in Neutral and Light, and light grey in Dark. By default the accent is **Random**: a different hue each time you open the app, never grey. Choose Random again to go back to it.
 - **Sidebar:** **Keep the sidebar locked open** (see [section 2](#2-finding-your-way-around)).
 - **Reset all** puts every appearance setting back to the defaults (except the sidebar lock).
-
-**Light and dark:** Denotation follows your device's light or dark setting automatically. To force a darker or lighter look regardless, pick a theme preset or set your own **Background** colour (the text and accent adjust to suit it).
 
 ---
 
