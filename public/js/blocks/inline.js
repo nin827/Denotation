@@ -16,7 +16,10 @@ export function detectShortcut(text) {
 // Args escape \\, | and } with a backslash. Unknown kinds or invalid args are not tokens (they stay literal text).
 // Kinds: value, date, preset, const ({{const:<id>}}), page ({{page:<id>}}), check ({{check:0}} or {{check:1}}),
 // status ({{status:<id>}}) and formula ({{= expression}}: the text up to }} is one argument; only \\ and \} need escaping).
-export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula"];
+// Page links and embeds (stored by id, see js/links.js): {{link:<pageId>}}, {{xlink:<pageId>}} (hidden link: no graph edge),
+// {{embed:<pageId>|h|<headingBlockId>}} (a heading section) and {{embed:<pageId>|b|<blockId>,<blockId>,...}} (chosen blocks).
+export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed"];
+export const EMBED_MAX_BLOCKS = 12;
 export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_MAX = 600;
@@ -52,11 +55,19 @@ function checkToken(kind, args) {
   if (kind === "date") {
     return args.length === 1 && isIsoDate(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
   }
-  if (kind === "const" || kind === "page" || kind === "status") {
+  if (kind === "const" || kind === "page" || kind === "status" || kind === "link" || kind === "xlink") {
     return args.length === 1 && isTokenId(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
   }
   if (kind === "check") {
     return args.length === 1 && (args[0] === "0" || args[0] === "1") ? { t: "inline", kind, args: [args[0]] } : null;
+  }
+  if (kind === "embed") {
+    if (args.length !== 3 || !isTokenId(args[0])) return null;
+    if (args[1] === "h") return isTokenId(args[2]) ? { t: "inline", kind, args: [args[0], "h", args[2]] } : null;
+    if (args[1] !== "b") return null;
+    const ids = args[2].split(",");
+    if (ids.length > EMBED_MAX_BLOCKS || !ids.every(isTokenId) || new Set(ids).size !== ids.length) return null;
+    return { t: "inline", kind, args: [args[0], "b", ids.join(",")] };
   }
   if (kind === "formula") {
     const e = args.length === 1 ? String(args[0]).trim() : "";
@@ -160,6 +171,8 @@ export function tokenFallback(n) {
     case "const": return "Constant";
     case "page": return "Page";
     case "status": return "Status";
+    case "link": case "xlink": return "Page";
+    case "embed": return "Embed";
     default: return n.args[1];
   }
 }

@@ -155,6 +155,12 @@ Details: `tools/mcp/README.md`.
   Catalogue entries with `inline` insert tokens instead of blocks.
 - **More token kinds:** `{{const:id}}`, `{{page:id}}`, `{{status:id}}`, `{{check:0|1}}` and `{{= expr}}` (one argument up to
   `}}`; escape `\` and `}`). `replaceNthToken` rewrites one token (checkbox/status clicks). `stripInline(s, resolve?)`.
+- **Links and embeds (core, `js/links.js`, pure; UI wiring pending):** stored by id as tokens `{{link:<pageId>}}`,
+  `{{xlink:<pageId>}}` (hidden in the graph), `{{embed:<pageId>|h|<headingId>}}`, `{{embed:<pageId>|b|<id>,…}}` (≤ 12
+  blocks). Typed `[[Title]]`, `x[[Title]]`, `![[Title]]` (= link), `![[Title][Heading]]`, `![[Title](blocks)]` convert via
+  `parseWikiSyntax`; `toWikiSyntax` shows them back. `extractLinks(page)` feeds the graph (also counts `#page-` links and
+  page chips); `resolveEmbed`, `detectCycle` / `embedChain` / `embedCycleFrom` handle embeds and loops; `exportCtx` for
+  Markdown export.
 - **Constants and statuses** live on the repository page: `constants: [{ id, name, type, value, format? }]`,
   `statuses: [{ id, label, hue }]` (pure helpers in `constants.js`; dialog `ui/repoSettings.js`; chips repaint on
   `denotion:chip-constants`). Formulas accept bare constant names and `CONST(name)`; inline formulas also get
