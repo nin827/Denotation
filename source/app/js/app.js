@@ -26,6 +26,10 @@ import { createKeyring } from "./crypto.js";
 import { closePopovers } from "./ui/popover.js";
 import { setDataSource } from "./sources.js";
 import { registerServiceWorker, requestPersistence } from "./pwa.js";
+// Feature plug-ins: each registers its chip kinds, slash entries and block types on import.
+import "./ui/plugins/links.js";
+import "./ui/plugins/images.js";
+import "./ui/plugins/terms.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");

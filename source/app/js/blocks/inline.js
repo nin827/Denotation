@@ -18,7 +18,7 @@ export function detectShortcut(text) {
 // status ({{status:<id>}}) and formula ({{= expression}}: the text up to }} is one argument; only \\ and \} need escaping).
 // Page links and embeds (stored by id, see js/links.js): {{link:<pageId>}}, {{xlink:<pageId>}} (hidden link: no graph edge),
 // {{embed:<pageId>|h|<headingBlockId>}} (a heading section) and {{embed:<pageId>|b|<blockId>,<blockId>,...}} (chosen blocks).
-export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed"];
+export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed", "img", "term"];
 export const EMBED_MAX_BLOCKS = 12;
 export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -54,6 +54,16 @@ function checkToken(kind, args) {
   }
   if (kind === "date") {
     return args.length === 1 && isIsoDate(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
+  }
+  if (kind === "term") return args.length === 1 && isTokenId(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
+  if (kind === "img") {
+    // {{img:<src>|<width>|<height>|<alt>}}: src is http(s) or a data:image URL; sizes are "" | number+unit | constant name.
+    if (args.length < 1 || args.length > 4) return null;
+    const [src, w = "", ht = "", alt = ""] = args.map((x) => String(x ?? ""));
+    const okSrc = /^https?:\/\//i.test(src) ? src.length <= 2048 : /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(src) && src.length <= 300000;
+    const okSize = (v) => v === "" || (v.length <= 40 && /^[\w.-]+$/.test(v));
+    if (!okSrc || !okSize(w) || !okSize(ht) || alt.length > 200 || /[\r\n]/.test(alt)) return null;
+    return { t: "inline", kind, args: [src, w, ht, alt] };
   }
   if (kind === "const" || kind === "page" || kind === "status" || kind === "link" || kind === "xlink") {
     return args.length === 1 && isTokenId(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
@@ -173,6 +183,8 @@ export function tokenFallback(n) {
     case "status": return "Status";
     case "link": case "xlink": return "Page";
     case "embed": return "Embed";
+    case "term": return "Term";
+    case "img": return n.args[3] || "Image";
     default: return n.args[1];
   }
 }

@@ -90,8 +90,19 @@ const friendlyDate = (iso) => {
 };
 const miss = (label, title) => h("span", { class: "ichip ichip-miss", title }, ico("info"), h("span", {}, label));
 
+// ---------- plug-in chip kinds ----------
+// Feature modules (ui/plugins/*.js) register extra token kinds here instead of editing this file.
+// spec: { render(n, ctx) -> Node, text?(n, ctx) -> string (search/export), pick?(ctx, { onPick(token), onCancel }) }
+const PLUGIN_KINDS = new Map();
+export function registerChipKind(kind, spec) {
+  PLUGIN_KINDS.set(kind, spec);
+}
+export const chipKindPlugin = (kind) => PLUGIN_KINDS.get(kind);
+
 /** A DOM node for one inline token node. Never uses innerHTML; args are only set as text or attributes. */
 export function inlineChip(n, ctx) {
+  const plug = PLUGIN_KINDS.get(n.kind);
+  if (plug) return plug.render(n, ctx);
   if (n.kind === "date") {
     return h("span", { class: "ichip ichip-date", title: n.args[0] }, ico("calendar"), h("span", {}, friendlyDate(n.args[0])));
   }
@@ -293,6 +304,8 @@ export async function inlineResolver(ctx, texts) {
     formulas.set(n.args[0], formulaText(await runFormula(ctx, n.args[0])));
   }
   return (n) => {
+    const plug = PLUGIN_KINDS.get(n.kind);
+    if (plug) return plug.text ? plug.text(n, ctx) : tokenFallback(n);
     if (n.kind === "date") return n.args[0];
     if (n.kind === "const") {
       const c = constantById(repo, n.args[0]);
@@ -390,6 +403,8 @@ async function savePresets(ctx, db, list) {
  * Calls onPick(token) with a valid token string, or onCancel() when dismissed without a choice.
  */
 export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {}) {
+  const plug = PLUGIN_KINDS.get(kind);
+  if (plug?.pick) return plug.pick(ctx, { onPick, onCancel });
   let done = false;
   if (kind === "check") {
     onPick?.(buildToken("check", ["0"]));
