@@ -323,6 +323,13 @@ Want the same data in two places? **New → Database view of…** or **Sheet vie
 
 ---
 
+### Right-click menus in databases
+
+- Right-click a row, card or post in any layout (long-press on a phone, or Shift+F10 / the Menu key on a focused item) to open, duplicate, copy a link to, or delete it. Delete asks first and can't be undone.
+- Right-click a column header in a table or sheet to edit the column, sort by it, hide it in this view, or add a column.
+- Right-click a view tab to rename, duplicate, change layout or delete the view (the active table or sheet view also has **Layout settings**).
+- Your browser's normal menu still appears on text fields, links and selected text, so copy and paste keep working. In locked linked views, Duplicate and Delete are greyed out.
+
 ## 5. Formulas
 
 Add a column, set its type to **formula**, and type an expression. It is calculated for every row, shows live, and you cannot type over the result. The editor checks it as you type and shows an error message if something is wrong, and it lists your other columns as buttons: click one to insert it.

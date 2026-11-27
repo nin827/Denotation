@@ -125,6 +125,8 @@ Details: `tools/mcp/README.md`.
 - Never use native `alert` / `confirm` / `prompt`: use `ui/dialogs.js` and `ui/modal.js`.
 - Icons: `ico(name)` from `js/icons/index.js`. Add new icons to `lucide-data.js`; never load them from a CDN.
 - Sidebar rows have no inline buttons: right-click, long-press or Shift+F10 opens the page menu.
+- Context menus: `ui/contextMenu.js` `bindContextMenu(el, getItems)` (right-click, 520 ms long-press, Shift+F10 / Menu key;
+  native menu kept on inputs, links and selected text). Database row menus are in `ui/dbMenus.js`, pure helpers in `dbMenuLogic.js`.
 - Escape all user, CSV, markdown and imported content before it reaches the DOM. No `eval` or `new Function` outside the sandboxed formula engine.
 
 ## 9. Theme

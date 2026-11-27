@@ -13,6 +13,7 @@ import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { toast } from "./dialogs.js";
 import { openMenu } from "./popover.js";
+import { bindRowMenu } from "./dbMenus.js";
 
 export function groupSections(a) {
   if (!a.view.groupBy || !a.db.columns.some((c) => c.id === a.view.groupBy)) return [{ label: null, value: void 0, rows: a.rows }];
@@ -46,7 +47,7 @@ const delBtn = (a, row) => h("button", { class: "icon", title: "Delete row", "ar
   a.redraw();
 } }, ico("x"));
 function card(a, row, skip, extra = {}, moveTo = null) {
-  return h(
+  return bindRowMenu(h(
     "div",
     { class: "card", tabindex: 0, role: "button", onClick: () => a.onOpenRow?.(row.id), onKeydown: (e) => {
       if (e.key === "Enter") a.onOpenRow?.(row.id);
@@ -54,7 +55,7 @@ function card(a, row, skip, extra = {}, moveTo = null) {
     h("div", { class: "card-title" }, a.title(row)),
     h("div", { class: "card-chips" }, chips(a, row, skip)),
     h("div", { class: "card-tools" }, moveTo?.length > 1 ? moveBtn(moveTo) : null, openBtn(a, row), delBtn(a, row))
-  );
+  ), a, row);
 }
 // Board cards drag between columns with a mouse; this is the tap alternative (touch has no HTML5 drag).
 const moveBtn = (items) => h("button", { class: "icon", title: "Move to...", "aria-label": "Move card to another column", "aria-haspopup": "menu", onClick: (e) => {
@@ -133,7 +134,7 @@ export function renderBoard(a) {
   }));
 }
 export function renderList(a) {
-  const item = (row) => h(
+  const item = (row) => bindRowMenu(h(
     "li",
     { class: "list-item", tabindex: 0, onClick: () => a.onOpenRow?.(row.id), onKeydown: (e) => {
       if (e.key === "Enter") a.onOpenRow?.(row.id);
@@ -142,7 +143,7 @@ export function renderList(a) {
     h("span", { class: "card-chips" }, chips(a, row)),
     openBtn(a, row),
     delBtn(a, row)
-  );
+  ), a, row);
   return h("div", { class: "db-list" }, groupSections(a).map((g) => h(
     "div",
     { class: "list-group" },
@@ -192,7 +193,7 @@ export function renderCalendar(a) {
         a.redraw();
       } }, ico("plus"))
     ),
-    (byDate.get(d.iso) || []).map((row) => h("button", { class: "cal-chip", title: a.title(row), onClick: () => a.onOpenRow?.(row.id) }, a.title(row)))
+    (byDate.get(d.iso) || []).map((row) => bindRowMenu(h("button", { class: "cal-chip", title: a.title(row), onClick: () => a.onOpenRow?.(row.id) }, a.title(row)), a, row))
   );
   const unscheduled = a.rows.filter((r) => !isEmpty(col, r.values?.[col.id]) === false);
   return h(
@@ -214,7 +215,7 @@ export function renderCalendar(a) {
       "div",
       { class: "cal-unsched" },
       h("span", { class: "hint" }, `No date (${unscheduled.length}): `),
-      unscheduled.map((row) => h("button", { class: "cal-chip", onClick: () => a.onOpenRow?.(row.id) }, a.title(row)))
+      unscheduled.map((row) => bindRowMenu(h("button", { class: "cal-chip", onClick: () => a.onOpenRow?.(row.id) }, a.title(row)), a, row))
     ) : null
   );
 }
@@ -230,7 +231,7 @@ const when = (row) => new Date(row.createdAt).toLocaleString(void 0, { dateStyle
 export function renderFeed(a) {
   const post = (row) => {
     const text = preview(row);
-    return h(
+    return bindRowMenu(h(
       "article",
       { class: "post", tabindex: 0, onClick: () => a.onOpenRow?.(row.id), onKeydown: (e) => {
         if (e.key === "Enter") a.onOpenRow?.(row.id);
@@ -238,7 +239,7 @@ export function renderFeed(a) {
       h("header", {}, h("h3", {}, a.title(row)), h("time", { class: "hint" }, when(row)), openBtn(a, row), delBtn(a, row)),
       h("div", { class: "card-chips" }, chips(a, row)),
       text ? h("p", { class: "post-text" }, text) : h("p", { class: "hint" }, "No content yet. Open it to write.")
-    );
+    ), a, row);
   };
   const newest = (rows) => rows.slice().sort((x, y) => y.createdAt - x.createdAt);
   return h("div", { class: "feed" }, groupSections(a).map((g) => h(

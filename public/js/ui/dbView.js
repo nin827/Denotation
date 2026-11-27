@@ -40,6 +40,9 @@ import {
 import { renderSheet } from "./dbSheet.js";
 import { pickCsv } from "./csvFile.js";
 import { saveTextFile } from "./files.js";
+import { bindContextMenu } from "./contextMenu.js";
+import { bindRowMenu } from "./dbMenus.js";
+import { sortOnly, sortDir, clearSort, hideColumn } from "../dbMenuLogic.js";
 
 const activeView = new Map();
 export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } = {}) {
@@ -116,6 +119,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     const shown = db.columns.filter((c, i) => i === 0 || !view.hidden.includes(c.id));
     return {
       ws: ws,
+      locked: !!link.locked,
       db,
       view: view,
       saveView: saveViews,
@@ -125,6 +129,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       cols: shown,
       onOpenRow,
       editColumn,
+      columnMenu,
       saveRow,
       redraw: () => draw(),
       reload,
@@ -182,8 +187,9 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     });
     input.focus();
   }
-  function viewMenu(anchor, v) {
+  function viewMenu(anchor, v, { layout = false } = {}) {
     openMenu(anchor, [
+      ...layout && ["table", "sheet"].includes(v.type) ? [{ label: "Layout settings", icon: ico("move-horizontal"), onSelect: () => openLayoutMenu(anchor, api()) }] : [],
       { label: "Rename", icon: ico("pencil"), onSelect: () => renameView(v) },
       { label: "Duplicate", icon: ico("copy"), onSelect: async () => {
         const c = { ...JSON.parse(JSON.stringify(v)), id: newView("table", db).id, name: `${v.name} copy` };
@@ -209,6 +215,25 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       } }] : []
     ], { width: 220 });
   }
+  function columnMenu(col) {
+    const view = current();
+    const dir = sortDir(view, col.id);
+    const change = (fn) => async () => {
+      fn();
+      await saveViews();
+      draw();
+    };
+    return [
+      { label: "Edit column\u2026", icon: ico("pencil"), onSelect: () => editColumn(col) },
+      { separator: true },
+      { label: "Sort ascending", icon: ico("arrow-up"), hint: dir === "asc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "asc")) },
+      { label: "Sort descending", icon: ico("arrow-down"), hint: dir === "desc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "desc")) },
+      dir ? { label: "Clear sort", icon: ico("x"), onSelect: change(() => clearSort(view, col.id)) } : null,
+      db.columns[0].id !== col.id ? { label: "Hide in this view", icon: ico("eye-off"), onSelect: change(() => hideColumn(view, db.columns, col.id)) } : null,
+      { separator: true },
+      { label: "Add column\u2026", icon: ico("plus"), onSelect: () => editColumn(null) }
+    ].filter(Boolean);
+  }
   function drawBar() {
     const view = current();
     const filterN = view.filter.rules.length;
@@ -220,7 +245,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         { class: "view-tabs", role: "tablist" },
         db.views.map((v) => {
           const on = v.id === view.id;
-          return h(
+          const tab = h(
             "div",
             { class: `view-tab${on ? " on" : ""}`, role: "tab", "aria-selected": String(on) },
             h("button", { class: "vt-main", onClick: () => {
@@ -229,6 +254,12 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
             } }, ico(typeInfo(v.type).icon), h("span", {}, v.name)),
             on ? h("button", { class: "icon vt-menu", title: "View options", "aria-label": "View options", onClick: (e) => viewMenu(e.currentTarget, v) }, ico("chevron-down")) : null
           );
+          tab.addEventListener("contextmenu", (e) => {
+            if (e.defaultPrevented) return;
+            e.preventDefault();
+            viewMenu({ x: e.clientX, y: e.clientY }, v, { layout: on });
+          });
+          return tab;
         }),
         h("button", {
           class: "icon add-view",
@@ -336,16 +367,16 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     const head = h(
       "tr",
       {},
-      a.cols.map((col, i) => h(
+      a.cols.map((col, i) => bindContextMenu(h(
         "th",
         { class: `col-head${frozenClass(a, i)}`, style: cellStyle(a, col, i), title: describe(col), onClick: () => editColumn(col) },
         h("span", { class: "th-name" }, col.name),
         h("small", { class: "type-tag" }, typeLabel(col)),
         resizeHandle(a, col, { colEl: cg[i], tableEl: table, extra: ACTIONS })
-      )),
+      ), () => columnMenu(col))),
       h("th", { class: "add-col", title: "Add column", "aria-label": "Add column", onClick: () => editColumn(null) }, ico("plus"))
     );
-    const rowEl = (row) => h(
+    const rowEl = (row) => bindRowMenu(h(
       "tr",
       {},
       a.cols.map((col, i) => h(
@@ -366,7 +397,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
           draw();
         } }, ico("x"))
       )
-    );
+    ), a, row);
     const sections = groupSections(a);
     const tbody = h("tbody", {}, sections.flatMap((g) => [
       g.label !== null ? h("tr", { class: "group-row" }, h("td", { colspan: a.cols.length + 1 }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`))) : null,

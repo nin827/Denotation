@@ -15,6 +15,8 @@ import { ico } from "../icons/index.js";
 import { openValueEditor } from "./valueEditors.js";
 import { formulaCell } from "./cellEditors.js";
 import { toast } from "./dialogs.js";
+import { bindContextMenu } from "./contextMenu.js";
+import { bindRowMenu } from "./dbMenus.js";
 import { frozenClass, wrapClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
 
 const sel = new Map();
@@ -273,7 +275,7 @@ export function renderSheet(a) {
       return td;
     });
     cellEls.push(tds);
-    tbody.append(h(
+    tbody.append(bindRowMenu(h(
       "tr",
       {},
       h("th", { class: "sheet-rn", title: "Select row; double-click (or tap again) to open as page", onPointerdown: (e) => {
@@ -287,7 +289,7 @@ export function renderSheet(a) {
         root.focus({ preventScroll: true });
       }, onDblclick: () => a.onOpenRow?.(row.id) }, String(r + 1)),
       tds
-    ));
+    ), a, row));
   });
   let dragging = false;
   const stop = () => {
@@ -328,7 +330,7 @@ export function renderSheet(a) {
       "thead",
       {},
       h("tr", { class: "sheet-letters" }, h("th", {}), a.cols.map((col, i) => h("th", { class: frozenClass(a, i).trim(), style: cellStyle(a, col, i, RN) }, colLetter(i)))),
-      h("tr", {}, h("th", {}), a.cols.map((col, i) => h("th", { class: `sheet-name${frozenClass(a, i)}`, style: cellStyle(a, col, i, RN), title: "Edit column", onClick: () => a.editColumn(col) }, h("span", {}, col.name), resizeHandle(a, col, { colEl: cg[i], tableEl: () => table, extra: RN }))), h("th", { class: "sheet-addcol", title: "Add column", "aria-label": "Add column", onClick: () => a.editColumn(null) }, ico("plus")))
+      h("tr", {}, h("th", {}), a.cols.map((col, i) => bindContextMenu(h("th", { class: `sheet-name${frozenClass(a, i)}`, style: cellStyle(a, col, i, RN), title: "Edit column", onClick: () => a.editColumn(col) }, h("span", {}, col.name), resizeHandle(a, col, { colEl: cg[i], tableEl: () => table, extra: RN })), () => a.columnMenu(col))), h("th", { class: "sheet-addcol", title: "Add column", "aria-label": "Add column", onClick: () => a.editColumn(null) }, ico("plus")))
     ),
     tbody,
     h("tfoot", {}, footer)
