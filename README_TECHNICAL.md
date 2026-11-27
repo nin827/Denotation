@@ -29,7 +29,9 @@ public/
     app.js              entry: boot, hash routing (#page-<id>), global shortcuts
     config.js           storage adapter choice
     store.js            picks and loads a storage adapter
-    adapters/           local (localStorage), memory, artifact-db (Claude artifact), firebase (stub)
+    adapters/           local (localStorage), memory, folder (File System Access, wraps local), artifact-db, firebase (stub)
+    zip.js              in-house ZIP read/write (deflate via CompressionStream)
+    vault.js            workspace <-> file map: Denotation JSON and vanilla Markdown          (pure)
     workspace.js        all data operations (pages, rows, trash, duplicate, tickets, CSV, export/import)
     schema.js           column types and validation          (pure)
     dbviews.js          filters, sorts, groups, chart/layout helpers (pure)
@@ -69,7 +71,14 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 - Collections: `pages` and `rows`. Every record carries `updatedAt` or `createdAt`.
 - Keep each record under ~250 KB. Images are embedded as data URLs and shrunk to about 150 KB.
 - Preferences live in `localStorage["denotion:prefs"]`.
-- Export/Import (sidebar footer) writes and reads the whole workspace as JSON.
+- Export/Import (sidebar ⋯ menu) goes through `vault.js`: a JSON file, a ZIP or a folder, in **Denotation JSON**
+  (`denotation.json` manifest + `pages/<id>.json` + `rows/<id>.json`, full fidelity) or **Markdown** (sibling-folder
+  layout, `.csv` databases, `attachments/`, relative links; lossy). Import detects the format by the manifest.
+- **Folder adapter** (`adapters/folder.js`, Chromium only): wraps `local` as the working cache and mirrors records to a
+  user-picked folder in the Denotation JSON layout. Merge on connect is per-record last-write-wins on `updatedAt`
+  (fallback `createdAt`); writes are debounced and serialised per file; deletes are remembered as `tombstones` in the
+  cache (not yet in the folder: ticket 004). The directory handle lives in IndexedDB (db `denotation`, store
+  `handles`); boot calls `queryPermission` and re-requests on the first user click. `saveRow` stamps `updatedAt`.
 
 ## 6. Data model
 

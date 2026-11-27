@@ -371,16 +371,58 @@ Browsers usually allow around **5 MB** of localStorage per site. Text takes very
 
 ### Export and import (backups)
 
-In the sidebar footer:
+Open the **⋯** menu at the top of the sidebar and choose **Export** or **Import**.
 
-- **Export** downloads a file named like `denotion-2025-01-31.json` with all your pages and database rows. In places where downloads are blocked, it copies the data to your clipboard instead; paste it into a text file and keep it.
-- **Import** reads such a file back in. Pages and rows with the same identity are **overwritten** by the ones in the file; anything in the file that is new is added; anything *not* in the file is left alone. It tells you how many pages and rows it brought in.
+**Export** offers:
+- **JSON file:** one file with everything, named like `denotion-2025-01-31.json`.
+- **ZIP — Denotation JSON:** everything, one file per page and row. Use this for backups, because it restores exactly.
+- **ZIP — Markdown:** plain `.md` files and `.csv` tables that any editor (Obsidian, VS Code, Notion's importer…) can read. Views, column types and colours aren't kept.
+- **To folder — Markdown / Denotation JSON** (Chrome or Edge on a computer): the same, written straight into a folder you pick. Files with the same names are overwritten.
 
-This is also how you move your workspace to another browser or computer: **Export** in the old one, **Import** in the new one.
+The Markdown layout looks like this:
+
+```
+My repository/
+  Welcome.md            a page (title in a small header at the top)
+  Welcome/              its sub-pages, next to it with the same name
+    A sub-page.md
+  Tasks.csv             a database: one row per line
+  Tasks/                row pages that have content
+    Buy milk.md
+attachments/            pictures from your pages
+```
+
+Names are tidied so they work on every computer, and links between pages become ordinary relative links.
+
+**Import** offers:
+- **File…:** pick one or more `.zip`, `.json`, `.md` or `.csv` files.
+- **From folder…** (Chrome or Edge on a computer): read a whole folder, for example an Obsidian vault.
+
+What happens depends on the format:
+- **Denotation JSON** (a ZIP or JSON export) **restores**: pages and rows with the same identity are overwritten, new ones are added, nothing is deleted.
+- **Markdown** never overwrites anything. A ZIP or folder becomes a **new repository** named after it, so importing twice gives two copies. Folders become sub-pages, `.csv` files become databases, front-matter `title:` or the first `# Heading` becomes the page title, pictures next to the notes are embedded (up to 200 KB each), and `[[wiki links]]` become page links. Hidden folders like `.obsidian` are skipped.
+
+Exporting and re-importing is also how you move your workspace to another browser or computer.
 
 Smaller exports are available too: a page's **Export as Markdown** (page options menu), and a database view's **CSV → Export this view as CSV**.
 
 > **Make a backup now and then.** Browser storage is convenient but not permanent. Exporting once a week, or before clearing your browser, takes ten seconds.
+
+### Keep your workspace in a folder
+
+In Chrome or Edge on a computer, **⋯ → Folder → Connect folder…** keeps your workspace in a folder on your computer as well as in the browser.
+
+- Pick any folder. Denotation writes `denotation.json`, `pages/` and `rows/` there, and never touches your other files.
+- On connect, the folder and the browser are merged: for each page or row, the most recently changed copy wins.
+- After that, every change is written to the folder a moment later. The footer shows **Folder: <name>**.
+- Put the folder inside **Google Drive**, **OneDrive** or **Dropbox** on your computer and it syncs to your other computers too.
+- After a restart, your browser may need your permission again. The footer then says **Click anywhere to resume syncing to <name>**: your first click asks, and Chrome can offer **Allow on every visit**.
+- **Sync now** re-reads the folder, for example after editing it on another computer. Changes made to the folder from outside aren't picked up live.
+- **Disconnect** stops using the folder; the files stay where they are.
+
+> **Known limit:** a page deleted on one computer can come back from another computer that still has it. Delete it there too, or wait for a future update.
+
+Other browsers (Firefox, Safari, phones) can't use folders. Use the ZIP export instead.
 
 ---
 
