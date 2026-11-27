@@ -16,3 +16,6 @@ Raised: 2026-11-27
 7. `pageView.js` `exportMarkdown` lookup has no `pageId`, so constants/statuses resolve via the first repository;
    add `pageId`.
 8. Search (`plainText` → `stripInline` without a resolver) doesn't see constant values, page-chip titles or status labels.
+9. (bug) Popovers/menus stay open after the route changes (seen: a calendar day menu still showing on a row page).
+   Close open popovers on navigation.
+10. Column groups: group label rows aren't sticky; freeze offsets ignore collapsed-group stubs.

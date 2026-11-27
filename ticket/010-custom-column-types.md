@@ -1,6 +1,6 @@
 # 010: Custom columns and data types (nested, JSON-defined)
 
-Status: queued (starts after the performance pass, which owns the database UI files)
+Status: resolved (built)
 Raised: 2026-11-27
 
 Request: custom columns and data types for databases, including detailed nested columns, with the column setup stored

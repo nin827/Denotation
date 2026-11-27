@@ -1,6 +1,6 @@
 # 012: Per-column display: obfuscate, hide, wrap
 
-Status: queued (with tickets 010/011, after the performance pass)
+Status: resolved (built)
 Raised: 2026-11-27
 
 Request: per-column display options, useful for large columns.

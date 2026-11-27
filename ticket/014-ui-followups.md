@@ -1,6 +1,6 @@
 # 014: UI follow-ups that need JS or markup
 
-Status: queued (after the performance pass)
+Status: resolved (built)
 Raised: 2026-11-27 (from the CSS polish pass)
 
 1. To-do checkbox: wrap it in a `<label>` of at least 40px (it's 22px on touch).

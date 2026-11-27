@@ -1,6 +1,6 @@
 # 011: Column groups with labels
 
-Status: queued (with ticket 010, after the performance pass)
+Status: resolved (built)
 Raised: 2026-11-27
 
 Request: group database columns and label each group.
