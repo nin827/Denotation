@@ -29,3 +29,4 @@ Open question: should nested struct fields also be usable directly as filter/sor
 ## Owner decision
 No stored type presets (no data-level `types`). Build only the script-level engine: the type-text parser, validator and
 generated nested editor, so any setup is possible by writing the column's type text (or the columns JSON).
+Nested fields: dotted paths (`stats.hp`) work in **filters and sorts**; groups and formulas later.

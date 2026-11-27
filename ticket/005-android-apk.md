@@ -1,6 +1,6 @@
 # 005: Android app that keeps data in a chosen folder
 
-Status: open
+Status: decided: after the PWA test
 Raised: 2026-11-27
 
 Goal: use Denotation on Android with the workspace in a user-selected folder (not the app's private storage), so it
@@ -22,3 +22,8 @@ needs a sync app (e.g. Syncthing, FolderSync) or option 3.
 
 Open questions: build option 2 now or after trying option 1? Bundle the web app in the APK (offline, with an update
 check) or load it from GitHub Pages (auto-updates, needs network the first time)?
+
+## Owner decision
+Deploy to GitHub Pages first and try the installed web app on Android. Build the loader APK only if the folder picker
+falls short. If built, the APK **loads the app from GitHub Pages** (auto-updates; cached after the first run) and
+bridges the Storage Access Framework folder.

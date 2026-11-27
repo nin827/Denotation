@@ -17,4 +17,6 @@ Plan:
   using it). Editing a value updates every chip at once (same event pattern as preset chips).
 - Markdown export writes the value; JSON keeps tokens; search sees the value.
 
-Open question: values are plain text for now. Should they also support numbers/dates with formatting, or use in formulas?
+## Owner decision
+Typed values: **text, number or date**, with formatting, usable in database formulas and inline formulas (ticket 007),
+e.g. `{{= 2030 - foundedyear}}`.

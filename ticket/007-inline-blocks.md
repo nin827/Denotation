@@ -24,3 +24,11 @@ Default interpretation (being built):
   so editing a preset (e.g. its column) updates every chip using it. Deleted preset → "Not found" chip.
 - Inserted from `/` (each preset listed by name) and from the `{{` picker; presets managed from the picker
   (create from the current choice, rename, delete with a count of chips using it).
+
+## Owner decision: more chip kinds
+All four:
+- **Page chip:** a page mention shown as a chip with icon and live title.
+- **Checkbox:** a tickable box inside text (`{{check:0|1}}`).
+- **Status tag:** a coloured tag from a short list (list defined per repository).
+- **Inline formula:** `{{= expr}}` using the formula engine, with constants (ticket 009), database values and
+  presets.
