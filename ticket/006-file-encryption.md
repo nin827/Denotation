@@ -36,3 +36,6 @@ exports (ZIP/JSON)?
 - **Browser copy:** encrypt it too, only when toggled on (default off).
 - **Exports:** off by default; optional password on ZIP exports using standard ZIP AES-256 (WinZip AE-2: opens in
   7-Zip, WinRAR, macOS Archive Utility/Keka; Windows Explorer may not). Built in house with WebCrypto.
+- **Recovery key:** shown once when encryption is turned on. Plus an optional **Keep recovery key in the app**
+  toggle: when on (and the dialog is closed), the key is stored wrapped by the data key and can be viewed in
+  Settings → Security whenever the app is unlocked. Off by default.
