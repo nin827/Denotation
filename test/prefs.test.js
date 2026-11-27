@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sanitizePrefs, sanitizeAccent, resolveAccent, accentTokens, effectiveDark, tokens, ACCENT_HUES, PRESETS, DEFAULTS } from "../public/js/prefs.js";
+import { sanitizePrefs, sanitizeAccent, resolveAccent, accentTokens, resolveMode, isDarkMode, tokens, fontSpec, FONTS, MODES, ACCENT_HUES, DEFAULTS } from "../public/js/prefs.js";
 
 test("24 hues in 15 degree steps", () => {
   assert.equal(ACCENT_HUES.length, 24);
@@ -38,10 +38,6 @@ test("explicit choices resolve to themselves", () => {
   assert.equal(resolveAccent(120, () => 0), 120);
 });
 
-test("presets do not set accent", () => {
-  for (const p of PRESETS) assert.ok(!("accent" in p));
-});
-
 test("accent tokens follow light and dark", () => {
   assert.equal(accentTokens(210, false)["--accent"], "oklch(0.50 0.16 210)");
   assert.equal(accentTokens(210, true)["--accent"], "oklch(0.72 0.16 210)");
@@ -51,22 +47,65 @@ test("accent tokens follow light and dark", () => {
   assert.equal(accentTokens("grey", true)["--on-accent"], "#16150f");
 });
 
-test("effective dark", () => {
-  assert.equal(effectiveDark({ bg: "" }, {}), false);
-  assert.equal(effectiveDark({ bg: "" }, { prefersDark: true }), true);
-  assert.equal(effectiveDark({ bg: "" }, { theme: "light", prefersDark: true }), false);
-  assert.equal(effectiveDark({ bg: "" }, { theme: "dark" }), true);
-  assert.equal(effectiveDark({ bg: "#000000" }, { theme: "light" }), true);
-  assert.equal(effectiveDark({ bg: "#ffffff" }, { theme: "dark" }), false);
+test("mode sanitize and default", () => {
+  assert.equal(DEFAULTS.mode, "neutral");
+  assert.deepEqual(MODES, ["neutral", "light", "dark", "variable"]);
+  assert.equal(sanitizePrefs(null).mode, "neutral");
+  for (const m of MODES) assert.equal(sanitizePrefs({ mode: m }).mode, m);
+  for (const bad of ["Dark", "sepia", "", 3, null, {}]) assert.equal(sanitizePrefs({ mode: bad }).mode, "neutral");
 });
 
-test("tokens: explicit accent only with custom bg", () => {
-  const plain = tokens(sanitizePrefs({}), 90, {});
-  assert.equal(plain["--accent-h"], "90");
-  assert.ok(!("--accent" in plain));
-  const dark = tokens(sanitizePrefs({ bg: "#000000" }), 90, {});
-  assert.equal(dark["--accent"], "oklch(0.72 0.16 90)");
-  assert.equal(dark["color-scheme"], "dark");
-  const grey = tokens(sanitizePrefs({}), "grey", {});
-  assert.equal(grey["--accent-c"], "0");
+test("old bg, text and preset prefs are dropped", () => {
+  const p = sanitizePrefs({ bg: "#000000", text: "#ffffff", preset: "sepia", mode: "dark" });
+  assert.ok(!("bg" in p) && !("text" in p) && !("preset" in p));
+  assert.equal(p.mode, "dark");
+});
+
+test("variable mode resolves by local time", () => {
+  const at = (h, m = 0) => new Date(2026, 0, 15, h, m);
+  assert.equal(resolveMode("variable", at(6, 59)), "dark");
+  assert.equal(resolveMode("variable", at(7, 0)), "light");
+  assert.equal(resolveMode("variable", at(12)), "light");
+  assert.equal(resolveMode("variable", at(18, 59)), "light");
+  assert.equal(resolveMode("variable", at(19, 0)), "dark");
+  assert.equal(resolveMode("variable", at(0)), "dark");
+  for (const m of ["neutral", "light", "dark"]) assert.equal(resolveMode(m, at(3)), m);
+  assert.equal(resolveMode("junk", at(3)), "neutral");
+});
+
+test("only dark uses the dark accent", () => {
+  assert.equal(isDarkMode("dark"), true);
+  assert.equal(isDarkMode("light"), false);
+  assert.equal(isDarkMode("neutral"), false);
+});
+
+test("font sanitize", () => {
+  assert.equal(DEFAULTS.font, "system");
+  for (const id of ["system", "serif", "mono", "noto-sans", "noto-serif", "noto-mono"]) assert.equal(sanitizePrefs({ font: id }).font, id);
+  for (const id of ["inter", "lora", "jetbrains-mono", "nope", "", 5]) assert.equal(sanitizePrefs({ font: id }).font, "system");
+  assert.ok(!FONTS.some((f) => f.google));
+  const loc = sanitizePrefs({ font: "local", customFont: "  Fira Code " });
+  assert.equal(loc.font, "local");
+  assert.equal(loc.customFont, "Fira Code");
+  assert.equal(sanitizePrefs({ font: "local", customFont: "" }).font, "system");
+  assert.equal(sanitizePrefs({ font: "local", customFont: 'x"; } body{' }).font, "system");
+  assert.equal(sanitizePrefs({ font: "local", customFont: "a".repeat(41) }).font, "system");
+  assert.equal(sanitizePrefs({ font: "custom", customFont: "Quicksand" }).font, "local");
+  assert.equal(sanitizePrefs({ font: "noto-sans", customFont: "bad;" }).customFont, "");
+});
+
+test("font spec", () => {
+  assert.match(fontSpec({ font: "noto-serif" }).stack, /^"Noto Serif"/);
+  assert.equal(fontSpec({ font: "noto-sans" }).mono, null);
+  assert.match(fontSpec({ font: "noto-mono" }).mono, /^"Noto Sans Mono"/);
+  assert.match(fontSpec({ font: "local", customFont: "Fira Code" }).stack, /^"Fira Code"/);
+});
+
+test("tokens carry only the accent hue and chroma", () => {
+  for (const mode of MODES) {
+    const t = tokens(sanitizePrefs({ mode }), 90);
+    assert.deepEqual(t, { "--accent-h": "90", "--accent-c": "0.16" });
+  }
+  assert.deepEqual(tokens(sanitizePrefs({}), "grey"), { "--accent-h": "0", "--accent-c": "0" });
+  assert.deepEqual(tokens(sanitizePrefs({}), "random"), {});
 });
