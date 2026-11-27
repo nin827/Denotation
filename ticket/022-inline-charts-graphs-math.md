@@ -7,9 +7,9 @@ Request: inline charts, graphs and functions (LaTeX), as inline chips and blocks
 when clicked into.
 
 ## Kinds
-- **Math (LaTeX):** inline `{{math:...}}` and a display block. In-house renderer (no KaTeX/MathJax: no packages):
-  a LaTeX subset (fractions, roots, sub/superscripts, Greek, operators, sums/integrals, matrices, `\text`) parsed to
-  a tree and drawn as HTML/CSS or SVG; unsupported commands shown as source, never executed.
+- **Math (LaTeX):** inline `{{math:...}}` and a display block, rendered with **KaTeX** (owner-approved exception,
+  vendored locally with its fonts and licence, never from a CDN; `trust: false`, `throwOnError: false` so bad input
+  shows as an error chip; `\href`/`\url`/HTML extensions off).
 - **Function graphs:** plot `y = f(x)` (several functions, domain, axes, grid, points). Expressions use the existing
   sandboxed formula engine (no `eval`); may refer to constants (ticket 009) and database values.
 - **Inline charts:** sparkline / mini bar / pie / progress inside a line of text, fed by a list of numbers, a database
@@ -29,5 +29,4 @@ when clicked into.
   ZIP exports.
 
 ## Open questions
-- How much of LaTeX to cover first.
 - Live-updating charts from databases inside text: refresh on every change or on open?

@@ -9,7 +9,8 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 ## Hard rules
 
 - **No packages, no build step.** Native ES modules only. Build everything in house (markdown, CSV, formulas, charts,
-  sync, UI). The only third-party code allowed is **Lucide icons**, kept as a trimmed set in `public/js/icons/lucide-data.js`.
+  sync, UI). The only third-party code allowed is **Lucide icons** (a trimmed set in `public/js/icons/lucide-data.js`) and
+  **KaTeX** (math rendering, MIT; vendored with its fonts and licence when the math feature lands, ticket 022).
   Nothing loads from a CDN, so the app works offline. `npm` is just a script runner (`npm start`, `npm test`), with no dependencies.
   Dev-only exception: Playwright (preinstalled) for the browser smoke test.
 - **Served over HTTP:** `npm start` (`python3 -m http.server 8080 -d public`, binds 127.0.0.1). Port 8080 is the
