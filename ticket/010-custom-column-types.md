@@ -18,7 +18,7 @@ Plan (mirrors the Action workshop grammar):
 - Editing: a generated nested form (fields, number pads with ranges, enum pickers, add/remove/reorder list items,
   shape switch), plus a raw JSON tab. Invalid values are saved as written but flagged, never silently dropped.
 - Table/sheet cells show a compact summary (e.g. `{name: Ava, level: 12, …}`). Row pages show the full form.
-- **Columns as JSON:** "Edit columns as JSON" on a database shows its whole column setup (columns + named types) as
+- **Columns as JSON:** "Edit columns as JSON" on a database shows its whole column setup as
   JSON. It's validated on save and keeps column ids, so existing values survive.
 - CSV export writes the JSON text. Filters/sorts work on the JSON text, plus dotted paths (`stats.hp`) for
   struct fields.
