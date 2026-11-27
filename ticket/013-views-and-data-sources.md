@@ -16,11 +16,11 @@ Plan:
 - **Mark as data source** (database page menu → **Data source**, on/off):
   - Marked databases are listed first in every source picker: view block, linked views, value/preset chips,
     record preview.
-  - In the sidebar, they can be shown in a **Data sources** section, so pure data tables don't clutter the page tree.
+  - They stay in the page tree, with a data-source badge.
   - A data source can be referenced but stays editable as usual.
 - **Plain table blocks** (`/table`) can also be marked as a data source: the first row becomes the column names, and
   the block gets a name and a key column. It then works in views, chips and previews like a small read-only database,
   with a **Convert to database** action.
 
-Open questions: should data sources be hidden from the page tree by default? Should marking a plain table block as a
-data source be included, or only databases?
+## Owner decision
+Both databases and plain table blocks can be marked as data sources. Marked databases stay in the page tree with a badge.

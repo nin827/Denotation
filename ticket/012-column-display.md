@@ -17,7 +17,7 @@ Plan (column setting `display: { mode, wrap }`, in the column editor and the col
   the full value. CSV/JSON export always writes the real value.
 - Stored on the column, so it applies to every view of the database. Columns-as-JSON (ticket 010) includes it.
 
-Open question: should a view be able to override the column's setting, e.g. show everything in one view?
+Owner decision: each view (and view block, ticket 013) can override a column's display; the column setting is the default.
 
 ## Owner decision: marquee
 Add **Marquee**: text too long for its cell scrolls sideways, reusing the sidebar's long-title marquee. It stays still
