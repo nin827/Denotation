@@ -1,5 +1,6 @@
 import { previewLine } from "../preview.js";
 import { replaceTokens, tokenFallback } from "./inline.js";
+import { cleanFlow, parseFlow, serializeFlow } from "../flow/layout.js";
 import { numbering, hasChildren, newBlock, normalizeBlocks, flattenBlocks, MAX_DEPTH } from "./model.js";
 
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
@@ -64,6 +65,12 @@ ${kids}
 ${b.text}
 \`\`\``;
         break;
+      case "flow": {
+        // a fenced "flow" block: a settings comment line, then the quick syntax (read back by markdownToBlocks)
+        const f = cleanFlow(b);
+        text = `\`\`\`flow\n# ${FLOW_KEYS.map((k) => `${k}: ${f[k]}`).join(", ")}\n${serializeFlow(f)}\n\`\`\``;
+        break;
+      }
       case "divider":
         text = "---";
         break;
@@ -120,6 +127,18 @@ const escapeMarker = (l) => {
 const TASK_RE = /^\[( |x|X)\]\s/;
 const escapeTask = (t) => (TASK_RE.test(t) ? `\\${t}` : t);
 const unescapeTask = (t) => (/^\\/.test(t) && TASK_RE.test(t.slice(1)) ? t.slice(1) : t);
+const FLOW_KEYS = ["layout", "dir", "rotate", "turn", "spacing"];
+function flowFromText(lines) {
+  const opts = {};
+  const first = /^#\s*(.*)$/.exec(lines[0]?.trim() ?? "");
+  if (first) for (const part of first[1].split(",")) {
+    const [k, v] = part.split(":").map((x) => x.trim());
+    if (FLOW_KEYS.includes(k)) opts[k] = v;
+  }
+  const { nodes, edges } = parseFlow(lines.join("\n"));
+  const f = cleanFlow({ ...opts, nodes, edges });
+  return newBlock("flow", { layout: f.layout, dir: f.dir, rotate: f.rotate, turn: f.turn, spacing: f.spacing, nodes: f.nodes, edges: f.edges });
+}
 const unescapeMarker = (t) => /^\\/.test(t) && startsBlock(t.replace(/^\\+/, "")) ? t.slice(1) : t;
 export function markdownToBlocks(md) {
   const lines = String(md).replace(/\r\n?/g, "\n").split("\n");
@@ -143,7 +162,8 @@ export function markdownToBlocks(md) {
     if (m = /^```(\w*)\s*$/.exec(line.trim())) {
       const body = [];
       while (++i < lines.length && !/^```\s*$/.test(lines[i].trim())) body.push(lines[i]);
-      push(newBlock("code", { text: body.join("\n"), lang: m[1] || "plain" }));
+      if (m[1] === "flow") push(flowFromText(body));
+      else push(newBlock("code", { text: body.join("\n"), lang: m[1] || "plain" }));
       continue;
     }
     if (m = /^(#{1,4})\s+([^\n]*)$/.exec(line)) {

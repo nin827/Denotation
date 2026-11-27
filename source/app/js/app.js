@@ -31,6 +31,7 @@ import { renderGraphPage, followLocalGraph, closeLocalGraph } from "./ui/graphVi
 import "./ui/plugins/links.js";
 import "./ui/plugins/images.js";
 import "./ui/plugins/terms.js";
+import "./ui/plugins/flowchart.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");

@@ -235,6 +235,10 @@ You can also **paste markdown** with several lines and it becomes proper blocks.
 
 **Inline images.** Type `/Inline image` to place a small picture inside a line of text, with a link or an upload (shrunk to about 150 KB), alt text and an optional width/height. Markdown export writes images as `![alt](src)` without size.
 
+**Flowchart** (`/flowchart`). Draws boxes and arrows. Placement is automatic; steer it from the block menu (≡ handle, right-click or long-press the chart): **Layout** (Flow, Cycle, Tree, Row, Grid), **Direction** (down, up, right, left), **Rotation** and **Turn** (cycle only) and **Spacing**. **Edit flowchart…** edits it as text or with lists of boxes and connections. Click a box for its own menu: rename, shape, colour, connect, move earlier/later, delete. Box order sets the order of siblings and around a cycle. Shapes: rect, rounded, pill, diamond, circle, parallelogram, cylinder, document; colours: the 12 hues or grey. Limits: 200 boxes, 400 connections.
+
+Quick text form, one line each: `A -> B: yes` (arrow with a label), `A -- B` (no arrowhead), `A <-> B` (both ends), `A -.-> B` (dashed), `A: some text` (box text), `A [diamond blue]: Ready?` (shape and colour). Lines starting with `#` or `//` are comments. Markdown export writes the chart as a fenced `flow` block, which imports back as a flowchart.
+
 **Web bookmark.** A card showing a link: enter an address and an optional title, then **Save**. Clicking the card opens the link in a new tab; **Edit link…** is in the block menu.
 
 **Table of contents.** A list of all the headings on the page. Click one to jump to it. It updates itself as you add headings.

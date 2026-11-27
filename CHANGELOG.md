@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+Added: Flowchart block (`/flowchart`) with automatic layouts (flow, cycle, tree, row, grid), 8 shapes, colours, a
+quick text syntax, an edit dialog and Markdown export/import.
+
 Fixes from the fuzz tests:
 - Security: url properties drop `javascript:` links hidden with tabs or control characters; imported term colours
   can't inject CSS (terms are cleaned when read); CSV export neutralises spreadsheet formulas.

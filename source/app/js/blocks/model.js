@@ -30,7 +30,8 @@ const BLOCK_TYPES = [
   "pivot",
   "preview",
   "dbview",
-  "graph"
+  "graph",
+  "flow"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);

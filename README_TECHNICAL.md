@@ -20,6 +20,16 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
 
 `npm` is only used as a script runner. There are no dependencies to install.
 
+### Flowchart block
+
+Stored as `{ type: "flow", layout, dir, rotate, turn, spacing, nodes: [{id, text, shape, hue?, bg?}], edges: [{from, to,
+label?, style?, arrow?}] }`. `js/flow/layout.js` is pure (Node-tested): `cleanFlow` (repairs and limits data, idempotent),
+`parseFlow` / `serializeFlow` (quick syntax), `layoutFlow` (layered with back-edge removal, dummy nodes and barycentre
+ordering; ring; tree; row; grid), `shapeGeometry`, `measureNode`. `ui/flowBlock.js` renders inline SVG with
+`createElementNS` and `textContent` only; settings go through `setBlockMenu`. Registered by `ui/plugins/flowchart.js`.
+Markdown: a fenced `flow` block, first line `# layout: …, dir: …, rotate: …, turn: …, spacing: …`, then the quick syntax.
+Tests: `work/test/flow-layout.test.js`, `work/test/e2e/flowchart.cjs`.
+
 ### Hardening (from the fuzz tests)
 
 - `pageProps.safeUrl` cleans like a browser (tab / CR / LF and edge control characters removed) before the scheme

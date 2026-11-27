@@ -81,6 +81,7 @@ export async function registerServiceWorker({ onUpdate, beforeApply } = {}) {
     console.warn("Service worker not registered:", e.message);
     return null;
   }
+  if (!reg) return null; // some browsers (or blocked service workers) resolve without a registration
   const hadController = !!navigator.serviceWorker.controller; // first install is not an "update"
   let reloading = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {

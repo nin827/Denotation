@@ -1,6 +1,6 @@
 # 021: Flowchart block (future)
 
-Status: future (not scheduled)
+Status: first version built (2026-11-27); open questions below
 Raised: 2026-11-27
 
 Request: a flowchart block.
@@ -22,3 +22,9 @@ Request: a flowchart block.
 - Editing: a side list of nodes and edges (add/rename/reorder/connect), keyboard-first, works on phones.
 - Optional quick syntax in a text box, e.g. `A -> B: yes`, converted to the stored form.
 - Markdown export: a nested list or a fenced text form; open question whether to export Mermaid-style text.
+
+## Open questions (first version)
+- Node `bg` (fill colour) is stored but has no UI: add one, or drop it?
+- Right-click / long-press on a box opens the box menu; the block menu opens from the empty chart area. Keep?
+- Edge labels can overlap boxes, and grid-layout edges can pass behind boxes: worth nudging?
+- Link to a single box from other pages later (box ids are stable)?
