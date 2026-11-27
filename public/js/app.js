@@ -17,6 +17,7 @@ import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./u
 import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
 import { openFeedback } from "./ui/feedback.js";
 import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
+import { openRepoSettings, installFormulaConstants } from "./ui/repoSettings.js";
 import { hasPin, onUnlock } from "./lock.js";
 import { createLockScreen } from "./ui/lock.js";
 import { securitySection, openResetDialog, finishPendingReset, openUnlockKeyDialog, runBrowserJob } from "./ui/security.js";
@@ -167,6 +168,7 @@ async function start(u) {
       }
     }
   };
+  installFormulaConstants(env);
   vaultUi = createVaultUi({
     store,
     ws: () => ws,
@@ -297,6 +299,7 @@ function drawSidebar() {
     onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),
     onAiAccess: () => openAiAccess(env),
     onPageAiAccess: (p) => openPageAiAccess(env, p),
+    onRepoSettings: (p, tab) => openRepoSettings(env, p, tab),
     vaultItems: () => vaultUi.menuItems(),
     onOpen: (id) => env.open(id),
     onRedraw: drawSidebar,

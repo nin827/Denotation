@@ -35,6 +35,7 @@ export function renderSidebar(el, props) {
   const onFeedback = call("onFeedback");
   const onAiAccess = call("onAiAccess");
   const onPageAiAccess = call("onPageAiAccess");
+  const onRepoSettings = call("onRepoSettings");
   const onToggleLock = call("onToggleLock");
   const onClose = call("onClose");
   const live = pages.filter((p) => p.type !== "sync" && !isTrashed(pages, p));
@@ -71,6 +72,8 @@ export function renderSidebar(el, props) {
         { label: "Open", icon: ico("arrow-up-right"), onSelect: () => onOpen(p.id) },
         canHold ? { label: p.type === "repo" ? "Add page or database" : "Add sub-page", icon: ico("plus"), items: newItems({ pages: P.live, parentId: p.id, onCreate, onImportCsv, repoLevel: p.type === "repo" }) } : null,
         { label: "Rename", icon: ico("pencil"), onSelect: () => onRename(p) },
+        p.type === "repo" ? { label: "Constants\u2026", icon: ico("variable"), onSelect: () => onRepoSettings(p, "constants") } : null,
+        p.type === "repo" ? { label: "Statuses\u2026", icon: ico("circle-dot"), onSelect: () => onRepoSettings(p, "statuses") } : null,
         p.type !== "repo" ? { label: p.favorite ? "Remove from favorites" : "Add to favorites", icon: ico("star"), onSelect: () => onFavorite(p) } : null,
         { label: "Duplicate", icon: ico("copy"), onSelect: () => onDuplicate(p) },
         { label: "AI access…", icon: ico("bot"), onSelect: () => {

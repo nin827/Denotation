@@ -1,4 +1,5 @@
-import { detectShortcut, toggleMarker, scanTokens } from "../blocks/inline.js";
+import { detectShortcut, toggleMarker, scanTokens, replaceNthToken, buildToken } from "../blocks/inline.js";
+import { findRepo, constantsOf, formatConstant } from "../constants.js";
 import {
   isTexty,
   normColor,
@@ -33,7 +34,7 @@ import { renderInline } from "./inlineView.js";
 import { specialBody, shrink } from "./blockTypes.js";
 import { openBlockMenu } from "./blockMenu.js";
 import { pickEmoji } from "./emoji.js";
-import { openInlinePicker, inlineResolver, blockTexts } from "./inlineChips.js";
+import { openInlinePicker, inlineResolver, blockTexts, chipAction } from "./inlineChips.js";
 
 let drag = null;
 const clip = { mode: null, block: null };
@@ -207,7 +208,7 @@ export function createBlockEditor(container, ctx) {
         ta.focus();
       });
       view.addEventListener("mousedown", (e) => {
-        const a = e.target.closest("a");
+        const a = e.target.closest("a, .ichip-btn");
         if (a) return;
         e.preventDefault();
         if (e.button !== 0) return; // right-click: no focus, no edit mode, so the block menu can open
@@ -217,6 +218,12 @@ export function createBlockEditor(container, ctx) {
         ta.setSelectionRange(ta.value.length, ta.value.length);
       });
       view.addEventListener("click", (e) => {
+        const tok = e.target.closest("[data-tok]");
+        if (tok && view.contains(tok)) {
+          e.preventDefault();
+          if (!ctx.locked) tokenClick(b, ta, view, tok);
+          return;
+        }
         const chip = e.target.closest("a.ichip");
         if (chip) {
           e.preventDefault();
@@ -239,13 +246,28 @@ export function createBlockEditor(container, ctx) {
     if (isCode) return codeBox(b, main, ta);
     return main;
   }
+  // A click on a checkbox or status chip rewrites that token in the block text and saves like typing would.
+  function tokenClick(b, ta, view, el) {
+    const kind = el.dataset.tok;
+    const index = [...view.querySelectorAll(`[data-tok="${kind}"]`)].indexOf(el);
+    chipAction(el, ctx, (token) => {
+      const next = replaceNthToken(b.text ?? "", kind, index, token);
+      if (next === null) return;
+      b.text = next;
+      ta.value = next;
+      view.replaceChildren(...renderInline(next, ctx));
+      save();
+      view.querySelectorAll(`[data-tok="${kind}"]`)[index]?.focus();
+    });
+  }
   function marker(b, nums, ta) {
     if (b.type === "bullet") return h("span", { class: "marker" }, "\u2022");
     if (b.type === "numbered") return h("span", { class: "marker" }, `${nums.get(b.id)}.`);
     if (b.type === "todo") {
-      return h("input", {
+      // the label is the touch target (at least 40px on phones); the box itself stays small
+      return h("label", { class: "marker check-hit" }, h("input", {
         type: "checkbox",
-        class: "marker check",
+        class: "check",
         checked: b.checked,
         disabled: ctx.locked,
         "aria-label": "Done",
@@ -254,7 +276,7 @@ export function createBlockEditor(container, ctx) {
           ta.closest(".blk-row").classList.toggle("done", b.checked);
           save();
         }
-      });
+      }));
     }
     if (isFoldable(b)) {
       return h("button", {
@@ -364,20 +386,36 @@ export function createBlockEditor(container, ctx) {
     const caret = ta.selectionStart;
     if (kind === "mention") {
       const query = q.trim().toLowerCase();
-      return ctx.livePages().filter((p) => !query || (p.title || "Untitled").toLowerCase().includes(query)).slice(0, 8).map((p) => ({
+      const put = (text) => {
+        b.text = ta.value.slice(0, start) + text + ta.value.slice(caret);
+        ta.value = b.text;
+        const pos = start + text.length;
+        ta.focus();
+        ta.setSelectionRange(pos, pos);
+        fit(ta);
+        save();
+      };
+      // repository constants first ("foundedyear = 2029"), then pages as links, then the best pages as chips
+      const consts = constantsOf(findRepo(ctx.livePages(), ctx.pageId)).filter((c) => !query || c.name.toLowerCase().includes(query))
+        .sort((a, b2) => Number(b2.name.toLowerCase().startsWith(query)) - Number(a.name.toLowerCase().startsWith(query))).slice(0, 5).map((c) => ({
+          label: `${c.name} = ${formatConstant(c) || "(empty)"}`,
+          icon: ico("variable"),
+          hint: "constant",
+          onSelect: () => put(`${buildToken("const", [c.id])} `)
+        }));
+      const matches = ctx.livePages().filter((p) => !query || (p.title || "Untitled").toLowerCase().includes(query));
+      const links = matches.slice(0, 6).map((p) => ({
         label: p.title || "Untitled",
         icon: pageIcon(p),
-        onSelect: () => {
-          const link = `[${p.title || "Untitled"}](#page-${p.id}) `;
-          b.text = ta.value.slice(0, start) + link + ta.value.slice(caret);
-          ta.value = b.text;
-          const pos = start + link.length;
-          ta.focus();
-          ta.setSelectionRange(pos, pos);
-          fit(ta);
-          save();
-        }
+        onSelect: () => put(`[${p.title || "Untitled"}](#page-${p.id}) `)
       }));
+      const chips = matches.slice(0, 3).map((p) => ({
+        label: `${p.title || "Untitled"} as chip`,
+        icon: ico("file-symlink"),
+        hint: "chip",
+        onSelect: () => put(`${buildToken("page", [p.id])} `)
+      }));
+      return [...consts, ...links, ...chips];
     }
     const args = parseArgs(q);
     const entries = [...CATALOG, ...presetEntries(listChipPresets(ctx.livePages()))];

@@ -151,6 +151,13 @@ Details: `tools/mcp/README.md`.
   `{t:"inline", kind, args}`; `preview.js` `resolveValue(db, rows, key, colId)` does the primary-key lookup;
   `ui/inlineChips.js` renders chips and the picker. Markdown export takes `ctx.inline(node)` (fallback: ISO date / key).
   Catalogue entries with `inline` insert tokens instead of blocks.
+- **More token kinds:** `{{const:id}}`, `{{page:id}}`, `{{status:id}}`, `{{check:0|1}}` and `{{= expr}}` (one argument up to
+  `}}`; escape `\` and `}`). `replaceNthToken` rewrites one token (checkbox/status clicks). `stripInline(s, resolve?)`.
+- **Constants and statuses** live on the repository page: `constants: [{ id, name, type, value, format? }]`,
+  `statuses: [{ id, label, hue }]` (pure helpers in `constants.js`; dialog `ui/repoSettings.js`; chips repaint on
+  `denotion:chip-constants`). Formulas accept bare constant names and `CONST(name)`; inline formulas also get
+  3-argument `VALUE(db,key,col)` and `PRESET(name,key)`. `applyFormulas` resolves constants through
+  `setConstantsProvider` (installed by `installFormulaConstants(env)` in `app.js`); `evalExpression` serves inline formulas.
 - **Chip presets:** `chipPresets: [{ id, name, colId, key? }]` on the data database page (`cleanChipPresets` in `preview.js`).
   Token `{{preset:<presetId>}}` or `{{preset:<presetId>|<key>}}`; resolved by `findChipPreset` → `resolvePreset` (reuses
   `resolveValue`). Slash entries are built per open by `presetEntries(...)`, not in `CATALOG`. Chips refresh on the

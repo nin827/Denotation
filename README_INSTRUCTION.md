@@ -255,6 +255,26 @@ In any text block, type `/` and choose **Database value** or **Date**, or type `
 
 **Preset chips.** A preset saves a database and column (and optionally a fixed key) so you can drop in the same kind of chip quickly. To make one, type `{{`, pick a database, row and column, then choose **Save as preset…**, name it and optionally tick **Always use this key**. To use one, type `/` and pick **Preset: <name>** (then choose the key), or pick it from the Presets list after `{{`. Editing a preset (name, column, fixed key) updates every chip using it; press the pencil next to it in the `{{` picker. Deleting a preset shows how many chips use it, and those chips then show **Not found**.
 
+### Constants
+
+Right-click a repository in the sidebar and choose **Constants…** to name values you reuse, such as `foundedyear = 2029`. Each constant has a name (letters, digits, `_` and `-`, unique in the repository), a type (text, number or date), a value and an optional format (decimals and thousands separator for numbers, short or long dates).
+
+- In any text block, type `@` and a few letters of the name, then press Enter (or click) to insert it as a chip. Press Escape or keep typing to keep plain text.
+- Change the value in the dialog and every chip updates. Renaming keeps existing chips (but formulas that use the old name show `#NAME?`). Deleting asks first and tells you how many chips use it.
+- In database formulas use `foundedyear` or `const("foundedyear")`. Databases recalculate when opened.
+
+### More inline chips
+
+Type `/` for:
+
+- **Page chip:** icon and live title; click to open. Also `@` then "… as chip".
+- **Checkbox:** click to tick; saved in the text.
+- **Status tag:** click to switch status. Edit the list with right-click on the repository → **Statuses…** (default Todo, Doing, Done).
+- **Constant.**
+- **Inline formula**, for example `{{= 2030 - foundedyear}}`. It can use constants, `value("Database","Key","Column")` and `preset("Preset name","Key")`. Mistakes show a red dashed chip; hover it for the message.
+
+Markdown export writes the resulting text (a checkbox becomes `[x]` or `[ ]`).
+
 ### Locking a page
 
 **Lock page** in the page options makes the whole page read-only: no handles, no typing. Unlock it the same way. Pages in the trash are read-only too.

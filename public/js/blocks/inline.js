@@ -14,7 +14,10 @@ export function detectShortcut(text) {
 }
 // ---------- inline tokens: {{kind:arg|arg|...}} ----------
 // Args escape \\, | and } with a backslash. Unknown kinds or invalid args are not tokens (they stay literal text).
-export const TOKEN_KINDS = ["value", "date", "preset"];
+// Kinds: value, date, preset, const ({{const:<id>}}), page ({{page:<id>}}), check ({{check:0}} or {{check:1}}),
+// status ({{status:<id>}}) and formula ({{= expression}}: the text up to }} is one argument; only \\ and \} need escaping).
+export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula"];
+export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_MAX = 600;
 export const isTokenId = (s) => typeof s === "string" && ID_RE.test(s);
@@ -28,7 +31,8 @@ const escArg = (a) => String(a ?? "").replace(/[\\|}]/g, "\\$&").replace(/\r?\n/
 /** Build a token string; null when the kind or args are invalid. */
 export function buildToken(kind, args) {
   const node = checkToken(kind, (args ?? []).map(String));
-  return node ? `{{${kind}:${node.args.map(escArg).join("|")}}}` : null;
+  if (!node) return null;
+  return kind === "formula" ? `{{= ${escArg(node.args[0])}}}` : `{{${kind}:${node.args.map(escArg).join("|")}}}`;
 }
 function checkToken(kind, args) {
   if (kind === "value") {
@@ -48,6 +52,16 @@ function checkToken(kind, args) {
   if (kind === "date") {
     return args.length === 1 && isIsoDate(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
   }
+  if (kind === "const" || kind === "page" || kind === "status") {
+    return args.length === 1 && isTokenId(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
+  }
+  if (kind === "check") {
+    return args.length === 1 && (args[0] === "0" || args[0] === "1") ? { t: "inline", kind, args: [args[0]] } : null;
+  }
+  if (kind === "formula") {
+    const e = args.length === 1 ? String(args[0]).trim() : "";
+    return e && e.length <= FORMULA_MAX && !/[\r\n]/.test(e) ? { t: "inline", kind, args: [e] } : null;
+  }
   return null;
 }
 /** Read a token starting at s[i] ("{{"). Returns { end, node } or null. */
@@ -57,6 +71,10 @@ export function readToken(s, i) {
   let j = i + 2;
   const parts = [""];
   let kind = null;
+  if (s[j] === "=") {
+    kind = "formula";
+    j++;
+  }
   while (j < limit) {
     const c = s[j];
     if (c === "\n") return null;
@@ -73,11 +91,11 @@ export function readToken(s, i) {
     if (c === ":" && kind === null && parts.length === 1) {
       kind = parts[0];
       parts[0] = "";
-      if (!TOKEN_KINDS.includes(kind)) return null;
+      if (!TOKEN_KINDS.includes(kind) || kind === "formula") return null;
       j++;
       continue;
     }
-    if (c === "|" && kind !== null) {
+    if (c === "|" && kind !== null && kind !== "formula") {
       parts.push("");
       j++;
       continue;
@@ -129,8 +147,28 @@ export function replaceTokens(s, fn) {
   }
   return out + s.slice(last);
 }
-/** Plain text for a token with no database access: dates as ISO, values as their key, presets as key or "Preset". */
-export const tokenFallback = (n) => n.kind === "date" ? n.args[0] : n.kind === "preset" ? n.args[1] ?? "Preset" : n.args[1];
+/**
+ * Plain text for a token with no database access: dates as ISO, values as their key, presets as key or "Preset",
+ * checkboxes as [x] / [ ], formulas as their expression; constants, pages and statuses as a generic word.
+ */
+export function tokenFallback(n) {
+  switch (n.kind) {
+    case "date": return n.args[0];
+    case "preset": return n.args[1] ?? "Preset";
+    case "check": return n.args[0] === "1" ? "[x]" : "[ ]";
+    case "formula": return n.args[0];
+    case "const": return "Constant";
+    case "page": return "Page";
+    case "status": return "Status";
+    default: return n.args[1];
+  }
+}
+/** Replace the index-th (0-based, document order) token of `kind` in raw text with `token`; null when there is none. */
+export function replaceNthToken(s, kind, index, token) {
+  s = String(s ?? "");
+  const hit = scanTokens(s).filter((t) => t.node.kind === kind)[index];
+  return hit ? s.slice(0, hit.start) + token + s.slice(hit.end) : null;
+}
 const DELIMS = [["**", "b"], ["~~", "s"], ["*", "i"], ["_", "i"]];
 const isWord = (ch) => ch !== void 0 && /[A-Za-z0-9]/.test(ch);
 function findClose(s, d, from) {
@@ -220,8 +258,8 @@ export function parseInline(s) {
   flush();
   return out;
 }
-export function stripInline(s) {
-  const flat = (nodes) => nodes.map((n) => n.t === "text" || n.t === "code" ? n.v : n.t === "inline" ? tokenFallback(n) : flat(n.children)).join("");
+export function stripInline(s, resolve = null) {
+  const flat = (nodes) => nodes.map((n) => n.t === "text" || n.t === "code" ? n.v : n.t === "inline" ? resolve?.(n) ?? tokenFallback(n) : flat(n.children)).join("");
   return flat(parseInline(s ?? ""));
 }
 export function toggleMarker(text, start, end, marker) {

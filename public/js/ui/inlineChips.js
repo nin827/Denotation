@@ -1,10 +1,14 @@
-// Inline chips ({{value:...}} and {{date:...}}): rendering, the insert picker, and plain-text resolution for export.
-// Token grammar and parsing live in blocks/inline.js; the lookup logic in preview.js.
+// Inline chips ({{value}}, {{date}}, {{preset}}, {{const}}, {{page}}, {{check}}, {{status}}, {{= formula}}): rendering, the
+// insert pickers, token clicks (checkbox, status) and plain-text resolution for export.
+// Token grammar and parsing live in blocks/inline.js; the lookup logic in preview.js; constants in constants.js.
 import { h } from "./dom.js";
-import { ico } from "../icons/index.js";
+import { ico, pageIcon } from "../icons/index.js";
 import { openModal } from "./modal.js";
+import { openMenu } from "./popover.js";
 import { buildToken, scanTokens, tokenFallback } from "../blocks/inline.js";
-import { resolveValue, keyList, listChipPresets, findChipPreset, resolvePreset, presetKey, cleanChipPresets, newChipPreset, countChipPresetUsers, presetNameTaken } from "../preview.js";
+import { findRepo, constantById, constantsOf, constantResolver, formatConstant, statusList, statusById } from "../constants.js";
+import { check as checkFormula, evalExpression, formulaRefs, lookupError, formatResult } from "../formula.js";
+import { resolveValue, keyList, matchKeys, listChipPresets, findChipPreset, resolvePreset, presetKey, cleanChipPresets, newChipPreset, countChipPresetUsers, presetNameTaken } from "../preview.js";
 import { walk } from "../blocks/model.js";
 import { confirmDialog, toast } from "./dialogs.js";
 
@@ -26,6 +30,40 @@ const presetsChanged = () => {
   cache.clear();
   document.dispatchEvent(new CustomEvent(PRESETS_EVENT));
 };
+// Constant and status edits (repository dialog) do the same.
+export const CONSTANTS_EVENT = "denotion:chip-constants";
+export const constantsChanged = () => {
+  cache.clear();
+  document.dispatchEvent(new CustomEvent(CONSTANTS_EVENT));
+};
+const repoFor = (ctx) => findRepo(ctx.livePages(), ctx.pageId);
+const norm = (s) => String(s ?? "").trim().toLowerCase();
+/** A chip wrapper that paints `run()` (a node or a promise of one) now and again on every chip event. */
+function liveChip(run) {
+  const el = h("span", { class: "ichip-wrap" });
+  const fail = () => el.replaceChildren(miss("Not found", "Lookup failed"));
+  const paint = () => {
+    try {
+      const r = run();
+      if (r && typeof r.then === "function") r.then((node) => el.replaceChildren(node)).catch(fail);
+      else el.replaceChildren(r);
+    } catch {
+      fail();
+    }
+  };
+  const again = () => {
+    if (!el.isConnected) {
+      document.removeEventListener(PRESETS_EVENT, again);
+      document.removeEventListener(CONSTANTS_EVENT, again);
+      return;
+    }
+    paint();
+  };
+  document.addEventListener(PRESETS_EVENT, again);
+  document.addEventListener(CONSTANTS_EVENT, again);
+  paint();
+  return el;
+}
 
 /** The database page behind an id (a linked view resolves to its source), or a state string. */
 function findDb(ctx, id) {
@@ -50,6 +88,13 @@ export function inlineChip(n, ctx) {
   if (n.kind === "date") {
     return h("span", { class: "ichip ichip-date", title: n.args[0] }, ico("calendar"), h("span", {}, friendlyDate(n.args[0])));
   }
+  if (n.kind === "check") return checkChip(n, ctx);
+  if (ctx?.livePages) {
+    if (n.kind === "const") return constChip(n, ctx);
+    if (n.kind === "page") return pageChip(n, ctx);
+    if (n.kind === "status") return statusChip(n, ctx);
+    if (n.kind === "formula" && ctx.ws) return formulaChip(n, ctx);
+  }
   if (n.kind === "preset" && ctx?.ws) return presetChip(n, ctx);
   if (n.kind !== "value" || !ctx?.ws) return document.createTextNode(`{{${n.kind}}}`);
   const [dbId, key, colId] = n.args;
@@ -67,6 +112,123 @@ export function inlineChip(n, ctx) {
     fill(a);
   })().catch(() => fill(miss("Not found", "Lookup failed")));
   return el;
+}
+
+// ---------- constants, pages, checkboxes, statuses, formulas ----------
+const emptyText = () => h("span", { class: "ichip-empty" }, "(empty)");
+function constChip(n, ctx) {
+  return liveChip(() => {
+    const c = constantById(repoFor(ctx), n.args[0]);
+    if (!c) return miss("Not found", "Constant not found (deleted, or this page is in a repository without it)");
+    const text = formatConstant(c);
+    return h("span", { class: `ichip ichip-const ichip-${c.type}`, title: `${c.name} = ${text || "(empty)"}` }, ico("variable"), text === "" ? emptyText() : h("span", {}, text));
+  });
+}
+function pageChip(n, ctx) {
+  const id = n.args[0];
+  return liveChip(() => {
+    const info = ctx.pageInfo?.(id);
+    if (!info || info.state === "missing") return miss("Not found", "Page not found");
+    if (info.state === "trashed") return miss("In trash", `${info.title || "Untitled"} is in the trash`);
+    const p = ctx.livePages().find((x) => x.id === id) ?? info;
+    return h("a", { class: "ichip ichip-page", href: `#page-${id}`, title: `Open ${p.title || "Untitled"}` }, pageIcon(p), h("span", {}, p.title || "Untitled"));
+  });
+}
+function checkChip(n, ctx) {
+  const on = n.args[0] === "1";
+  return h(
+    "button",
+    {
+      type: "button",
+      class: `ichip-check ichip-btn${on ? " on" : ""}`,
+      role: "checkbox",
+      "aria-checked": on ? "true" : "false",
+      "aria-label": "Checkbox",
+      "data-tok": "check",
+      disabled: !!ctx?.locked
+    },
+    ico(on ? "square-check" : "square")
+  );
+}
+const statusColor = (hue) => `oklch(0.72 0.14 ${hue})`;
+function statusChip(n, ctx) {
+  return liveChip(() => {
+    const st = statusById(repoFor(ctx), n.args[0]);
+    const btn = (cls, label, title, icon) => h("button", { type: "button", class: `ichip ichip-btn ${cls}`, "data-tok": "status", "aria-haspopup": "menu", title, disabled: !!ctx.locked }, ico(icon), h("span", {}, label));
+    if (!st) return btn("ichip-miss", "Not found", "Status not found; click to pick one", "info");
+    const el = btn("ichip-status", st.label, `${st.label}: click to change`, "circle-dot");
+    el.style.setProperty("--st-h", st.hue);
+    return el;
+  });
+}
+/** What a click on a checkbox or status chip does: apply(newTokenText) persists the changed token. */
+export function chipAction(el, ctx, apply) {
+  const kind = el.dataset.tok;
+  if (kind === "check") return apply(buildToken("check", [el.getAttribute("aria-checked") === "true" ? "0" : "1"]));
+  if (kind !== "status") return;
+  const repo = repoFor(ctx);
+  const list = statusList(repo);
+  if (!list.length) return;
+  openMenu(el, list.map((s) => ({ label: s.label, swatch: statusColor(s.hue), onSelect: () => apply(buildToken("status", [s.id])) })), { width: 200 });
+}
+
+/** The sync environment an expression needs (constants, database / preset lookups), loading the rows it refers to first. */
+async function formulaEnv(ctx, expr) {
+  const refs = formulaRefs(expr);
+  const pages = ctx.livePages();
+  const repo = repoFor(ctx);
+  const dbOf = (ref) => {
+    const p = pages.find((x) => x.type === "database" && (x.id === ref || norm(x.title) === norm(ref)));
+    return p?.sourceId ? pages.find((x) => x.id === p.sourceId) ?? null : p ?? null;
+  };
+  const rows = new Map();
+  const load = async (db) => {
+    if (db && !rows.has(db.id)) rows.set(db.id, await rowsOf(ctx, db.id));
+  };
+  for (const [ref] of refs.values) await load(dbOf(ref));
+  const presets = listChipPresets(pages);
+  for (const [name] of refs.presets) await load(presets.find((x) => norm(x.preset.name) === norm(name))?.db);
+  // raw typed cell value (numbers stay numbers); objects and arrays use their display text
+  const cell = (db, row, key, colRef) => {
+    const col = (db.columns ?? []).find((c) => c.id === colRef) ?? (db.columns ?? []).find((c) => norm(c.name) === norm(colRef));
+    if (!col) throw lookupError("#REF!", `no column "${colRef}" in ${db.title || "Untitled"}`);
+    const v = row.values?.[col.id];
+    if (v === void 0 || v === null || v === "") return null;
+    return typeof v === "object" ? resolveValue(db, [row], key, col.id).text : v;
+  };
+  const rowFor = (db, key) => {
+    const hit = matchKeys(db, rows.get(db.id) ?? [], [key])[0]?.rows[0];
+    if (!hit) throw lookupError("#N/A", `no row with key "${key}" in ${db.title || "Untitled"}`);
+    return hit;
+  };
+  return {
+    constant: repo ? constantResolver(repo) : void 0,
+    value: (dbRef, key, colRef) => {
+      const db = dbOf(dbRef);
+      if (!db) throw lookupError("#REF!", `database "${dbRef}" not found`);
+      return cell(db, rowFor(db, key), key, colRef);
+    },
+    preset: (name, key) => {
+      const hit = presets.find((x) => norm(x.preset.name) === norm(name));
+      if (!hit) throw lookupError("#REF!", `preset "${name}" not found`);
+      const k = key ?? hit.preset.key;
+      if (!k) throw lookupError("#N/A", `preset "${name}" needs a key`);
+      return cell(hit.db, rowFor(hit.db, k), k, hit.preset.colId);
+    }
+  };
+}
+const formulaText = (r) => r.ok ? formatResult(r.value) : r.error;
+async function runFormula(ctx, expr) {
+  return evalExpression(expr, await formulaEnv(ctx, expr));
+}
+function formulaChip(n, ctx) {
+  const expr = n.args[0];
+  return liveChip(async () => {
+    const r = await runFormula(ctx, expr);
+    if (!r.ok) return h("span", { class: "ichip ichip-formula ichip-err", title: `${r.detail}\n= ${expr}` }, ico("info"), h("span", {}, r.error));
+    const text = formatResult(r.value);
+    return h("span", { class: "ichip ichip-formula", title: `= ${expr}` }, ico("sigma"), text === "" ? emptyText() : h("span", {}, text));
+  });
 }
 
 /** A chip for {{preset:id|key}}: preset -> its database -> row by key -> column. Re-resolves when presets change. */
@@ -114,8 +276,22 @@ export async function inlineResolver(ctx, texts) {
   }
   const rows = new Map();
   for (const [id, f] of need) if (f.state === "ok") rows.set(id, await rowsOf(ctx, f.db.id));
+  const repo = ctx.livePages ? repoFor(ctx) : null;
+  const formulas = new Map();
+  if (ctx.livePages) for (const n of nodes) {
+    if (n.kind !== "formula" || formulas.has(n.args[0])) continue;
+    formulas.set(n.args[0], formulaText(await runFormula(ctx, n.args[0])));
+  }
   return (n) => {
     if (n.kind === "date") return n.args[0];
+    if (n.kind === "const") {
+      const c = constantById(repo, n.args[0]);
+      return c ? formatConstant(c) : tokenFallback(n);
+    }
+    if (n.kind === "status") return statusById(repo, n.args[0])?.label ?? tokenFallback(n);
+    if (n.kind === "page") return ctx.livePages?.().find((p) => p.id === n.args[0])?.title || tokenFallback(n);
+    if (n.kind === "formula") return formulas.get(n.args[0]) ?? tokenFallback(n);
+    if (n.kind === "check") return tokenFallback(n);
     if (n.kind === "preset") {
       const hit = presets.get(n.args[0]);
       if (!hit) return tokenFallback(n);
@@ -205,6 +381,10 @@ async function savePresets(ctx, db, list) {
  */
 export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {}) {
   let done = false;
+  if (kind === "check") {
+    onPick?.(buildToken("check", ["0"]));
+    return null;
+  }
   const hit0 = kind === "preset" ? findChipPreset(ctx.livePages(), presetId) : null;
   if (kind === "preset") {
     if (!hit0) {
@@ -225,7 +405,7 @@ export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {})
     onPick?.(token);
   };
   const modal = openModal({
-    title: kind === "date" ? "Insert date" : kind === "preset" ? `Preset: ${hit0.preset.name}` : "Insert database value",
+    title: TITLES[kind] ?? (kind === "preset" ? `Preset: ${hit0.preset.name}` : "Insert database value"),
     content: body,
     actions: [{ label: "Cancel" }],
     onClose: () => {
@@ -233,6 +413,8 @@ export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {})
     }
   });
   if (kind === "date") return dateStep(body, finish);
+  if (kind === "formula") return formulaStep(ctx, body, finish);
+  if (kind === "page" || kind === "const" || kind === "status") return listStep(kind, ctx, body, finish);
   const state = {};
   const crumb = (text, back) => h("div", { class: "ip-crumb" }, back ? h("button", { type: "button", class: "ip-back", onClick: back }, ico("chevron-left"), " Back") : null, h("span", {}, text));
   const show = (...kids) => body.replaceChildren(...kids.filter(Boolean));
@@ -423,6 +605,70 @@ export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {})
   if (kind === "preset") stepPresetKey(hit0, null);
   else stepStart();
   return modal;
+}
+
+const TITLES = { date: "Insert date", page: "Insert page chip", const: "Insert constant", status: "Insert status", formula: "Insert formula" };
+
+/** Page / constant / status: one searchable list; picking inserts the token. */
+function listStep(kind, ctx, body, finish) {
+  const repo = repoFor(ctx);
+  let items;
+  let empty;
+  if (kind === "page") {
+    items = ctx.livePages().map((p) => ({ label: p.title || "Untitled", hint: p.type === "database" ? "database" : p.type === "repo" ? "repository" : "", id: p.id }));
+    empty = "No pages.";
+  } else if (kind === "const") {
+    items = constantsOf(repo).map((c) => ({ label: c.name, hint: formatConstant(c) || "(empty)", id: c.id }));
+    empty = "No constants yet. Add them from the repository menu in the sidebar: Constants\u2026";
+  } else {
+    items = statusList(repo).map((s) => ({ label: s.label, id: s.id }));
+    empty = "No statuses yet. Add them from the repository menu in the sidebar: Statuses\u2026";
+  }
+  const sl = searchList({
+    placeholder: kind === "page" ? "Search pages\u2026" : kind === "const" ? "Search constants\u2026" : "Search statuses\u2026",
+    empty,
+    items,
+    onPick: (it) => {
+      const token = buildToken(kind, [it.id]);
+      if (token) finish(token);
+    }
+  });
+  body.replaceChildren(sl.el);
+  setTimeout(() => sl.input.focus(), 0);
+}
+
+/** Inline formula: an expression field with a live result. */
+function formulaStep(ctx, body, finish) {
+  const input = h("input", { type: "text", maxlength: 500, "aria-label": "Formula", placeholder: '2030 - const("foundedyear")', autocomplete: "off", spellcheck: "false", style: "font-size:16px" });
+  const out = h("div", { class: "ip-empty", role: "status", "aria-live": "polite" }, "Type an expression. Constants: const(\"name\") or the bare name. Lookups: value(\"db\", \"key\", \"col\").");
+  const insert = h("button", { type: "button", class: "primary", disabled: true }, "Insert");
+  let seq = 0;
+  let valid = false;
+  const refresh = async () => {
+    const mine = ++seq;
+    const expr = input.value.trim();
+    valid = !!expr && checkFormula(expr).ok && expr.length <= 500;
+    insert.disabled = !valid;
+    if (!expr) return out.replaceChildren("Type an expression.");
+    const r = await runFormula(ctx, expr);
+    if (mine !== seq) return;
+    out.replaceChildren(...r.ok ? [ico("sigma"), ` = ${formatResult(r.value) || "(empty)"}`] : [ico("info"), ` ${r.detail}`]);
+  };
+  const go = () => {
+    if (!valid) return;
+    const token = buildToken("formula", [input.value.trim()]);
+    if (token) finish(token);
+  };
+  input.addEventListener("input", refresh);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      go();
+    }
+  });
+  insert.addEventListener("click", go);
+  body.replaceChildren(h("label", { class: "ip-field" }, h("span", {}, "Expression"), input), out, h("div", { class: "ip-btns" }, insert));
+  setTimeout(() => input.focus(), 0);
 }
 
 function dateStep(body, finish) {

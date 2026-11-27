@@ -125,7 +125,7 @@ function parse(src) {
       }
       if (up === "TRUE") return { k: "bool", v: true };
       if (up === "FALSE") return { k: "bool", v: false };
-      throw err("#NAME?", t.v);
+      return { k: "name", name: t.v }; // a bare repository constant (looked up by name, never evaluated)
     }
     throw err("#ERROR!", `unexpected "${t.v}"`);
   };
@@ -491,6 +491,11 @@ function evalNode(n, ctx) {
       return null;
     case "ref":
       return ctx.get(n.name);
+    case "name": {
+      const v = ctx.constant?.(n.name);
+      if (v === void 0) throw err("#NAME?", n.name);
+      return v;
+    }
     case "key": {
       const o = evalNode(n.a, ctx);
       if (o && typeof o === "object" && !Array.isArray(o) && n.key in o) return o[n.key];
@@ -588,6 +593,25 @@ function call(n, ctx) {
         break;
     }
   }
+  if (name === "CONST") {
+    // const("name"): a repository constant (typed number / date / text)
+    need(args, 1);
+    const key = toStr(ev(args[0]));
+    const v = ctx.constant?.(key);
+    if (v === void 0) throw err("#NAME?", key);
+    return v;
+  }
+  if (name === "VALUE" && args.length === 3) {
+    // value("db", "key", "col"): another database's cell, found by primary key (inline formulas); VALUE(text) still converts text to a number
+    if (!ctx.lookup) throw err("#NAME?", "value() lookups need an inline formula");
+    return ctx.lookup(toStr(ev(args[0])), toStr(ev(args[1])), toStr(ev(args[2])));
+  }
+  if (name === "PRESET") {
+    // preset("name", "key"): a chip preset's column for a row key (inline formulas)
+    need(args, 1, 2);
+    if (!ctx.preset) throw err("#NAME?", "preset() lookups need an inline formula");
+    return ctx.preset(toStr(ev(args[0])), args[1] ? toStr(ev(args[1])) : null);
+  }
   if (name === "ALL") {
     need(args, 1);
     if (args[0].k !== "ref") throw err("#VALUE!", "ALL needs a [column]");
@@ -635,7 +659,19 @@ const norm = (s) => String(s).trim().toLowerCase();
 function findColumn(columns, name) {
   return columns.find((c) => c.name === name) ?? columns.find((c) => norm(c.name) === norm(name));
 }
-function contextFor(columns, rows, index, cache = new Map(), memo = null) {
+let constantsProvider = null;
+/** Install fn(dbId) -> (name -> value | undefined) | null. Database formulas use it to resolve constants through the database's repository. */
+export const setConstantsProvider = (fn) => {
+  constantsProvider = typeof fn === "function" ? fn : null;
+};
+const constantsFor = (rows) => {
+  try {
+    return constantsProvider?.(rows?.[0]?.dbId) ?? void 0;
+  } catch {
+    return void 0;
+  }
+};
+function contextFor(columns, rows, index, cache = new Map(), memo = null, constant = constantsFor(rows)) {
   const row = rows[index];
   const col = (name) => {
     const c = findColumn(columns, name);
@@ -658,22 +694,24 @@ function contextFor(columns, rows, index, cache = new Map(), memo = null) {
     },
     row: index + 1,
     rows: rows.length,
-    memo
+    memo,
+    constant
   };
 }
-export function applyFormulas(columns, rows) {
+export function applyFormulas(columns, rows, opts = {}) {
   const fcols = columns.filter((c) => c.type === "formula");
   if (!fcols.length || !rows.length) return [];
   const parsed = new Map(fcols.map((c) => [c.id, check(c.config?.expr ?? "")]));
   const changed = new Set();
   const memo = new Map();
   const cache = new Map();
+  const constant = opts.constants ?? constantsFor(rows);
   for (let pass = 0; pass < 3; pass++) {
     let moved = false;
     for (const c of fcols) {
       const p = parsed.get(c.id);
       rows.forEach((row, i) => {
-        const v = p.ok ? evaluate(p.ast, contextFor(columns, rows, i, cache, memo)) : "#ERROR!";
+        const v = p.ok ? evaluate(p.ast, contextFor(columns, rows, i, cache, memo, constant)) : "#ERROR!";
         const old = row.values[c.id];
         if (old !== v && !(old === void 0 && v === null)) {
           row.values[c.id] = v;
@@ -722,3 +760,63 @@ export function renameColumnRefs(expr, oldName, newName) {
   }
   return out;
 }
+
+// ---------- inline formulas ({{= expr}}): evaluated without a row ----------
+/**
+ * The lookups an expression makes with literal arguments, so a caller can load the data first:
+ * { ok, error?, values: [[db, key, col]], presets: [[name, key|null]], nonLiteral: boolean }.
+ */
+export function formulaRefs(src) {
+  const p = check(src);
+  if (!p.ok) return { ok: false, error: p.error, values: [], presets: [], nonLiteral: false };
+  const out = { ok: true, values: [], presets: [], nonLiteral: false };
+  const walkAst = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (n.k === "call" && ((n.name === "VALUE" && n.args.length === 3) || n.name === "PRESET")) {
+      if (n.args.every((a) => a.k === "str")) {
+        const v = n.args.map((a) => a.v);
+        if (n.name === "VALUE") out.values.push(v);
+        else out.presets.push([v[0], v[1] ?? null]);
+      } else out.nonLiteral = true;
+    }
+    for (const x of [n.a, n.b]) walkAst(x);
+    for (const a of n.args ?? []) walkAst(a);
+  };
+  walkAst(p.ast);
+  return out;
+}
+/**
+ * Evaluate an expression with no row. env: { constant(name), value(db, key, col), preset(name, key) }, each synchronous
+ * (throw `lookupError("#N/A", "detail")` for a missing item). Returns { ok, value, error, detail }: an error is a code
+ * such as "#NAME?" with `detail` giving the message ("#NAME? foundedyear").
+ */
+export function evalExpression(src, env = {}) {
+  const p = check(src);
+  if (!p.ok) return { ok: false, value: "#ERROR!", error: "#ERROR!", detail: p.error };
+  const ctx = {
+    get: (name) => { throw err("#REF!", `[${name}] needs a database row`); },
+    all: (name) => { throw err("#REF!", `[${name}] needs a database row`); },
+    row: 1,
+    rows: 1,
+    memo: null,
+    constant: env.constant,
+    lookup: env.value,
+    preset: env.preset
+  };
+  try {
+    let v = evalNode(p.ast, ctx);
+    if (Array.isArray(v)) v = v.length === 1 ? v[0] : toStr(v);
+    if (v !== null && typeof v === "object") v = toStr(v);
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) return { ok: false, value: "#NUM!", error: "#NUM!", detail: "#NUM!" };
+      v = Number(v.toPrecision(12));
+    }
+    if (typeof v === "string" && isErrorValue(v)) return { ok: false, value: v, error: v, detail: v };
+    return { ok: true, value: v === void 0 ? null : v };
+  } catch (e) {
+    if (e instanceof FormulaError) return { ok: false, value: e.code, error: e.code, detail: e.message };
+    return { ok: false, value: "#ERROR!", error: "#ERROR!", detail: "#ERROR!" };
+  }
+}
+/** An error for env lookup callbacks to throw: code is one of the "#..." codes. */
+export const lookupError = (code, detail) => err(code, detail);
