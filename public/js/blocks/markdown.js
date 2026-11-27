@@ -77,6 +77,10 @@ ${b.text}
       case "preview":
         text = ctx.recordPreview?.(b) ?? previewLine(ctx.pageTitle?.(b.dbId), b.keys);
         break;
+      case "dbview":
+        // a live view cannot be exported as data: a link to the source (or its name for a table block)
+        text = !b.sourceId ? "" : b.sourceId.startsWith("tbl-") ? "Database view: table data source" : `Database view: ${ctx.pageLink ? ctx.pageLink(b.sourceId) : ctx.pageTitle?.(b.sourceId) || "source"}`;
+        break;
       case "synced":
         text = blocksToMarkdown(ctx.syncBlocks?.(b.ref) ?? [], ctx);
         break;

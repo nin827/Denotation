@@ -26,7 +26,8 @@ const BLOCK_TYPES = [
   "synced",
   "page",
   "pivot",
-  "preview"
+  "preview",
+  "dbview"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
@@ -125,6 +126,9 @@ export function newBlock(type = "p", props = {}) {
       b.presetId ?? (b.presetId = null);
       b.config ?? (b.config = null);
       b.snapshot ?? (b.snapshot = null);
+      break;
+    case "dbview":
+      b.sourceId ?? (b.sourceId = null);
       break;
     case "divider":
     case "toc":
@@ -326,6 +330,20 @@ export function normalizeBlocks(blocks) {
         if (typeof b.agg !== "string") b.agg = "count";
       }
       if (b.type === "preview") cleanPreviewBlock(b);
+      if (b.type === "dbview") {
+        b.sourceId = typeof b.sourceId === "string" && b.sourceId ? b.sourceId : null;
+        if (typeof b.viewId !== "string" || !b.viewId) delete b.viewId;
+        if (b.view && typeof b.view === "object" && !Array.isArray(b.view)) {
+          if (typeof b.view.id !== "string" || !b.view.id) b.view.id = newId();
+          if (typeof b.view.name !== "string" || !b.view.name) b.view.name = "Custom";
+        } else delete b.view;
+      }
+      if (b.type === "table") {
+        if (b.dataSource !== true) delete b.dataSource;
+        if (typeof b.sourceName !== "string" || !b.sourceName.trim()) delete b.sourceName;
+        else b.sourceName = b.sourceName.trim().slice(0, 80);
+        if (!Number.isInteger(b.sourceKey) || b.sourceKey < 0 || b.sourceKey > 0 && b.sourceKey >= (b.cells?.[0]?.length ?? 1)) delete b.sourceKey;
+      }
       if (b.type === "table") {
         if (!Array.isArray(b.cells) || !b.cells.length || !Array.isArray(b.cells[0])) b.cells = [[""]];
         const w = Math.max(...b.cells.map((r) => Array.isArray(r) ? r.length : 0), 1);

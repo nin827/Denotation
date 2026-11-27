@@ -1,7 +1,9 @@
-import { isTrashed } from "../workspace.js";
 import { ico } from "../icons/index.js";
 
-const sourceDatabases = (pages) => pages.filter((p) => p.type === "database" && !p.sourceId && !isTrashed(pages, p));
+import { sourceList } from "../sources.js";
+
+// data sources first, then the other databases (table blocks are read-only, so they are not offered here)
+const sourceDatabases = (pages) => sourceList(pages, { tables: false });
 export function newItems({ pages: pages, parentId, onCreate, onImportCsv, repoLevel = true }) {
   const sources = sourceDatabases(pages);
   const ok = !!parentId;
@@ -9,7 +11,7 @@ export function newItems({ pages: pages, parentId, onCreate, onImportCsv, repoLe
     label,
     icon: ico(icon),
     disabled: !ok || !sources.length,
-    items: sources.map((d) => ({ label: d.title || "Untitled", icon: ico("database"), onSelect: () => onCreate("database", parentId, { sourceId: d.id, viewType }) }))
+    items: sources.map((d) => ({ label: d.title || "Untitled", icon: ico(d.dataSource ? "database-zap" : "database"), hint: d.dataSource ? "data source" : null, onSelect: () => onCreate("database", parentId, { sourceId: d.id, viewType }) }))
   });
   return [
     { label: "Page", icon: ico("file-text"), disabled: !ok, onSelect: () => onCreate("doc", parentId) },

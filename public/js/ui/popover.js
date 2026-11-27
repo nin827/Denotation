@@ -3,6 +3,13 @@ import { ico } from "../icons/index.js";
 
 let current = null;
 const closeMenus = () => current?.close();
+/** Fired by closePopovers so other floating panels (colour picker, record preview settings) close too. */
+export const CLOSE_EVENT = "denotation:close-popovers";
+/** Closes the open menu and every other floating panel; called when the page changes. */
+export function closePopovers() {
+  closeMenus();
+  document.dispatchEvent(new Event(CLOSE_EVENT));
+}
 export function openMenu(anchor, items, { onClose, empty = "No results", width: width } = {}) {
   closeMenus();
   const el = h("div", { class: "menu", role: "menu", style: width ? `width:${width}px` : null });

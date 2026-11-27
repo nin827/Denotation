@@ -11,11 +11,14 @@ import { check as checkFormula, evalExpression, formulaRefs, lookupError, format
 import { resolveValue, keyList, matchKeys, listChipPresets, findChipPreset, resolvePreset, presetKey, cleanChipPresets, newChipPreset, countChipPresetUsers, presetNameTaken } from "../preview.js";
 import { walk } from "../blocks/model.js";
 import { confirmDialog, toast } from "./dialogs.js";
+import { sourceList, sourceLabel, isTableSourceId, findTableSource, tableSources } from "../sources.js";
 
 // ---------- data ----------
 const CACHE_MS = 300; // enough to share one load between all chips of a render, short enough to see edits
 const cache = new Map();
 function rowsOf(ctx, dbId) {
+  // a table block used as a data source: its rows come from the block, not the store
+  if (isTableSourceId(dbId)) return Promise.resolve(findTableSource(ctx.livePages(), dbId)?.rows ?? []);
   const k = `${dbId}`;
   const hit = cache.get(k);
   if (hit && hit.ws === ctx.ws && Date.now() - hit.t < CACHE_MS) return hit.p;
@@ -67,6 +70,10 @@ function liveChip(run) {
 
 /** The database page behind an id (a linked view resolves to its source), or a state string. */
 function findDb(ctx, id) {
+  if (isTableSourceId(id)) {
+    const t = findTableSource(ctx.livePages(), id);
+    return t ? { state: "ok", db: t, title: sourceLabel(t) } : { state: "missing" };
+  }
   const info = ctx.pageInfo?.(id);
   if (!info || info.state === "missing") return { state: "missing" };
   if (info.state === "trashed") return { state: "trashed" };
@@ -108,7 +115,7 @@ export function inlineChip(n, ctx) {
     const path = `${f.title} › ${key} › ${res.col?.name ?? "Column"}`;
     if (res.state === "norow") return fill(miss("Not found", `No row with key "${key}" in ${f.title}`));
     if (res.state === "nocol") return fill(miss("Not found", `Column not found › ${f.title} › ${key}`));
-    const a = h("a", { class: "ichip ichip-value", href: `#row-${res.row.id}`, title: path }, res.text === "" ? h("span", { class: "ichip-empty" }, "(empty)") : res.text);
+    const a = h("a", { class: "ichip ichip-value", href: f.db.virtual ? `#page-${f.db.pageId}` : `#row-${res.row.id}`, title: path }, res.text === "" ? h("span", { class: "ichip-empty" }, "(empty)") : res.text);
     fill(a);
   })().catch(() => fill(miss("Not found", "Lookup failed")));
   return el;
@@ -177,8 +184,9 @@ async function formulaEnv(ctx, expr) {
   const refs = formulaRefs(expr);
   const pages = ctx.livePages();
   const repo = repoFor(ctx);
+  const tables = tableSources(pages);
   const dbOf = (ref) => {
-    const p = pages.find((x) => x.type === "database" && (x.id === ref || norm(x.title) === norm(ref)));
+    const p = pages.find((x) => x.type === "database" && (x.id === ref || norm(x.title) === norm(ref))) ?? tables.find((x) => x.id === ref || norm(x.title) === norm(ref));
     return p?.sourceId ? pages.find((x) => x.id === p.sourceId) ?? null : p ?? null;
   };
   const rows = new Map();
@@ -513,11 +521,11 @@ export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {})
     name.focus();
   }
   async function stepDb() {
-    const dbs = ctx.livePages().filter((p) => p.type === "database" && !p.sourceId);
+    const dbs = sourceList(ctx.livePages()); // data sources first, then other databases, then table sources
     const sl = searchList({
       placeholder: "Search databases\u2026",
       empty: "No databases yet.",
-      items: dbs.map((p) => ({ label: p.title || "Untitled", p })),
+      items: dbs.map((p) => ({ label: sourceLabel(p), hint: p.dataSource ? "data source" : p.virtual ? "read-only" : "", p })),
       onPick: (it) => {
         state.db = it.p;
         stepKey();
@@ -568,7 +576,7 @@ export function openInlinePicker(kind, ctx, { onPick, onCancel, presetId } = {})
           "div",
           { class: "ip-btns" },
           h("button", { type: "button", class: "primary", onClick: insert }, "Insert value"),
-          h("button", { type: "button", onClick: () => stepFinal(true) }, ico("plus"), " Save as preset\u2026")
+          db.virtual ? null : h("button", { type: "button", onClick: () => stepFinal(true) }, ico("plus"), " Save as preset\u2026")
         )
       );
       return;

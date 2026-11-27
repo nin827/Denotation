@@ -35,6 +35,7 @@ export const CATALOG = [
   E("breadcrumb", "Breadcrumb", "Advanced", "path trail", plain("breadcrumb")),
   E("pivot", "Pivot table", "Advanced", "pivot summary group aggregate crosstab database", plain("pivot")),
   E("preview", "Record preview", "Advanced", "record lookup key primary row card preview database", plain("preview")),
+  E("dbview", "Database view", "Advanced", "view linked embed database table board list gallery calendar chart data source", plain("dbview")),
   E("ivalue", "Database value", "Inline", "lookup field cell key column database inline chip value", () => null, { inline: "value" }),
   E("idate", "Date", "Inline", "today calendar day inline chip date", () => null, { inline: "date" }),
   E("ipage", "Page chip", "Inline", "page mention link chip inline icon title", () => null, { inline: "page" }),
@@ -46,7 +47,7 @@ export const CATALOG = [
   E("page", "Page", "Pages", "sub-page subpage new", plain("page"), { needs: "page", pageType: "doc" }),
   E("database", "Database", "Pages", "table collection sub database", plain("page"), { needs: "page", pageType: "database" })
 ];
-const ICON_OF = { "p": "pilcrow", "h1": "heading-1", "h2": "heading-2", "h3": "heading-3", "h4": "heading-4", "bullet": "list", "numbered": "list-ordered", "todo": "list-checks", "toggle": "list-collapse", "toggleh1": "chevron-right", "toggleh2": "chevron-right", "toggleh3": "chevron-right", "toggleh4": "chevron-right", "quote": "quote", "callout": "lightbulb", "code": "code", "divider": "minus", "table": "table", "image": "image", "bookmark": "bookmark", "toc": "table-of-contents", "breadcrumb": "route", "pivot": "table-properties", "preview": "scan-search", "synced": "refresh-cw", "page": "file-text", "database": "database", "ivalue": "database", "idate": "calendar", "ipage": "file-text", "icheck": "square-check", "istatus": "circle-dot", "iconst": "variable", "iformula": "sigma" };
+const ICON_OF = { "p": "pilcrow", "h1": "heading-1", "h2": "heading-2", "h3": "heading-3", "h4": "heading-4", "bullet": "list", "numbered": "list-ordered", "todo": "list-checks", "toggle": "list-collapse", "toggleh1": "chevron-right", "toggleh2": "chevron-right", "toggleh3": "chevron-right", "toggleh4": "chevron-right", "quote": "quote", "callout": "lightbulb", "code": "code", "divider": "minus", "table": "table", "image": "image", "bookmark": "bookmark", "toc": "table-of-contents", "breadcrumb": "route", "pivot": "table-properties", "preview": "scan-search", "dbview": "table-2", "synced": "refresh-cw", "page": "file-text", "database": "database", "ivalue": "database", "idate": "calendar", "ipage": "file-text", "icheck": "square-check", "istatus": "circle-dot", "iconst": "variable", "iformula": "sigma" };
 for (const e of CATALOG) e.icon = ICON_OF[e.id] ?? (e.id.startsWith("columns") ? `columns-${Math.min(4, Math.max(2, Number(e.id.slice(7))))}` : "square");
 /** Dynamic slash entries, one per chip preset ([{ preset, db }]). They carry `inline: "preset"` so block listings skip them. */
 export const presetEntries = (list) => (list ?? []).map(({ preset, db }) => ({

@@ -94,8 +94,16 @@ export function renderCell(col, value, commit, opts = {}) {
   const display = opts.display ?? (opts.wrap ? "wrap" : "clip");
   if (value === void 0) value = defaultValue(col);
   if (col.stub) return h("span", { class: "stub-cell" });
+  if (opts.readOnly) return readOnlyCell(col, value, display);
   if (display === "hide" || (display === "obfuscate" || display === "marquee") && !isComposite(col)) return shellCell(col, value, commit, display, opts);
   return editorCell(col, value, commit, { ...opts, display });
+}
+/** A static, non-editable cell (read-only data sources): the text, obfuscated or blank per the display mode. */
+function readOnlyCell(col, value, display) {
+  const text = cellText(col, value);
+  if (display === "hide") return h("span", { class: "cell-ro d-hide", title: "Hidden" });
+  if (display === "obfuscate") return h("span", { class: "cell-ro d-obfuscate", title: "Hidden" }, text ? OBFUSCATED : "");
+  return h("span", { class: `cell-ro d-${display}`, title: text }, text);
 }
 function shellCell(col, value, commit, display, { rowId = "" }) {
   let cur = value;

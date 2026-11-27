@@ -439,6 +439,85 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await phone.close();
   }
   {
+    // Database view block + data sources: mark a database, embed a view in a doc, edit a row there, table source chip
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    await page.goto(`http://127.0.0.1:${PORT}${targets[0]}`);
+    await page.waitForSelector(".side-item");
+    const ids = await page.evaluate(async () => {
+      const { createStore } = await import("./js/store.js");
+      const { createWorkspace } = await import("./js/workspace.js");
+      const { config } = await import("./js/config.js");
+      const { newBlock } = await import("./js/blocks/model.js");
+      const ws = createWorkspace(await createStore(config));
+      const repo = (await ws.listPages()).find((p) => p.type === "repo");
+      const other = await ws.createPage({ type: "database", title: "A other db", parentId: repo.id });
+      const db = await ws.createPage({ type: "database", title: "Vb source", parentId: repo.id });
+      const r = await ws.createRow(db);
+      r.values[db.columns[0].id] = "Row one";
+      await ws.saveRow(r);
+      const doc = await ws.createPage({ title: "Vb doc", parentId: repo.id });
+      const t = newBlock("table", { rows: 2, cols: 2 });
+      t.cells = [["Item", "Price"], ["Pear", "5"]];
+      t.dataSource = true;
+      t.sourceName = "Prices";
+      doc.blocks = [newBlock("p", { text: "x" }), t];
+      await ws.savePage(doc);
+      return { db: db.id, doc: doc.id, name: db.columns[0].id, other: other.id };
+    });
+    await page.reload();
+    await page.waitForSelector(".side-item");
+    await page.locator(".side-item", { hasText: "Vb source" }).click({ button: "right" });
+    await page.locator(".menu-item", { hasText: /^Data source/ }).click();
+    await page.waitForSelector(`.side-item[data-id="${ids.db}"] .side-badge[aria-label="Data source"]`);
+    await page.locator(`.side-item[data-id="${ids.doc}"]`).click();
+    await page.waitForSelector(".doc-tail");
+    await page.locator(".doc-tail").click();
+    await page.keyboard.type("/database view");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".vb-pick .ip-item");
+    const labels = await page.locator(".vb-pick .ip-item .ip-label").allTextContents();
+    if (!labels[0].includes("Vb source") || !labels.some((l) => l.includes("Table: Prices on Vb doc"))) errs.push(`view block: picker order ${JSON.stringify(labels)}`);
+    await page.locator(".vb-pick .ip-item", { hasText: "Vb source" }).click();
+    await page.waitForSelector(".vb .db-table");
+    if (!(await page.locator(".vb .vb-tab", { hasText: "Custom" }).count())) errs.push("view block: no Custom tab");
+    const cell = page.locator(".vb .db-table tbody tr").first().locator("input").first();
+    await cell.fill("Edited in block");
+    await cell.blur();
+    await page.waitForTimeout(500);
+    const names = await page.evaluate(async (i) => {
+      const { createStore } = await import("./js/store.js");
+      const { createWorkspace } = await import("./js/workspace.js");
+      const { config } = await import("./js/config.js");
+      return (await createWorkspace(await createStore(config)).listRows(i.db)).map((r) => r.values[i.name]);
+    }, ids);
+    if (!names.includes("Edited in block")) errs.push(`view block: row edit did not reach the source ${JSON.stringify(names)}`);
+    await page.locator(".vb .add-row").click();
+    await page.waitForTimeout(300);
+    if ((await page.locator(".vb .db-table tbody tr").count()) !== 2) errs.push("view block: add row did not add a row");
+    await page.locator(".vb .vb-tab", { hasText: "Custom" }).click();
+    await page.waitForSelector(".vb .db-table");
+    // the table block is a read-only source in the picker
+    await page.locator(".doc-tail").click();
+    await page.keyboard.type("/database view");
+    await page.keyboard.press("Enter");
+    await page.locator(".vb-pick .ip-item", { hasText: "Table: Prices" }).click();
+    await page.waitForSelector(".vb-ro .db-table");
+    if (await page.locator(".vb-ro .db-table tbody input").count()) errs.push("view block: table source cells are editable");
+    // a menu left open closes when the page changes
+    await page.locator(".page-actions button[aria-label='Page options']").click();
+    await page.evaluate((id) => { location.hash = `#page-${id}`; }, ids.other);
+    await page.waitForTimeout(300);
+    if (await page.locator(".menu").count()) errs.push("popover stayed open after navigation");
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} view block, data sources, popover close on navigation${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await ctx.close();
+  }
+  {
     // PWA: manifest, service worker, offline reload, install row, toast icons
     const ctx = await browser.newContext();
     const page = await ctx.newPage();

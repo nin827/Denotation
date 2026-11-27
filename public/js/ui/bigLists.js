@@ -4,7 +4,8 @@
 
 export const WINDOW_MIN_ROWS = 120; // at or below this many items, everything is drawn
 
-const SCROLLER = "#main";
+// a height-capped view block marks its own scroller with data-vscroll; everything else scrolls with #main
+const SCROLLER = "[data-vscroll], #main";
 const scrollerOf = (el) => el.closest(SCROLLER) ?? document.scrollingElement ?? document.documentElement;
 
 /**

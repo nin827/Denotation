@@ -340,6 +340,14 @@ Filters, sorts and layout are saved per view, so a "Done" view and a "To do" vie
 
 Want the same data in two places? **New → Database view of…** or **Sheet view of…** and pick the source database. You get a new item in the sidebar, with its own filters, sorts and layout, that **always shows the same rows** as the original. Edit a row in either place and both update. Adding a row works from either one. If the source database goes to the trash, the linked view says so; restore the source to bring it back.
 
+### Database views in a page, and data sources
+
+**Show a database inside a page.** Type `/view` (Database view) and pick a source: databases marked as data sources come first, then your other databases, then tables marked as data sources. Then choose a tab: one of the source's own views (always showing its current filters and layout), or **Custom**, a view that belongs only to this block (its own layout, filters, sorts, groups and column display). Rows you edit or add in the block are the source's rows. The block's ⋯ menu (or right-click / long-press its header) can change the source, open it, copy a source view into a custom one, or turn a custom view into a view of the source. If the source is in the trash, the block says so. Tall tables scroll inside the block.
+
+**Data sources.** Right-click a database in the sidebar (or use its ⋯ page menu) and choose **Data source**. It stays in the tree with a small badge and is listed first in every source list: view blocks, **New → Database view of…**, value chips and record previews. It's still an ordinary, editable database.
+
+**Tables as data sources.** In a `/table` block's handle menu choose **Use as data source**, give it a name and pick a key column. The first row becomes the column names. The table then appears as "Table: <name> on <page>" and can be shown in a view block, used in value chips and previewed, read-only (edit the table block itself). **Convert to database** turns it into a real database next to the page and replaces the table with a view of it.
+
 ### Import and export CSV
 
 - **Create a new database from a CSV file:** **New → Database from CSV…** and choose a `.csv`, `.tsv` or `.txt` file. The first line becomes the column names. Denotation guesses each column's type (number, checkbox for true/false/yes/no, date for `YYYY-MM-DD`, otherwise text) and works out the separator (comma, semicolon, tab or `|`). Up to 5,000 rows.

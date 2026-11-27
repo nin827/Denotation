@@ -175,6 +175,14 @@ Details: `tools/mcp/README.md`.
   `display: { colId: mode }` and `collapsedGroups: [id]`. `resolveDisplay`: view override > legacy `wrap` / `wrapAll` >
   column. In table/sheet, `a.cols` may include collapsed-group stub columns (`col.stub`, id `group:<gid>`); use
   `a.realCols` for real ones.
+- **View block** (`ui/viewBlock.js`, type `dbview`): `{ sourceId, viewId?, view? }`, rendered by `renderDatabase(root, ws,
+  link, { embed: { viewId?, save?, readOnly? } })`. The body is a height-capped scroller marked `data-vscroll`, used by
+  `bigLists.js` for windowing. It re-renders on `ws.onDataChange` except for its own writes.
+- **Data sources** (`js/sources.js`, pure): `page.dataSource` on databases; table blocks with `dataSource`,
+  `sourceName`, `sourceKey?` become read-only virtual databases with id `tbl-<blockId>` (text columns `c0…`, rows
+  `tbl-<blockId>:r<n>`), never written to the store. `sourceList(pages, { tables, linked })` orders every picker
+  (data sources, other databases, tables). `ws.createDatabaseFromTable(...)` converts a table.
+- **Popovers** close on route change: `closePopovers()` in `ui/popover.js` (also fires `denotation:close-popovers`).
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
 ## 8. UI conventions

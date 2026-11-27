@@ -901,3 +901,45 @@ th.d-hide .th-name, th.d-hide .type-tag { opacity: .55; }
 }
 @media (prefers-reduced-motion: reduce) { .mq.roll .mq-text { transform: none !important; } }
 /* ==== end columns section ==== */
+
+/* ==== database view block + data sources (ticket 013) ==== */
+.vb { margin: 6px 0; border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-8); min-width: 0; max-width: 100%; }
+.vb-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6) var(--sp-8); }
+.vb-title { display: inline-flex; align-items: center; gap: var(--sp-6); font-weight: 600; color: inherit; text-decoration: none; min-width: 0; max-width: 100%; }
+.vb-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vb-title:hover { text-decoration: underline; }
+.vb-badge { display: inline-flex; align-items: center; gap: var(--sp-4); color: var(--muted); font-size: var(--fs-sm); }
+.vb-tabs { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--sp-4); min-width: 0; }
+.vb-tab { display: inline-flex; align-items: center; gap: var(--sp-6); flex: none; background: none; border: 0; padding: 4px 8px; color: inherit; border-radius: var(--radius); min-height: 32px; }
+.vb-tab:hover:not(:disabled) { background: var(--bg-hover); }
+.vb-tab.on { background: var(--bg-hover); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.vb-tab:disabled:not(.on) { opacity: 0.5; cursor: default; }
+.vb-menu { margin-left: auto; }
+.vb-content { min-width: 0; }
+.vb-content .db-toolbar { margin: 6px 0; }
+.vb-content .db-wrap { max-height: min(70vh, 640px); overflow: auto; overscroll-behavior: contain; }
+.vb-content .db-wrap .tbl-scroll { overflow: visible; }
+.vb-picker { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.vb-picker .ip-search { width: 100%; }
+.vb-pick { max-height: 260px; overflow: auto; }
+.vb-pick .ip-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); width: 100%; text-align: left; min-height: 36px; }
+.vb-empty { padding: var(--sp-8) 0; }
+.vb-empty .hint { margin: 0 0 var(--sp-8); }
+/* read-only table sources: no add / delete / open affordances */
+.vb-ro .add-row, .vb-ro .add-row-top, .vb-ro .row-actions > *, .vb-ro .card-tools, .vb-ro .board-head button.icon, .vb-ro .sheet-add { display: none; }
+.cell-ro { display: block; padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-ro.d-wrap { white-space: normal; overflow-wrap: anywhere; }
+/* sidebar badge and the table block's data-source tag */
+.side-badge { flex: none; display: inline-flex; align-items: center; color: var(--muted); margin-left: var(--sp-4); }
+.side-badge .icon-svg { width: 14px; height: 14px; }
+.tbl-source { display: inline-flex; align-items: center; gap: var(--sp-4); color: var(--muted); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
+.ts-form { display: flex; flex-direction: column; gap: var(--sp-8); }
+.ts-form label { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--muted); }
+.ts-form input, .ts-form select { color: var(--text); }
+@media (max-width: 600px) {
+  .vb { padding: var(--sp-4); }
+  .vb-tabs { flex-basis: 100%; order: 3; }
+  .vb-content .db-wrap { max-height: 60vh; }
+}
+@media (pointer: coarse) { .vb-tab, .vb-pick .ip-item { min-height: 40px; } }
+/* ==== end view block section ==== */

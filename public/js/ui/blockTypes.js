@@ -4,6 +4,8 @@ import { iconNode, ico, pageIcon } from "../icons/index.js";
 import { toast } from "./dialogs.js";
 import { pivotBody } from "./pivotBlock.js";
 import { recordPreviewBody } from "./recordPreview.js";
+import { viewBlockBody } from "./viewBlock.js";
+import { isTableSource, sourceNameOf } from "../sources.js";
 import { createBlockEditor } from "./blockEditor.js";
 
 const MAX_EMBED_BYTES = 15e4;
@@ -30,6 +32,8 @@ export function specialBody(b, inst, a) {
       return pivotBody(b, inst, a);
     case "preview":
       return recordPreviewBody(b, inst, a);
+    case "dbview":
+      return viewBlockBody(b, inst, a);
     case "page":
       return pageBody(b, inst);
     default:
@@ -118,7 +122,8 @@ function tableBody(b, inst, a) {
     check("Header row", "header"),
     check("Header column", "headerCol")
   );
-  return h("div", { class: "tbl-box" }, h("div", { class: "tbl-wrap" }, grid), controls);
+  const tag = isTableSource(b) ? h("div", { class: "tbl-source", title: "Used as a data source (first row = column names)" }, ico("database-zap"), h("span", {}, ` Data source: ${sourceNameOf(b)}`)) : null;
+  return h("div", { class: "tbl-box" }, tag, h("div", { class: "tbl-wrap" }, grid), controls);
 }
 const readDataUrl = (blob) => new Promise((res, rej) => {
   const fr = new FileReader();

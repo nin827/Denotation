@@ -1,6 +1,6 @@
 # 013: Database views in pages, and data sources
 
-Status: queued (with tickets 010–012, after the performance pass)
+Status: resolved (built)
 Raised: 2026-11-27
 
 Request: "like Notion, add support for view to a database, as well as marking a table as data source".

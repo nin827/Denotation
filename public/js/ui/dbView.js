@@ -51,7 +51,17 @@ import { sortOnly, sortDir, clearSort, hideColumn } from "../dbMenuLogic.js";
 import { windowedRows } from "./bigLists.js";
 
 const activeView = new Map();
-export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } = {}) {
+/**
+ * Renders a database view (toolbar + layout) into `root`. `link` holds the views (a database page, a linked view, or a
+ * pseudo page `{ id, title, sourceId, views }` for a view block); rows and columns come from `link.sourceId`'s page.
+ * `embed` (view blocks, ui/viewBlock.js) = { viewId, save, readOnly }:
+ *   viewId   show exactly this view of `link` (no tabs), else the usual tabs
+ *   save     async (link) => ..., stores the views instead of ws.savePage(link) (a custom view lives in the block)
+ *   readOnly rows, columns and views of a virtual table source cannot be edited
+ */
+export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpenPage, embed = null } = {}) {
+  const readOnly = !!embed?.readOnly;
+  const onOpenRow = readOnly ? null : openRow;
   const src = link.sourceId ? await ws.getPage(link.sourceId) : null;
   if (link.sourceId && (!src || src.trashedAt)) {
     root.replaceChildren(h("p", { class: "hint" }, src ? "The source database of this linked view is in the trash. Restore it to see the data." : "The source database of this linked view no longer exists."));
@@ -77,8 +87,9 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
   ensureViews(db);
   const bar = h("div", { class: "db-toolbar" });
   const body = h("div", { class: "db-wrap" });
-  const current = () => db.views.find((v) => v.id === activeView.get(db.id)) ?? db.views[0];
-  const saveViews = () => ws.savePage(link);
+  const current = () => db.views.find((v) => v.id === (embed?.viewId ?? activeView.get(db.id))) ?? db.views[0];
+  const saveViews = () => embed?.save ? embed.save(link) : readOnly ? Promise.resolve() : ws.savePage(link);
+  const noWrite = () => ({ ok: false, error: "This table is a read-only data source. Edit the table block itself." });
   const reload = async () => {
     rows = await ws.listRows(data.id);
     settle();
@@ -108,7 +119,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     }
   };
   settle();
-  const editColumn = (col) => openColumnEditor({
+  const editColumn = (col) => readOnly ? null : openColumnEditor({
     column: col,
     columns: db.columns,
     rows,
@@ -147,7 +158,8 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     const grid = ["table", "sheet"].includes(view.type) ? gridColumns(shown, db.columnGroups, view) : shown;
     return {
       ws: ws,
-      locked: !!link.locked,
+      locked: !!link.locked || readOnly,
+      readOnly,
       db,
       view: view,
       saveView: saveViews,
@@ -165,7 +177,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         draw();
       },
       displayOf: (col) => resolveDisplay(view, col),
-      editColumnsJson: link.locked ? null : () => editColumnsJson(),
+      editColumnsJson: link.locked || readOnly ? null : () => editColumnsJson(),
       onOpenRow,
       editColumn,
       columnMenu,
@@ -174,12 +186,14 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       reload,
       title: (row) => String(row.values?.[db.columns[0].id] ?? "") || "Untitled",
       async addRow(patch = {}) {
+        if (readOnly) throw new Error(noWrite().error);
         const row = await ws.createRow(data, patch);
         rows.push(row);
         settle();
         return row;
       },
       async removeRow(row) {
+        if (readOnly) return;
         await ws.deleteRow(row.id);
         rows = rows.filter((r) => r.id !== row.id);
         settle();
@@ -187,6 +201,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       /** Validates a raw input for one cell and saves it. Returns { ok, error }.
        *  `defer` skips the save and the formula pass: the caller then hands every touched row to commitRows once. */
       setCell(row, col, raw, { defer = false } = {}) {
+        if (readOnly) return noWrite();
         const r = validate(col, raw);
         if (!r.ok) return r;
         row.values[col.id] = r.value;
@@ -275,18 +290,18 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       return g ? groupMenuItems(api(), g) : [];
     }
     return [
-      { label: "Edit column\u2026", icon: ico("pencil"), onSelect: () => editColumn(col) },
+      readOnly ? null : { label: "Edit column\u2026", icon: ico("pencil"), onSelect: () => editColumn(col) },
       { label: "Display in this view", icon: ico("eye"), items: displayItems(api(), col) },
       ["table", "sheet"].includes(view.type) ? { label: "Column width\u2026", icon: ico("move-horizontal"), onSelect: () => openWidthDialog(api(), col) } : null,
-      ...columnGroupItems(api(), col),
+      ...readOnly ? [] : columnGroupItems(api(), col),
       { separator: true },
       { label: "Sort ascending", icon: ico("arrow-up"), hint: dir === "asc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "asc")) },
       { label: "Sort descending", icon: ico("arrow-down"), hint: dir === "desc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "desc")) },
       dir ? { label: "Clear sort", icon: ico("x"), onSelect: change(() => clearSort(view, col.id)) } : null,
       db.columns[0].id !== col.id ? { label: "Hide in this view", icon: ico("eye-off"), onSelect: change(() => hideColumn(view, db.columns, col.id)) } : null,
-      { separator: true },
-      { label: "Add column\u2026", icon: ico("plus"), onSelect: () => editColumn(null) },
-      { label: "Edit columns as JSON\u2026", icon: ico("braces"), disabled: !!link.locked, onSelect: () => editColumnsJson() }
+      readOnly ? null : { separator: true },
+      readOnly ? null : { label: "Add column\u2026", icon: ico("plus"), onSelect: () => editColumn(null) },
+      readOnly ? null : { label: "Edit columns as JSON\u2026", icon: ico("braces"), disabled: !!link.locked, onSelect: () => editColumnsJson() }
     ].filter(Boolean);
   }
   function editColumnsJson() {
@@ -313,8 +328,8 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     const filterN = view.filter.rules.length;
     const badge = (n) => n ? h("span", { class: "badge" }, String(n)) : null;
     const group = db.columns.find((c) => c.id === view.groupBy);
-    bar.replaceChildren(
-      h(
+    bar.replaceChildren(...[
+      embed ? null : h(
         "div",
         { class: "view-tabs", role: "toolbar", "aria-label": "Views" },
         db.views.map((v) => {
@@ -397,12 +412,12 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
           draw();
         }, redraw: drawBody }) }, ico("sliders-horizontal"), " Properties", badge(view.hidden.length)),
         h("button", { class: "tool-csv", onClick: (e) => openMenu(e.currentTarget, csvMenu(), { width: 230 }) }, ico("file-spreadsheet"), " CSV"),
-        h("button", { class: "primary add-row-top", onClick: async () => {
+        readOnly ? null : h("button", { class: "primary add-row-top", onClick: async () => {
           await api().addRow();
           draw();
         } }, ico("plus"), " New row")
       )
-    );
+    ].filter(Boolean));
   }
   function csvMenu() {
     return [
@@ -416,7 +431,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
           if (e.code !== "declined") toast(e.message, "error");
         }
       } },
-      { label: "Import rows from CSV\u2026", icon: ico("upload"), disabled: link.locked, onSelect: async () => {
+      { label: "Import rows from CSV\u2026", icon: ico("upload"), disabled: link.locked || readOnly, onSelect: async () => {
         const file = await pickCsv();
         if (!file) return;
         try {
@@ -460,7 +475,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         h("small", { class: "type-tag" }, typeLabel(col)),
         resizeHandle(a, col, { colEl: cg[i], tableEl: table, extra: ACTIONS })
       ), () => columnMenu(col))),
-      h("th", { class: "add-col", title: "Add column", "aria-label": "Add column", onClick: () => editColumn(null) }, ico("plus"))
+      readOnly ? h("th", { class: "add-col ro", "aria-hidden": "true" }) : h("th", { class: "add-col", title: "Add column", "aria-label": "Add column", onClick: () => editColumn(null) }, ico("plus"))
     );
     const rowEl = (row) => bindRowMenu(h(
       "tr",
@@ -472,9 +487,9 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
           row.values[col.id] = v;
           settle();
           saveRow(row).catch((e) => toast(e.message, "error"));
-        }, { display: a.displayOf(col), rowId: row.id })
+        }, { display: a.displayOf(col), rowId: row.id, readOnly })
       )),
-      h(
+      readOnly ? h("td", { class: "row-actions" }) : h(
         "td",
         { class: "row-actions" },
         h("button", { class: "icon", title: "Open as page", "aria-label": "Open as page", onClick: () => onOpenRow?.(row.id) }, ico("arrow-up-right")),
@@ -535,10 +550,11 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         content = tableLayout(a);
     }
     const empty = !a.rows.length && a.allRows.length ? h("p", { class: "hint" }, "No rows match this view's filter.") : null;
+    body.classList.toggle("ro", readOnly);
     body.replaceChildren(...[
       content,
       empty,
-      a.view.type === "table" ? h("button", { class: "add-row", onClick: async () => {
+      a.view.type === "table" && !readOnly ? h("button", { class: "add-row", onClick: async () => {
         await a.addRow();
         draw();
       } }, ico("plus"), " New row") : null
@@ -549,7 +565,8 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     drawBody();
   }
   draw();
-  root.replaceChildren(
+  if (embed) body.dataset.vscroll = "";
+  root.replaceChildren(...embed ? [bar, body] : [
     src ? h(
       "p",
       { class: "hint linked-note" },
@@ -563,5 +580,5 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     ) : h("p", { class: "hint" }, "Click a column header to change its type or settings."),
     bar,
     body
-  );
+  ]);
 }

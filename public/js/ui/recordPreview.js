@@ -1,5 +1,6 @@
 // Record preview block: previews database rows looked up by primary key. See preview.js for the logic.
 import { h } from "./dom.js";
+import { CLOSE_EVENT } from "./popover.js";
 import { ico } from "../icons/index.js";
 import { confirmDialog, toast } from "./dialogs.js";
 import { formulaCell } from "./cellEditors.js";
@@ -7,6 +8,7 @@ import { summarize } from "../schema.js";
 import { columnDisplay, sectionColumns, headerRows, OBFUSCATED } from "../columns.js";
 import { cellText, jsonIssues, watchMarquee } from "./cellEditors.js";
 import { toText } from "../dbviews.js";
+import { sourceList, sourceLabel, isTableSourceId, findTableSource } from "../sources.js";
 import {
   cleanKeys, splitKeys, primaryKeyCol, rowKey, matchKeys, resolveConfig, columnSelection, toggleColumn, moveColumn,
   patchColumn, alignOf, layoutOf, labelOf, newPreset, cleanPresets, presetNameTaken, countPresetUsers,
@@ -47,11 +49,16 @@ export function recordPreviewBody(b, inst, a) {
 
   const openRow = async (id) => {
     await ctx.flush?.();
-    location.hash = `#row-${id}`;
+    // a table-block source has no row pages: open the page that holds the table
+    location.hash = cur.data?.virtual ? `#page-${cur.data.pageId}` : `#row-${id}`;
   };
 
   // ----- data -----
   async function load() {
+    if (isTableSourceId(b.dbId)) {
+      const t = findTableSource(ctx.livePages(), b.dbId);
+      return t ? { data: t, rows: t.rows, missing: false } : { data: null, rows: [], missing: true };
+    }
     const src = b.dbId ? lookup(b.dbId) : null;
     const data = src?.sourceId ? lookup(src.sourceId) : src;
     if (!data || data.type !== "database") return { data: null, rows: [], missing: !!b.dbId };
@@ -295,9 +302,11 @@ export function recordPreviewBody(b, inst, a) {
       if (panel.contains(e.target) || e.target.closest?.(".modal-overlay") || head.querySelector(".rp-gear")?.contains(e.target)) return;
       pop?.close(false);
     };
+    const onRouteChange = () => pop?.close(false);
     const close = (refocus = true) => {
       if (!pop) return;
       pop = null;
+      document.removeEventListener(CLOSE_EVENT, onRouteChange);
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("resize", place);
@@ -308,6 +317,7 @@ export function recordPreviewBody(b, inst, a) {
     };
     pop = { close, redraw: () => draw() };
     document.body.append(panel);
+    document.addEventListener(CLOSE_EVENT, onRouteChange);
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("mousedown", onDown, true);
     window.addEventListener("resize", place);
@@ -324,14 +334,15 @@ export function recordPreviewBody(b, inst, a) {
         h("button", { class: "icon", "aria-label": "Close settings", onClick: closePop }, ico("x"))
       )];
       sections.push(sourceSection());
-      if (data) sections.push(keySection(data), presetSection(data), displaySection(data));
+      if (data?.virtual) sections.push(h("p", { class: "rp-note" }, ico("info"), " Read-only table. Its key column is set in the table's data source settings."), displaySection(data));
+      else if (data) sections.push(keySection(data), presetSection(data), displaySection(data));
       panel.replaceChildren(...sections);
       panel.scrollTop = scroll;
       if (fid) panel.querySelector(`[data-fid="${fid}"]`)?.focus();
       place();
     }
     const sourceSection = () => {
-      const dbs = ctx.livePages().filter((p) => p.type === "database");
+      const dbs = sourceList(ctx.livePages(), { linked: true }); // data sources first
       return field("Database", h(
         "select",
         { "data-fid": "db", onChange: async (e) => {
@@ -341,7 +352,7 @@ export function recordPreviewBody(b, inst, a) {
           draw();
         } },
         h("option", { value: "" }, "Choose…"),
-        dbs.map((p) => h("option", { value: p.id, selected: p.id === b.dbId }, p.title || "Untitled"))
+        dbs.map((p) => h("option", { value: p.id, selected: p.id === b.dbId }, sourceLabel(p)))
       ));
     };
     const keySection = (data) => {

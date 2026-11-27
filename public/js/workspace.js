@@ -4,6 +4,7 @@ import { newView } from "./dbviews.js";
 import { newBlock, walk, plainText } from "./blocks/model.js";
 import { markdownToBlocks } from "./blocks/markdown.js";
 import { tableFromCsv, parseCsv, rowsFromCsv } from "./csv.js";
+import { tableData } from "./sources.js";
 
 // id -> page index per pages array, so isTrashed / ancestors over a whole list stay O(n) instead of rebuilding the map per call.
 // Holds references, so in-place edits (trashedAt, parentId) are seen; a changed length drops it.
@@ -108,6 +109,19 @@ export function createWorkspace(store) {
     db.columns = t.columns.map((c) => ({ id: newId(), name: c.name, type: c.type, config: {} }));
     await savePage(db);
     for (const r of t.rows) await createRow(db, Object.fromEntries(db.columns.map((c, i) => [c.id, checked(c, r[i])])));
+    return { db, rows: t.rows.length };
+  };
+  /**
+   * Makes a real database from a table block (first row = column names, every column text, one row per table row)
+   * as a page under `parentId`. The caller swaps the block for a view block. The key column becomes the primary key.
+   */
+  const createDatabaseFromTable = async ({ block, title = "Table", parentId = null }) => {
+    const t = tableData(block);
+    const db = await createPage({ type: "database", title: String(title).trim() || "Table", parentId });
+    db.columns = t.columns.map((c) => ({ id: newId(), name: c.name, type: "text", config: {} }));
+    if (t.keyIndex > 0) db.primaryKey = db.columns[t.keyIndex].id;
+    await savePage(db);
+    for (const r of t.rows) await createRow(db, Object.fromEntries(db.columns.map((c, i) => [c.id, r.values[t.columns[i].id]])));
     return { db, rows: t.rows.length };
   };
   const appendCsv = async (db, text) => {
@@ -369,6 +383,7 @@ export function createWorkspace(store) {
     fileFeedback,
     fileTicket: fileFeedback,
     importCsv: importCsv,
+    createDatabaseFromTable,
     appendCsv,
     trashPage: trashPage,
     restorePage,

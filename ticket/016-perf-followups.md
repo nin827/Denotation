@@ -19,3 +19,5 @@ Raised: 2026-11-27
 9. (bug) Popovers/menus stay open after the route changes (seen: a calendar day menu still showing on a row page).
    Close open popovers on navigation.
 10. Column groups: group label rows aren't sticky; freeze offsets ignore collapsed-group stubs.
+11. Table data sources: column ids are positional (`c0…`), so inserting a table column shifts chips that refer to
+    later columns. Consider stable column ids on table blocks.

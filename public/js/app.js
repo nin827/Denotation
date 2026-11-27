@@ -22,6 +22,8 @@ import { hasPin, onUnlock } from "./lock.js";
 import { createLockScreen } from "./ui/lock.js";
 import { securitySection, openResetDialog, finishPendingReset, openUnlockKeyDialog, runBrowserJob } from "./ui/security.js";
 import { createKeyring } from "./crypto.js";
+import { closePopovers } from "./ui/popover.js";
+import { setDataSource } from "./sources.js";
 import { registerServiceWorker, requestPersistence } from "./pwa.js";
 
 const appEl = document.getElementById("app");
@@ -214,6 +216,7 @@ function afterKeyReady() {
 async function route() {
   if (lockUi.isLocked() || !ws) return;
   layout.afterNavigate();
+  closePopovers(); // a menu left open must not outlive the page it was opened on
   const target = parseHash();
   const known = target?.kind === "page" && pages.find((p) => p.id === target.id && p.type !== "sync");
   if (known) {
@@ -299,6 +302,15 @@ function drawSidebar() {
     onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),
     onAiAccess: () => openAiAccess(env),
     onPageAiAccess: (p) => openPageAiAccess(env, p),
+    onDataSource: async (p) => {
+      await persistence.flush();
+      const fresh = await ws.getPage(p.id) || p;
+      setDataSource(fresh, !fresh.dataSource);
+      await ws.savePage(fresh);
+      await refresh();
+      toast(fresh.dataSource ? `"${fresh.title || "Untitled"}" is now a data source` : `"${fresh.title || "Untitled"}" is no longer a data source`);
+      if (currentId === p.id) route();
+    },
     onRepoSettings: (p, tab) => openRepoSettings(env, p, tab),
     vaultItems: () => vaultUi.menuItems(),
     onOpen: (id) => env.open(id),

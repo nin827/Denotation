@@ -1,8 +1,12 @@
 import { isTexty, HUES, normColor, normBg, COLUMN_LIMITS } from "../blocks/model.js";
 import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
-import { openMenu } from "./popover.js";
+import { openMenu, CLOSE_EVENT } from "./popover.js";
 import { CATALOG } from "../blocks/catalog.js";
+import { openModal } from "./modal.js";
+import { confirmDialog, toast } from "./dialogs.js";
+import { isTableSource, tableData, NAME_MAX } from "../sources.js";
+import { newBlock } from "../blocks/model.js";
 
 let pickerClose = null;
 /** Swatch grid (6 per row) for text colour and background; the chosen swatch shows a check, not just a fill. */
@@ -54,6 +58,7 @@ function openColorPicker(anchor, b, a) {
     if (!el.contains(e.target)) close();
   };
   function close() {
+    document.removeEventListener(CLOSE_EVENT, close);
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("mousedown", onDown, true);
     el.remove();
@@ -68,10 +73,61 @@ function openColorPicker(anchor, b, a) {
   const top = Math.max(8, Math.min(r.bottom + 4, vh - el.offsetHeight - 8));
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
+  document.addEventListener(CLOSE_EVENT, close);
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("mousedown", onDown, true);
   (el.querySelector("button[aria-pressed=true]") ?? el.querySelector("button")).focus();
   return { close, el };
+}
+/** Name and key column for a table block used as a data source (first row = column names). */
+function openTableSourceDialog(b, a) {
+  const cols = tableData(b).columns;
+  const name = h("input", { type: "text", value: b.sourceName ?? "", maxlength: NAME_MAX, placeholder: "For example: Price list", "aria-label": "Data source name", style: "font-size:16px" });
+  const key = h("select", { "aria-label": "Key column", style: "font-size:16px" }, cols.map((c, i) => h("option", { value: String(i), selected: i === (Number.isInteger(b.sourceKey) ? b.sourceKey : 0) }, c.name)));
+  openModal({
+    title: "Use this table as a data source",
+    content: h(
+      "div",
+      { class: "ts-form" },
+      h("p", { class: "hint" }, "The first row becomes the column names. Pickers, view blocks, value chips and record previews can then read this table, read-only."),
+      h("label", {}, "Name", name),
+      h("label", {}, "Key column", key)
+    ),
+    actions: [{ label: "Cancel" }, { label: "Use as data source", class: "primary", run: () => {
+      const n = name.value.trim();
+      if (!n) throw new Error("Give the data source a name.");
+      b.dataSource = true;
+      b.sourceName = n.slice(0, NAME_MAX);
+      const k = Number(key.value);
+      if (k > 0) b.sourceKey = k;
+      else delete b.sourceKey;
+      a.save();
+      a.redraw();
+      toast(`"${b.sourceName}" can now be used as a data source.`);
+    } }]
+  });
+  name.focus();
+}
+/** Turn a data-source (or any) table block into a real database next to the page, and put a view block in its place. */
+async function convertTable(b, inst, a) {
+  const { ctx } = inst;
+  const title = (b.sourceName || "").trim() || `${inst.container.title || "Table"} table`;
+  const ok = await confirmDialog(`Convert this table into a database named "${title}"? The table block is replaced by a view of the new database. The first row becomes the column names and every column is text.`, { title: "Convert to database", confirmLabel: "Convert", danger: false });
+  if (!ok) return;
+  try {
+    const host = await ctx.ws.getPage(ctx.pageId);
+    const parentId = host?.type === "database" ? host.parentId : host?.parentId ?? host?.id ?? null;
+    const { db, rows } = await ctx.ws.createDatabaseFromTable({ block: b, title, parentId });
+    const keep = b.id;
+    for (const k of Object.keys(b)) delete b[k];
+    Object.assign(b, newBlock("dbview", { sourceId: db.id }), { id: keep });
+    a.save();
+    await ctx.refresh?.();
+    a.redraw();
+    toast(`Created the database "${db.title}" with ${rows} row${rows === 1 ? "" : "s"}.`);
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 export function openBlockMenu(anchor, b, inst, a) {
   const { ctx } = inst;
@@ -99,6 +155,18 @@ export function openBlockMenu(anchor, b, inst, a) {
         return { label: `${n} columns${n === b.children.length ? " (current)" : ""}`, onSelect: () => a.setColumns(b, n) };
       })
     });
+  }
+  if (b.type === "table") {
+    const on = isTableSource(b);
+    items.push({ label: "Use as data source", icon: ico(on ? "square-check" : "database-zap"), hint: on ? "on" : null, onSelect: () => {
+      if (!on) return openTableSourceDialog(b, a);
+      delete b.dataSource;
+      a.save();
+      a.redraw();
+      toast("Table is no longer a data source.");
+    } });
+    if (on) items.push({ label: "Data source settings\u2026", icon: ico("settings-2"), onSelect: () => openTableSourceDialog(b, a) });
+    items.push({ label: "Convert to database\u2026", icon: ico("database"), onSelect: () => convertTable(b, inst, a) });
   }
   if (b.type === "page" && b.ref) items.push({ label: "Open", icon: ico("arrow-up-right"), onSelect: () => ctx.openPage(b.ref) });
   if (b.type === "synced") items.push({ label: "Unsync (make independent copy)", icon: ico("unlink"), onSelect: () => a.unsync(b) });

@@ -13,6 +13,7 @@ import { saveTextFile } from "./files.js";
 import { pickEmoji } from "./emoji.js";
 import { createBlockEditor } from "./blockEditor.js";
 import { inlineResolver, blockTexts } from "./inlineChips.js";
+import { setDataSource } from "../sources.js";
 
 const COVERS = {
   sunset: "linear-gradient(120deg,#f6d365,#fda085)",
@@ -89,6 +90,7 @@ function makeCtx(env, container, { pageId, locked, crumbs }) {
       return all.filter((p) => p.type !== "sync" && !isTrashed(all, p));
     },
     breadcrumbs: () => crumbs(),
+    refresh: () => env.refresh(),
     openPage: (id) => env.open(id),
     async createChildPage(type) {
       const p = await ws.createPage({ type, parentId: pageId, title: type === "database" ? "New database" : "Untitled" });
@@ -271,6 +273,17 @@ function pageMenuItems(env, target, opts) {
     env.rerender();
   }) }];
   if (!isRow) {
+    if (target.type === "database" && !target.sourceId) items.push({
+      label: target.dataSource ? "Data source (on)" : "Data source",
+      icon: ico("database-zap"),
+      hint: target.dataSource ? "listed first in pickers" : null,
+      onSelect: async () => {
+        setDataSource(target, !target.dataSource);
+        await ws.savePage(target);
+        await env.refresh();
+        env.rerender();
+      }
+    });
     if (target.type !== "repo") items.push(
       { label: `${target.fullWidth ? "Full width (on)" : "Full width"}`, icon: ico("maximize-2"), onSelect: () => pick("fullWidth") },
       { label: `${target.smallText ? "Small text (on)" : "Small text"}`, icon: ico("a-large-small"), onSelect: () => pick("smallText") },

@@ -15,7 +15,7 @@ const call = (name) => (...args) => P[name](...args);
 let built = null; // { el, sig, list } of the last full build
 const sigOf = (live, locked) => {
   let out = `${locked ? 1 : 0}|${[...collapsed].sort().join(",")}`;
-  for (const p of live) out += `\n${p.id}\u0001${p.title ?? ""}\u0001${p.parentId ?? ""}\u0001${p.type}\u0001${p.icon ?? ""}\u0001${p.favorite ? 1 : 0}\u0001${p.sourceId ?? ""}`;
+  for (const p of live) out += `\n${p.id}\u0001${p.title ?? ""}\u0001${p.parentId ?? ""}\u0001${p.type}\u0001${p.icon ?? ""}\u0001${p.favorite ? 1 : 0}\u0001${p.sourceId ?? ""}\u0001${p.dataSource ? 1 : 0}`;
   return out;
 };
 export function renderSidebar(el, props) {
@@ -35,6 +35,7 @@ export function renderSidebar(el, props) {
   const onFeedback = call("onFeedback");
   const onAiAccess = call("onAiAccess");
   const onPageAiAccess = call("onPageAiAccess");
+  const onDataSource = call("onDataSource");
   const onRepoSettings = call("onRepoSettings");
   const onToggleLock = call("onToggleLock");
   const onClose = call("onClose");
@@ -74,6 +75,7 @@ export function renderSidebar(el, props) {
         { label: "Rename", icon: ico("pencil"), onSelect: () => onRename(p) },
         p.type === "repo" ? { label: "Constants\u2026", icon: ico("variable"), onSelect: () => onRepoSettings(p, "constants") } : null,
         p.type === "repo" ? { label: "Statuses\u2026", icon: ico("circle-dot"), onSelect: () => onRepoSettings(p, "statuses") } : null,
+        p.type === "database" && !p.sourceId ? { label: p.dataSource ? "Data source (on)" : "Data source", icon: ico("database-zap"), hint: p.dataSource ? "turn off" : null, onSelect: () => onDataSource(p) } : null,
         p.type !== "repo" ? { label: p.favorite ? "Remove from favorites" : "Add to favorites", icon: ico("star"), onSelect: () => onFavorite(p) } : null,
         { label: "Duplicate", icon: ico("copy"), onSelect: () => onDuplicate(p) },
         { label: "AI access…", icon: ico("bot"), onSelect: () => {
@@ -144,7 +146,8 @@ export function renderSidebar(el, props) {
           }
         }, ico("chevron-right")) : h("span", { class: "twist-gap" }),
         h("span", { class: "side-icon" }, pageIcon(p)),
-        h("span", { class: "side-title" }, h("span", { class: "side-text" }, p.title || "Untitled"))
+        h("span", { class: "side-title" }, h("span", { class: "side-text" }, p.title || "Untitled")),
+        p.dataSource && p.type === "database" ? h("span", { class: "side-badge", title: "Data source", "aria-label": "Data source", role: "img" }, ico("database-zap")) : null
       ),
       ...fold ? [] : kids.flatMap((c) => item(c, depth + 1, { tree }))
     ];
