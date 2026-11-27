@@ -624,6 +624,12 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
       await page.evaluate(async ([k]) => (await import("./js/ui/dialogs.js")).toast(`smoke ${k}`, k), [kind]);
       if ((await page.locator(`.toast.${kind} .icon-svg`).count()) !== n) errs.push(`toast: ${kind} has no icon`);
     }
+    // workspace menu always offers Install app (instructions when the browser gives no prompt)
+    await page.locator(".act-more").click();
+    if (!(await page.locator(".menu-item", { hasText: "Install app" }).count())) errs.push("install: no Install app in the workspace menu");
+    await page.locator(".menu-item", { hasText: "Install app" }).click().catch(() => {});
+    await page.waitForSelector(".toast", { hasText: "browser menu" }, { timeout: 3000 }).catch(() => {});
+    if (!(await page.locator(".toast", { hasText: "browser menu" }).count())) errs.push("install: no how-to toast without a prompt");
     // install row: hidden without a prompt, shown (and working) once the browser offers one
     await page.locator(".act-more").click();
     await page.locator(".menu-item", { hasText: "Settings" }).click();

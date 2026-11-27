@@ -233,7 +233,9 @@ export function openSettings({ prefs: prefs, onChange, extra = null }) {
   function installSection() {
     const mode = currentInstallMode();
     const version = h("p", { class: "hint app-version" }, `Version ${config.version}`);
-    if (mode === "none") return h("section", { class: "app-info" }, h("h4", {}, "App"), version);
+    if (mode === "none") return h("section", { class: "app-info" }, h("h4", {}, "App"),
+      h("p", { class: "hint" }, "To install, use your browser menu: Install app (Chrome, Edge), Add to Dock (Safari on Mac) or Add to Home screen (Android). Firefox on desktop can't install web apps."),
+      version);
     const text = {
       installed: "Denotation is installed on this device.",
       prompt: "Install Denotation as an app: its own window, a launcher icon and offline use.",

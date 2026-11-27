@@ -3,6 +3,8 @@ import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
 import { openMenu } from "./popover.js";
 import { newItems } from "./newMenu.js";
+import { toast } from "./dialogs.js";
+import { currentInstallMode, promptInstall } from "../pwa.js";
 
 const collapsed = new Set();
 const openTemplates = new Set(); // repositories whose Templates group is unfolded (folded by default)
@@ -195,6 +197,17 @@ export function renderSidebar(el, props) {
     onClose();
     return it.onSelect();
   } } : it);
+  // Install: the browser's own dialog where it offers one, otherwise how to do it from the browser menu.
+  const installApp = async () => {
+    const mode = currentInstallMode();
+    if (mode === "prompt") {
+      const r = await promptInstall();
+      if (r !== "unavailable") return;
+    }
+    toast(mode === "ios"
+      ? "To install on iPhone or iPad: tap Share, then Add to Home Screen."
+      : "To install: open your browser menu and choose Install app (Chrome, Edge) or Add to Dock (Safari on Mac), or Add to Home screen on Android. Firefox on desktop can't install web apps; the app works fine in a tab.", "info", { sticky: true });
+  };
   const workspaceMenu = (e) => openMenu(e.currentTarget, stepAside([
     { label: "Settings", icon: ico("settings-2"), onSelect: onSettings },
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
@@ -204,6 +217,7 @@ export function renderSidebar(el, props) {
     ...P.vaultItems(),
     { separator: true },
     { label: "AI access…", icon: ico("bot"), onSelect: onAiAccess },
+    currentInstallMode() !== "installed" ? { label: "Install app", icon: ico("download"), onSelect: installApp } : null,
     P.onLockNow ? { separator: true } : null,
     P.onLockNow ? { label: "Lock now", icon: ico("lock-keyhole"), onSelect: () => P.onLockNow() } : null
   ].filter(Boolean)), { width: 240 });

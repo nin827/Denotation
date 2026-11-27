@@ -42,9 +42,10 @@ To stop it, press Ctrl+C in the terminal. Your pages stay in the browser and wil
 
 ### B. Install it as an app
 
-Denotation is published on GitHub Pages (`https://<user>.github.io/<repo>/`), so you can use it straight from the web address, with nothing to install and no account.
+Denotation is published on GitHub Pages (`https://<user>.github.io/<repo>/`; the repository root forwards to the app in `source/app/`), so you can use it straight from the web address, with nothing to install and no account.
 
-- **Install.** In Chrome, Edge or on Android, open **⋯ → Settings → App → Install app** (the button appears when your browser allows it), or use the browser's install icon. On iPhone and iPad, tap **Share → Add to Home Screen**. An installed app has its own window and icon.
+- **Try it first.** Just open the address and use it in a tab; installing is optional and keeps the same data.
+- **Install.** Open **⋯ → Install app**. Where the browser allows it (Chrome, Edge, Android) its install dialog opens; otherwise it tells you where to find install in your browser menu. **⋯ → Settings → App** shows the same, plus the version. On iPhone and iPad, tap **Share → Add to Home Screen**. An installed app has its own window and icon.
 - **Offline.** After the first visit the whole app is saved on your device, so it opens and works with no connection. Your data stays on your device (or in the folder you chose) either way.
 - **Updates.** When a new version is published, an **Update available · Reload** message appears. Pending edits are saved first, then the app reloads on the new version. Nothing changes until you tap Reload.
 - **Keeping your data.** The app asks the browser to keep its data. Safari may still clear it after about 7 days without use unless the app is added to the Home Screen.

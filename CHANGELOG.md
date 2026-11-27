@@ -12,3 +12,5 @@ First marked version. Highlights:
   optional encryption with a PIN and recovery key, password ZIP exports.
 - Installable PWA with offline use; AI access through the local MCP connector.
 - Graph engine (not yet wired into the app).
+- Install app in the workspace ⋯ menu (browser dialog or how-to); the repository root forwards to the app, so
+  GitHub Pages works from a branch or from the Actions workflow.
