@@ -61,6 +61,7 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 - `README_INSTRUCTION.md`: the full user guide. Update it whenever user-facing behaviour changes.
 - `README_TECHNICAL.md`: the technical manual (architecture, storage interface, data model, testing).
 - `CLAUDE.md`: the developer and agent spec.
+- `work/HANDOFF.md`: current state and open items for the next session; update it before stopping.
 - The main session owns all docs; agents report doc changes instead of editing them, unless a brief assigns a doc.
 
 ## Testing
