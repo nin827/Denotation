@@ -33,6 +33,16 @@ Raised: 2026-11-27
   an explicit per-page setting beats rules.
 - Size can also follow link count (default) or be fixed.
 
-## Performance
-Graphs must stay smooth with ~1000 nodes (spatial grid for forces, stop simulation when settled, reduced motion = no
-animation).
+## Performance (owner: must be optimized and smooth)
+- Target: 60 fps pan/zoom/drag and settled layout within ~1 s for 1000 nodes / 3000 edges on a mid-range phone;
+  usable at 5000 nodes.
+- Canvas rendering (not one DOM/SVG node per item), drawn only on change via requestAnimationFrame, with
+  devicePixelRatio scaling; labels drawn only when zoomed in enough or on hover; level-of-detail for icons.
+- Force layout with a spatial grid or Barnes–Hut for repulsion (O(n log n)), cooling schedule, and simulation stopped
+  once settled; optionally run in a Web Worker so the UI never blocks. Positions cached per graph so reopening is
+  instant.
+- Graph data built incrementally from a link index (updated on page save), not by re-scanning every page on open.
+- Hit-testing through the same spatial grid; pointer events coalesced.
+- Reduced motion: no animation, layout computed then shown.
+- A benchmark (Node for layout, Playwright for frame times) with before/after numbers in the report; add it to the
+  test suite.
