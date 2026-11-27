@@ -1,7 +1,10 @@
 import { check } from "./formula.js";
+import { parseType, specOf, summary as jsonSummary } from "./typespec.js";
 
 export const SCALAR_TYPES = ["text", "number", "checkbox", "date"];
-export const COLUMN_TYPES = [...SCALAR_TYPES, "select", "dictionary", "array", "formula"];
+export const COLUMN_TYPES = [...SCALAR_TYPES, "select", "dictionary", "array", "json", "formula"];
+/** Columns whose value is structured (edited in a dialog, shown as a summary). */
+export const isComposite = (col) => col?.type === "array" || col?.type === "dictionary" || col?.type === "json";
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isLooseScalar = (v) => v === null || typeof v === "string" || typeof v === "boolean" || typeof v === "number" && Number.isFinite(v);
 export function defaultScalar(type) {
@@ -28,7 +31,7 @@ function isValidDate(s) {
 export function coerceScalar(type, v) {
   switch (type) {
     case "text":
-      return v == null ? "" : String(v);
+      return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     case "number": {
       const s = typeof v === "string" ? v.trim() : v;
       if (s === "" || s == null) return null;
@@ -108,6 +111,9 @@ function normalize(col, value) {
       return value;
     case "formula":
       return value === void 0 ? null : value;
+    // Custom (JSON): any JSON value is stored as written; mismatches with the type text are flagged, never dropped
+    case "json":
+      return value === void 0 ? null : value;
     // results are computed, never typed in
     case "dictionary":
       return normalizeDictionary(cfg, value);
@@ -129,6 +135,7 @@ export function defaultValue(col) {
   switch (col.type) {
     case "select":
     case "formula":
+    case "json":
       return null;
     case "dictionary":
       if (cfg.mode === "strict") {
@@ -178,6 +185,11 @@ export function validateColumn(col) {
     if (o.some((x) => typeof x !== "string" || !x.trim())) return "Options cannot be empty";
     if (new Set(o).size !== o.length) return "Options must be unique";
   }
+  if (col.type === "json") {
+    if (col.typeText != null && typeof col.typeText !== "string") return "Type must be text";
+    const r = parseType(col.typeText ?? "");
+    if (!r.ok) return `Type: ${r.error}`;
+  }
   if (col.type === "formula") {
     const r = check(cfg.expr ?? "");
     if (!r.ok) return `Formula: ${r.error}`;
@@ -204,6 +216,7 @@ const fmt = (v) => v === null || v === void 0 ? "\u2205" : String(v);
 const truncate = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 export function summarize(col, value) {
   if (value == null) return "";
+  if (col.type === "json") return jsonSummary(specOf(col.typeText), value, 44);
   if (col.type === "dictionary") {
     if (typeof value !== "object" || Array.isArray(value)) return truncate(String(value), 44);
     const entries = Object.entries(value);
@@ -221,6 +234,7 @@ export function typeLabel(col) {
   const cfg = col.config || {};
   if (col.type === "dictionary") return `{${cfg.mode === "strict" ? "strict" : "loose"}}`;
   if (col.type === "array") return `${cfg.itemType || "text"}[${cfg.size ?? ""}]`;
+  if (col.type === "json") return "json";
   return col.type;
 }
 export function describe(col) {
@@ -232,6 +246,7 @@ export function describe(col) {
     return cfg.size == null ? `Array of ${cfg.itemType || "text"}, any length` : `Array of ${cfg.itemType || "text"}, exactly ${cfg.size} items`;
   }
   if (col.type === "formula") return `Formula: ${cfg.expr || ""}`;
+  if (col.type === "json") return `Custom (JSON): ${col.typeText || "any"}`;
   if (col.type === "select") return `Select: ${(cfg.options || []).join(", ") || "(no options)"}`;
   return col.type;
 }

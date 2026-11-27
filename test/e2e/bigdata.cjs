@@ -19,7 +19,8 @@ const view = (id, type, extra = {}) => ({ id, name: id, type, filter: { op: "and
 const pages = [
   { id: "repo", type: "repo", title: "Repo", parentId: null, createdAt: 1, updatedAt: 1 },
   { id: "db", type: "database", title: "Big", parentId: "repo", createdAt: 2, updatedAt: 2, columns,
-    views: [view("table", "table"), view("sheet", "sheet"), view("board", "board", { groupBy: "c2" }), view("grouped", "table", { groupBy: "c2" }), view("sorted", "table", { sorts: [{ col: "c3", dir: "desc" }] }), view("wrapped", "table", { wrapAll: true })] }
+    views: [view("table", "table"), view("sheet", "sheet"), view("board", "board", { groupBy: "c2" }), view("grouped", "table", { groupBy: "c2" }), view("sorted", "table", { sorts: [{ col: "c3", dir: "desc" }] }), view("wrapped", "table", { wrapAll: true }), view("colgroups", "table", { collapsedGroups: ["g2"], display: { c1: "marquee", c3: "obfuscate" } })],
+    columnGroups: [{ id: "g1", label: "Money", colIds: ["c4"] }, { id: "g2", label: "Calc", parentId: "g1", colIds: ["c6"] }] }
 ];
 const rows = Array.from({ length: N }, (_, i) => ({
   id: `r${String(i).padStart(5, "0")}`, dbId: "db", createdAt: 10 + i / 1000, updatedAt: 10,
@@ -83,6 +84,18 @@ export async function createStore() { const s = createMemoryAdapter(); const d =
   if (!wrapNames.includes(`Item ${N - 1}`)) fail("wrapped table: the last row is not drawn at the bottom");
   const gap = await page.evaluate(() => { const t = document.querySelector(".db-table").getBoundingClientRect(); const m = document.querySelector("#main").getBoundingClientRect(); return m.bottom - t.bottom; });
   if (gap > 400) fail(`wrapped table: ${gap}px of blank space below the last row`);
+
+  // column groups (collapsed subgroup), marquee and obfuscate stay cheap in a windowed table
+  await tab("colgroups");
+  await page.waitForSelector(".db-table tbody tr:not(.vspacer)");
+  if ((await page.locator(".db-table thead tr.grp-row").count()) !== 2) fail("colgroups: expected two group label rows");
+  if (!(await page.locator(".db-table .stub-btn", { hasText: "Calc (1)" }).count())) fail("colgroups: collapsed subgroup stub missing");
+  const cgDrawn = await page.locator(".db-table tbody tr").count();
+  if (cgDrawn > 200) fail(`colgroups table drew ${cgDrawn} rows`);
+  await scrollMain(1); await page.waitForTimeout(100); await scrollMain(1);
+  const obf = await page.locator(".db-table tbody tr:not(.vspacer) td.d-obfuscate .cell-show").first().textContent();
+  if (obf !== "\u2014\u2014\u2014" && obf !== "") fail(`colgroups: obfuscated cell shows ${obf}`);
+  if (!(await page.locator(".db-table tbody tr:not(.vspacer) td.d-marquee .mq-text", { hasText: `Item ${N - 1}` }).count())) fail("colgroups: last row not drawn at the bottom");
 
   // ---- sheet: windowed, keyboard navigation reaches far rows
   await tab("sheet");

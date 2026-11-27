@@ -15,6 +15,8 @@ import { toast } from "./dialogs.js";
 import { openMenu } from "./popover.js";
 import { bindRowMenu } from "./dbMenus.js";
 import { appendInChunks } from "./bigLists.js";
+import { cellText, watchMarquee } from "./cellEditors.js";
+import { OBFUSCATED } from "../columns.js";
 
 export function groupSections(a) {
   if (!a.view.groupBy || !a.db.columns.some((c) => c.id === a.view.groupBy)) return [{ label: null, value: void 0, rows: a.rows }];
@@ -23,17 +25,26 @@ export function groupSections(a) {
 const MAX_PROPS = 3;
 const propText = (col, v) => {
   if (col.type === "checkbox") return v ? col.name : null;
-  if (col.type === "array" || col.type === "dictionary") return `${col.name}: ${summarize(col, v)}`;
+  if (col.type === "array" || col.type === "dictionary" || col.type === "json") return `${col.name}: ${summarize(col, v)}`;
   return `${col.name}: ${v}`;
 };
+// Card properties follow the column's display: hide skips it, obfuscate shows ———, marquee scrolls, wrap wraps.
 function chips(a, row, skip) {
   const out = [];
   for (const col of a.cols.slice(1)) {
-    if (col.id === skip) continue;
+    if (col.id === skip || col.stub) continue;
     const v = row.values?.[col.id];
     if (isEmpty(col, v) || col.type === "checkbox" && !v) continue;
-    const t = propText(col, v);
-    if (t) out.push(h("span", { class: "chip", title: t }, t));
+    const mode = a.displayOf ? a.displayOf(col) : "clip";
+    if (mode === "hide") continue;
+    if (mode === "obfuscate") {
+      out.push(h("span", { class: "chip", title: `${col.name}: hidden` }, `${col.name}: ${OBFUSCATED}`));
+    } else {
+      const t = propText(col, v);
+      if (!t) continue;
+      if (mode === "marquee") out.push(watchMarquee(h("span", { class: "chip chip-mq", title: t }, h("span", { class: "mq-text" }, t))));
+      else out.push(h("span", { class: `chip${mode === "wrap" ? " wrap" : ""}`, title: t }, t));
+    }
     if (out.length >= MAX_PROPS) break;
   }
   return out;
@@ -182,9 +193,37 @@ export function renderCalendar(a) {
     Object.assign(st, shiftMonth(st.year, st.month, d));
     a.redraw();
   };
-  const cell = (d) => h(
+  // touch: chips are too small to aim at, so a tap anywhere on the day (but its + button) opens that day's list
+  let touch = false;
+  const dayList = (d, anchor) => {
+    const list = byDate.get(d.iso) || [];
+    openMenu(anchor, [
+      { header: true, label: new Date(`${d.iso}T00:00:00`).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" }) },
+      ...list.map((row) => ({ label: a.title(row), icon: ico("arrow-up-right"), onSelect: () => a.onOpenRow?.(row.id) })),
+      ...a.locked ? [] : [{ label: "Add a row on this day", icon: ico("plus"), onSelect: async () => {
+        await a.addRow({ [col.id]: d.iso });
+        a.redraw();
+      } }]
+    ], { width: 240 });
+  };
+  const tapDay = (d) => (el) => {
+    el.addEventListener("pointerdown", (e) => {
+      touch = e.pointerType !== "mouse";
+    }, true);
+    el.addEventListener("click", (e) => {
+      if (!touch || e.target.closest(".cal-add")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dayList(d, el);
+    }, true);
+    return el;
+  };
+  const cell = (d) => tapDay(d)(h(
     "div",
-    { class: `cal-day${d.inMonth ? "" : " out"}${d.iso === today ? " today" : ""}`, "data-date": d.iso },
+    {
+      class: `cal-day${d.inMonth ? "" : " out"}${d.iso === today ? " today" : ""}`,
+      "data-date": d.iso
+    },
     h(
       "div",
       { class: "cal-num" },
@@ -195,7 +234,7 @@ export function renderCalendar(a) {
       } }, ico("plus"))
     ),
     (byDate.get(d.iso) || []).map((row) => bindRowMenu(h("button", { class: "cal-chip", title: a.title(row), onClick: () => a.onOpenRow?.(row.id) }, a.title(row)), a, row))
-  );
+  ));
   const unscheduled = a.rows.filter((r) => !isEmpty(col, r.values?.[col.id]) === false);
   return h(
     "div",

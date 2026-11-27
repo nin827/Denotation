@@ -1,5 +1,7 @@
 import { summarize } from "./schema.js";
 import { newId } from "./ids.js";
+import { specOf, specAt, getPath, scalarKind } from "./typespec.js";
+import { resolveDisplay, HIDE_WIDTH, isDisplay } from "./columns.js";
 
 export const VIEW_TYPES = [
   { id: "table", label: "Table", icon: "table" },
@@ -39,8 +41,13 @@ export function ensureViews(db) {
         v.chart.agg = "count";
       }
     }
-    for (const key of ["calc", "widths", "wrap"]) if (v[key]) {
-      for (const k of Object.keys(v[key])) if (!ids.has(k)) delete v[key][k];
+    for (const key of ["calc", "widths", "wrap", "display"]) if (v[key]) {
+      for (const k of Object.keys(v[key])) if (!ids.has(k) || key === "display" && !isDisplay(v[key][k])) delete v[key][k];
+    }
+    if (Array.isArray(v.collapsedGroups)) {
+      const gids = new Set((db.columnGroups || []).map((g) => g.id));
+      v.collapsedGroups = v.collapsedGroups.filter((id) => gids.has(id));
+      if (!v.collapsedGroups.length) delete v.collapsedGroups;
     }
   }
   return db.views;
@@ -52,7 +59,8 @@ const OPS = {
   date: ["is", "before", "after", "empty", "not_empty"],
   select: ["is", "is_not", "empty", "not_empty"],
   array: ["contains", "empty", "not_empty"],
-  dictionary: ["contains", "empty", "not_empty"]
+  dictionary: ["contains", "empty", "not_empty"],
+  json: ["contains", "not_contains", "empty", "not_empty"]
 };
 export const OP_LABEL = {
   contains: "contains",
@@ -74,7 +82,16 @@ export const OP_LABEL = {
   after: "is after"
 };
 export const needsValue = (op) => !["empty", "not_empty", "checked", "unchecked"].includes(op);
-export const opsFor = (col) => OPS[col.type] ?? OPS.text;
+/** Filter operators of a column; for a Custom (JSON) column with a dotted path, those of the field's type. */
+export const opsFor = (col, path) => col?.type === "json" && path ? OPS[pathCol(col, path).type] : OPS[col?.type] ?? OPS.text;
+/** A stand-in column for a field of a Custom (JSON) column: { type: "number" | "checkbox" | "text" }. */
+export const pathCol = (col, path) => ({ id: `${col.id}.${path}`, name: `${col.name}.${path}`, type: scalarKind(specAt(specOf(col.typeText), path)), config: {} });
+/** The value a filter / sort reads: the whole cell, or a field of a Custom (JSON) cell at a dotted path. */
+export const ruleValue = (col, values, path) => {
+  const v = values?.[col.id];
+  return col.type === "json" && path ? getPath(v, path) : v;
+};
+const jsonText = (v) => v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
 export const isNumeric = (col) => col.type === "number" || col.type === "formula";
 export function isEmpty(col, v) {
   if (col.type === "checkbox") return false;
@@ -114,11 +131,25 @@ function matchRule(col, value, rule) {
     }
   }
 }
+function matchJson(col, value, rule) {
+  if (rule.path) {
+    const sub = pathCol(col, rule.path);
+    const v = getPath(value, rule.path);
+    return matchRule(sub, sub.type === "text" && v != null && typeof v === "object" ? JSON.stringify(v) : v, rule);
+  }
+  const { op } = rule;
+  if (op === "empty") return isEmpty(col, value);
+  if (op === "not_empty") return !isEmpty(col, value);
+  if (rule.value === void 0 || rule.value === null || rule.value === "") return true;
+  const has = low(jsonText(value)).includes(low(rule.value));
+  return op === "not_contains" ? !has : op === "contains" ? has : true;
+}
 function applyFilter(rows, columns, filter) {
   const rules = (filter?.rules || []).filter((r) => columns.some((c) => c.id === r.col) && r.op);
   if (!rules.length) return rows;
   const byId = new Map(columns.map((c) => [c.id, c]));
-  const test = (row) => rules.map((r) => matchRule(byId.get(r.col), row.values?.[r.col], r));
+  const one = (col, value, r) => col.type === "json" ? matchJson(col, value, r) : matchRule(col, value, r);
+  const test = (row) => rules.map((r) => one(byId.get(r.col), row.values?.[r.col], r));
   return rows.filter((row) => filter.op === "or" ? test(row).some(Boolean) : test(row).every(Boolean));
 }
 const collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" }); // same ordering as localeCompare with these options, built once
@@ -135,6 +166,8 @@ function compareValues(col, a, b) {
       return (a?.length ?? 0) - (b?.length ?? 0);
     case "dictionary":
       return Object.keys(a || {}).length - Object.keys(b || {}).length;
+    case "json":
+      return collator.compare(jsonText(a), jsonText(b));
     case "formula":
       if (typeof a === "number" && typeof b === "number") return a - b;
     // else fall through to text
@@ -144,10 +177,14 @@ function compareValues(col, a, b) {
   }
 }
 function applySorts(rows, columns, sorts) {
-  const keys = (sorts || []).map((s) => ({ col: columns.find((c) => c.id === s.col), dir: s.dir === "desc" ? -1 : 1 })).filter((k) => k.col);
+  const keys = (sorts || []).map((s) => {
+    let col = columns.find((c) => c.id === s.col);
+    const path = col?.type === "json" && s.path ? s.path : "";
+    return { col: path ? pathCol(col, path) : col, src: col, path, dir: s.dir === "desc" ? -1 : 1 };
+  }).filter((k) => k.col);
   if (!keys.length) return rows;
   // read each sort value and its emptiness once per row, not once per comparison
-  const vals = keys.map(({ col }) => rows.map((r) => r.values?.[col.id]));
+  const vals = keys.map(({ src, path }) => rows.map((r) => ruleValue(src, r.values, path)));
   const empty = keys.map(({ col }, k) => vals[k].map((v) => isEmpty(col, v)));
   const order = Array.from(rows, (_, i) => i);
   order.sort((ia, ib) => {
@@ -193,7 +230,7 @@ export function groupRows(rows, columns, colId) {
       none.rows.push(r);
       continue;
     }
-    const text = col.type === "array" || col.type === "dictionary" ? summarize(col, v) : String(v);
+    const text = col.type === "array" || col.type === "dictionary" || col.type === "json" ? summarize(col, v) : String(v);
     (index.get(`v:${text}`) ?? add(`v:${text}`, text, col.type === "select" || col.type === "text" ? text : void 0)).rows.push(r);
   }
   if (col.type !== "select") groups.sort((a, b) => groupCollator.compare(a.label, b.label));
@@ -305,6 +342,8 @@ export function toText(col, v) {
       return Array.isArray(v) ? v.map((x) => x ?? "").join(", ") : String(v);
     case "dictionary":
       return v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v).length ? JSON.stringify(v) : "" : String(v);
+    case "json":
+      return JSON.stringify(v);
     default:
       return String(v);
   }
@@ -327,6 +366,15 @@ export function fromText(col, text) {
         return JSON.parse(t);
       } catch {
         return void 0;
+      }
+    }
+    // JSON text; anything that does not parse is kept as a plain string (then flagged against the type)
+    case "json": {
+      if (t.trim() === "") return null;
+      try {
+        return JSON.parse(t);
+      } catch {
+        return t;
       }
     }
     default:
@@ -358,8 +406,9 @@ export function dashboardData(db, rows) {
 const COL_WIDTH = Object.freeze({ min: 60, max: 800, def: 160 });
 export const WIDTH_PRESETS = [{ label: "Narrow", px: 100 }, { label: "Medium", px: 160 }, { label: "Wide", px: 260 }, { label: "Extra wide", px: 400 }];
 export const clampWidth = (px) => Math.min(COL_WIDTH.max, Math.max(COL_WIDTH.min, Math.round(Number(px)) || COL_WIDTH.def));
-export const colWidth = (view, col) => clampWidth(view.widths?.[col.id] ?? COL_WIDTH.def);
-export const isWrapped = (view, col) => view.wrap?.[col.id] ?? !!view.wrapAll;
+export const STUB_WIDTH = 104;
+export const colWidth = (view, col) => col?.stub ? STUB_WIDTH : resolveDisplay(view, col) === "hide" ? HIDE_WIDTH : clampWidth(view.widths?.[col.id] ?? COL_WIDTH.def);
+export const isWrapped = (view, col) => resolveDisplay(view, col) === "wrap";
 export const freezeCount = (view, cols) => Math.max(0, Math.min(Number(view.freeze) || 0, cols.length));
 export function freezeOffsets(view, cols, lead = 0) {
   const n = freezeCount(view, cols);

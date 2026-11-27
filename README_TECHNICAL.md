@@ -52,6 +52,8 @@ public/
     vault.js            workspace <-> file map: Denotation JSON and vanilla Markdown          (pure)
     workspace.js        all data operations (pages, rows, trash, duplicate, tickets, CSV, export/import)
     schema.js           column types and validation          (pure)
+    typespec.js         type text for Custom (JSON) columns: parse/format/validate/clamp/summary/paths (pure)
+    columns.js          column groups, column display, columns-as-JSON (pure)
     dbviews.js          filters, sorts, groups, chart/layout helpers (pure)
     formula.js          Excel-like formula engine             (pure)
     pivot.js            pivot tables                           (pure)
@@ -165,6 +167,14 @@ Details: `tools/mcp/README.md`.
 - **Block colours:** `block.color` = hue (0–330, step 30) or absent; `block.bg` = hue, `"grey"` or absent. `normColor` /
   `normBg` in `blocks/model.js` map legacy names to the nearest hue. CSS: `.has-color` / `.has-bg` / `.bg-grey` with inline
   `--blk-h` / `--blk-bg-h`; lightness and chroma per mode via `--blk-fg` / `--blk-tint` / `--blk-grey`.
+- **Custom (JSON) columns:** `{ type: "json", typeText }`; any JSON value, never dropped; `typespec.validate` returns
+  `[{ path, message }]`. Filter rules and sorts may carry `path` (`stats.hp`).
+- **Column groups:** `columnGroups: [{ id, label, colIds, parentId? }]` on the database (two levels; `applyGroups`
+  cleans them and keeps each group's columns adjacent, title column first). UI in `ui/dbGroups.js`.
+- **Column display:** `col.display` = `wrap` | `marquee` | `obfuscate` | `hide` (absent = clip); views may have
+  `display: { colId: mode }` and `collapsedGroups: [id]`. `resolveDisplay`: view override > legacy `wrap` / `wrapAll` >
+  column. In table/sheet, `a.cols` may include collapsed-group stub columns (`col.stub`, id `group:<gid>`); use
+  `a.realCols` for real ones.
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
 ## 8. UI conventions

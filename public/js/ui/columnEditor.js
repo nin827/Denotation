@@ -5,6 +5,8 @@ import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
 import { confirmDialog } from "./dialogs.js";
+import { parseType, formatType, leafPaths } from "../typespec.js";
+import { DISPLAY_MODES, DISPLAY_LABEL, DISPLAY_HINT } from "../columns.js";
 
 const FUNCTION_GROUPS = {
   Math: "SUM AVERAGE MIN MAX COUNT COUNTA COUNTBLANK PRODUCT MEDIAN LARGE SMALL ABS ROUND ROUNDUP ROUNDDOWN INT TRUNC CEILING FLOOR MOD POWER SQRT EXP LN LOG LOG10 SIGN PI FACT",
@@ -19,7 +21,15 @@ const defaultConfig = (type) => structuredClone({
   array: { itemType: "text", size: null },
   formula: { expr: "" }
 }[type] || {});
-const typeOptions = (types) => types.map((t) => h("option", { value: t }, t));
+const TYPE_LABEL = { json: "Custom (JSON)" };
+const typeOptions = (types) => types.map((t) => h("option", { value: t }, TYPE_LABEL[t] ?? t));
+const JSON_EXAMPLES = [
+  ["Fields", "Dictionary{name: String, level: int(1..99), stats: Dictionary{hp: int, sp: int}}"],
+  ["Choice", '("low", "mid", "high")'],
+  ["Several choices", 'Array[("red", "green", "blue")]'],
+  ["List", "Array[String]"],
+  ["Text or fields", "String | Dictionary{label: String, weight: float(0..1)}"]
+];
 export function openColumnEditor({ column, columns = [], rows = [], onSave, onDelete }) {
   const draft = column ? structuredClone(column) : { id: newId(), name: "", type: "text", config: {} };
   const configBox = h("div", {});
@@ -37,6 +47,8 @@ export function openColumnEditor({ column, columns = [], rows = [], onSave, onDe
       if (e.target.value !== draft.type) {
         draft.type = e.target.value;
         draft.config = defaultConfig(draft.type);
+        if (draft.type === "json") draft.typeText ??= "";
+        else delete draft.typeText;
       }
       drawConfig();
     }
@@ -44,6 +56,42 @@ export function openColumnEditor({ column, columns = [], rows = [], onSave, onDe
   function drawConfig() {
     const c = draft.config;
     const parts = [];
+    if (draft.type === "json") {
+      const status = h("p", { class: "hint type-status", role: "status" });
+      const input = h("textarea", {
+        class: "formula-input type-input",
+        rows: 3,
+        spellcheck: false,
+        placeholder: "e.g. Dictionary{name: String, level: int(1..99)}",
+        value: draft.typeText ?? "",
+        onInput: (e) => {
+          draft.typeText = e.target.value;
+          refresh();
+        }
+      });
+      const refresh = () => {
+        const t = draft.typeText ?? "";
+        const r = parseType(t);
+        status.classList.toggle("bad", !r.ok);
+        status.replaceChildren(r.ok ? ico("circle-check") : ico("triangle-exclamation-point"), " ", !t.trim() ? "Empty: any JSON value." : r.ok ? `Reads as ${formatType(r.spec)}${leafPaths(r.spec).length ? `. Fields for filters and sorts: ${leafPaths(r.spec).map((p) => p.path).join(", ")}` : ""}` : r.error);
+      };
+      parts.push(
+        h("label", {}, "Type", input),
+        status,
+        h("div", { class: "formula-cols" }, JSON_EXAMPLES.map(([name, text]) => h("button", { class: "chip-btn", type: "button", title: text, onClick: () => {
+          input.value = text;
+          draft.typeText = text;
+          refresh();
+        } }, name))),
+        h(
+          "details",
+          { class: "formula-help" },
+          h("summary", {}, "Type text"),
+          h("p", { class: "hint" }, "String, bool, int, float; ranges int(0..10), float(..1.5); choices (\"a\", \"b\"); several choices Array[(\"a\", \"b\")]; lists Array[T]; fixed fields Dictionary{key: T, …} (nest freely); any object Dictionary; a map Dictionary[T]; alternatives A | B. Values that do not match are kept and flagged.")
+        )
+      );
+      refresh();
+    }
     if (draft.type === "select") {
       parts.push(h(
         "label",
@@ -227,7 +275,16 @@ export function openColumnEditor({ column, columns = [], rows = [], onSave, onDe
       {},
       h("label", {}, "Name", nameInput),
       h("label", {}, "Type", typeSelect),
-      configBox
+      configBox,
+      h(
+        "label",
+        {},
+        "Display (every view, unless a view overrides it)",
+        h("select", { class: "col-display", value: draft.display ?? "clip", onChange: (e) => {
+          if (e.target.value === "clip") delete draft.display;
+          else draft.display = e.target.value;
+        } }, DISPLAY_MODES.map((m) => h("option", { value: m, title: DISPLAY_HINT[m] }, `${DISPLAY_LABEL[m]}: ${DISPLAY_HINT[m]}`)))
+      )
     ),
     actions
   });

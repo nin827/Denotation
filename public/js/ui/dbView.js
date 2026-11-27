@@ -35,8 +35,13 @@ import {
   frozenClass,
   cellStyle,
   resizeHandle,
-  wrapClass
+  wrapClass,
+  displayClass,
+  displayItems,
+  openWidthDialog
 } from "./dbCols.js";
+import { resolveDisplay, orderColumns, gridColumns, cleanGroups, headerRows, toggleCollapsed } from "../columns.js";
+import { groupMenuItems, columnGroupItems, openColumnsJson, groupHeaderCell } from "./dbGroups.js";
 import { renderSheet } from "./dbSheet.js";
 import { pickCsv } from "./csvFile.js";
 import { saveTextFile } from "./files.js";
@@ -62,6 +67,10 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     }, enumerable: true },
     views: { get: () => link.views, set: (v) => {
       link.views = v;
+    }, enumerable: true },
+    columnGroups: { get: () => data.columnGroups || [], set: (v) => {
+      if (v && v.length) data.columnGroups = v;
+      else delete data.columnGroups;
     }, enumerable: true }
   });
   let rows = await ws.listRows(data.id);
@@ -108,20 +117,34 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       if (col && col.name !== next.name) {
         columns = columns.map((c) => c.type === "formula" && c.id !== next.id ? { ...c, config: { ...c.config, expr: renameColumnRefs(c.config?.expr, col.name, next.name) } } : c);
       }
+      db.columnGroups = cleanGroups(columns, db.columnGroups);
       await ws.updateColumns(data, columns);
       ensureViews(db);
       await reload();
     },
     onDelete: col && db.columns.length > 1 ? async () => {
-      await ws.updateColumns(data, db.columns.filter((c) => c.id !== col.id));
+      const left = db.columns.filter((c) => c.id !== col.id);
+      db.columnGroups = cleanGroups(left, db.columnGroups);
+      await ws.updateColumns(data, left);
       ensureViews(db);
       await saveViews();
       await reload();
     } : null
   });
+  /** Saves column groups (cleaned) and the column order they imply. Values are untouched. */
+  const saveGroups = async (groups) => {
+    db.columnGroups = cleanGroups(db.columns, groups);
+    data.columns = orderColumns(db.columns, db.columnGroups);
+    ensureViews(db);
+    await ws.savePage(data);
+    if (data !== link) await saveViews();
+    draw();
+  };
   const api = () => {
     const view = current();
-    const shown = db.columns.filter((c, i) => i === 0 || !view.hidden.includes(c.id));
+    const ordered = orderColumns(db.columns, db.columnGroups);
+    const shown = ordered.filter((c, i) => c.id === db.columns[0].id || !view.hidden.includes(c.id));
+    const grid = ["table", "sheet"].includes(view.type) ? gridColumns(shown, db.columnGroups, view) : shown;
     return {
       ws: ws,
       locked: !!link.locked,
@@ -131,7 +154,18 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       settle,
       allRows: rows,
       rows: visibleRows(db, view, rows),
-      cols: shown,
+      cols: grid,
+      realCols: shown,
+      groups: db.columnGroups,
+      saveGroups,
+      groupMenu: (g) => groupMenuItems(api(), g),
+      toggleGroup: async (gid) => {
+        toggleCollapsed(view, gid);
+        await saveViews();
+        draw();
+      },
+      displayOf: (col) => resolveDisplay(view, col),
+      editColumnsJson: link.locked ? null : () => editColumnsJson(),
       onOpenRow,
       editColumn,
       columnMenu,
@@ -236,16 +270,43 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       await saveViews();
       draw();
     };
+    if (col.stub) {
+      const g = db.columnGroups.find((x) => x.id === col.groupId);
+      return g ? groupMenuItems(api(), g) : [];
+    }
     return [
       { label: "Edit column\u2026", icon: ico("pencil"), onSelect: () => editColumn(col) },
+      { label: "Display in this view", icon: ico("eye"), items: displayItems(api(), col) },
+      ["table", "sheet"].includes(view.type) ? { label: "Column width\u2026", icon: ico("move-horizontal"), onSelect: () => openWidthDialog(api(), col) } : null,
+      ...columnGroupItems(api(), col),
       { separator: true },
       { label: "Sort ascending", icon: ico("arrow-up"), hint: dir === "asc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "asc")) },
       { label: "Sort descending", icon: ico("arrow-down"), hint: dir === "desc" ? "on" : null, onSelect: change(() => sortOnly(view, col.id, "desc")) },
       dir ? { label: "Clear sort", icon: ico("x"), onSelect: change(() => clearSort(view, col.id)) } : null,
       db.columns[0].id !== col.id ? { label: "Hide in this view", icon: ico("eye-off"), onSelect: change(() => hideColumn(view, db.columns, col.id)) } : null,
       { separator: true },
-      { label: "Add column\u2026", icon: ico("plus"), onSelect: () => editColumn(null) }
+      { label: "Add column\u2026", icon: ico("plus"), onSelect: () => editColumn(null) },
+      { label: "Edit columns as JSON\u2026", icon: ico("braces"), disabled: !!link.locked, onSelect: () => editColumnsJson() }
     ].filter(Boolean);
+  }
+  function editColumnsJson() {
+    openColumnsJson({
+      columns: db.columns,
+      groups: db.columnGroups,
+      onSave: async ({ columns, columnGroups }) => {
+        const before = new Map(db.columns.map((c) => [c.id, c]));
+        let next = columns;
+        for (const c of columns) {
+          const old = before.get(c.id);
+          if (old && old.name !== c.name) next = next.map((x) => x.type === "formula" && x.id !== c.id ? { ...x, config: { ...x.config, expr: renameColumnRefs(x.config?.expr, old.name, c.name) } } : x);
+        }
+        db.columnGroups = columnGroups;
+        await ws.updateColumns(data, next);
+        ensureViews(db);
+        await saveViews();
+        await reload();
+      }
+    });
   }
   function drawBar() {
     const view = current();
@@ -255,17 +316,17 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     bar.replaceChildren(
       h(
         "div",
-        { class: "view-tabs", role: "tablist" },
+        { class: "view-tabs", role: "toolbar", "aria-label": "Views" },
         db.views.map((v) => {
           const on = v.id === view.id;
           const tab = h(
             "div",
-            { class: `view-tab${on ? " on" : ""}`, role: "tab", "aria-selected": String(on) },
-            h("button", { class: "vt-main", onClick: () => {
+            { class: `view-tab${on ? " on" : ""}` },
+            h("button", { class: "vt-main", "aria-pressed": String(on), onClick: () => {
               activeView.set(db.id, v.id);
               draw();
             } }, ico(typeInfo(v.type).icon), h("span", {}, v.name)),
-            on ? h("button", { class: "icon vt-menu", title: "View options", "aria-label": "View options", onClick: (e) => viewMenu(e.currentTarget, v) }, ico("chevron-down")) : null
+            on ? h("button", { class: "icon vt-menu", title: "View options", "aria-label": `Options for view ${v.name}`, "aria-haspopup": "menu", onClick: (e) => viewMenu(e.currentTarget, v) }, ico("chevron-down")) : null
           );
           tab.addEventListener("contextmenu", (e) => {
             if (e.defaultPrevented) return;
@@ -347,7 +408,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
     return [
       { label: "Export this view as CSV", icon: ico("download"), onSelect: async () => {
         const a = api();
-        const text = `\uFEFF${databaseToCsv(a.cols, a.rows)}`;
+        const text = `\uFEFF${databaseToCsv(a.realCols, a.rows)}`;
         try {
           const how = await saveTextFile(`${(link.title || "database").replace(/[\\/:*?"<>|]+/g, "-")}.csv`, text, "text/csv;charset=utf-8");
           toast(how === "copied" ? "CSV copied to the clipboard." : `Exported ${a.rows.length} row${a.rows.length === 1 ? "" : "s"}.`);
@@ -377,12 +438,24 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       c.style.width = `${colWidth(a.view, a.cols[i])}px`;
     });
     const table = h("table", { class: "db-table fixed", style: `width:${tableWidth(a, ACTIONS)}px` });
+    const groupRows = headerRows(a.cols, a.groups).map((cells, level) => h(
+      "tr",
+      { class: `grp-row lvl-${level}` },
+      cells.map((c) => groupHeaderCell(a, c, level)),
+      h("th", { class: "grp-blank", "aria-hidden": "true" })
+    ));
     const head = h(
       "tr",
       {},
-      a.cols.map((col, i) => bindContextMenu(h(
+      a.cols.map((col, i) => bindContextMenu(col.stub ? h(
         "th",
-        { class: `col-head${frozenClass(a, i)}`, style: cellStyle(a, col, i), title: describe(col), onClick: () => editColumn(col) },
+        { class: `col-head stub-head${frozenClass(a, i)}`, style: cellStyle(a, col, i), title: `${col.name}: collapsed group, click to expand` },
+        h("button", { class: "stub-btn", "aria-expanded": "false", onClick: () => a.toggleGroup(col.groupId) }, ico("chevrons-left-right"), h("span", {}, col.name))
+      ) : h(
+        "th",
+        { class: `col-head${frozenClass(a, i)}${displayClass(a, col)}`, style: cellStyle(a, col, i), title: describe(col), tabindex: 0, onClick: () => editColumn(col), onKeydown: (e) => {
+          if (e.key === "Enter" && e.target === e.currentTarget) editColumn(col);
+        } },
         h("span", { class: "th-name" }, col.name),
         h("small", { class: "type-tag" }, typeLabel(col)),
         resizeHandle(a, col, { colEl: cg[i], tableEl: table, extra: ACTIONS })
@@ -394,12 +467,12 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
       {},
       a.cols.map((col, i) => h(
         "td",
-        { class: `${frozenClass(a, i)}${wrapClass(a, col)}`.trim(), style: cellStyle(a, col, i) },
-        renderCell(col, row.values[col.id], (v) => {
+        { class: `${frozenClass(a, i)}${wrapClass(a, col)}${displayClass(a, col)}`.trim(), style: cellStyle(a, col, i) },
+        col.stub ? h("button", { class: "stub-cell", tabindex: -1, title: `${col.name}: click to expand`, "aria-label": `Expand ${col.name}`, onClick: () => a.toggleGroup(col.groupId) }) : renderCell(col, row.values[col.id], (v) => {
           row.values[col.id] = v;
           settle();
           saveRow(row).catch((e) => toast(e.message, "error"));
-        }, { wrap: wrapClass(a, col) !== "", rowId: row.id })
+        }, { display: a.displayOf(col), rowId: row.id })
       )),
       h(
         "td",
@@ -427,7 +500,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } =
         return it.group ? h("tr", { class: "group-row" }, h("td", { colspan: a.cols.length + 1 }, h("strong", {}, it.group.label), h("span", { class: "hint" }, ` ${it.group.rows.length}`))) : rowEl(it.row);
       }
     });
-    table.append(h("colgroup", {}, cg, h("col", { style: `width:${ACTIONS}px` })), h("thead", {}, head), tbody);
+    table.append(h("colgroup", {}, cg, h("col", { style: `width:${ACTIONS}px` })), h("thead", {}, groupRows, head), tbody);
     return h("div", { class: "tbl-scroll" }, table);
   }
   function drawBody() {

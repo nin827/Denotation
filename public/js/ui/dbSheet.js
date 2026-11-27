@@ -13,16 +13,18 @@ import { parseCsv } from "../csv.js";
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openValueEditor } from "./valueEditors.js";
-import { formulaCell } from "./cellEditors.js";
+import { formulaCell, openCellDialog, jsonIssues, cellText, watchMarquee } from "./cellEditors.js";
+import { headerRows, OBFUSCATED } from "../columns.js";
+import { groupHeaderCell } from "./dbGroups.js";
 import { toast } from "./dialogs.js";
 import { bindContextMenu } from "./contextMenu.js";
 import { bindRowMenu } from "./dbMenus.js";
-import { frozenClass, wrapClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
+import { frozenClass, wrapClass, displayClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
 import { windowedRows } from "./bigLists.js";
 
 const sel = new Map();
 const RN = 38;
-const COMPOSITE = (c) => c.type === "array" || c.type === "dictionary";
+const COMPOSITE = (c) => c.type === "array" || c.type === "dictionary" || c.type === "json";
 export function renderSheet(a) {
   const R = a.rows.length;
   const C = a.cols.length;
@@ -66,14 +68,24 @@ export function renderSheet(a) {
     root.focus({ preventScroll: true });
   };
   const display = (col, v, rowId) => {
+    if (col.stub) return document.createTextNode("");
+    const mode = a.displayOf ? a.displayOf(col) : "clip";
+    if (mode === "hide") return document.createTextNode("");
+    if (mode === "obfuscate") return document.createTextNode(cellText(col, v) ? OBFUSCATED : "");
+    if (mode === "marquee") return watchMarquee(h("div", { class: "mq-box" }, h("span", { class: "mq-text" }, cellText(col, v))));
     if (col.type === "formula") return formulaCell(col, v, rowId);
     if (col.type === "checkbox") return h("span", { class: `sheet-check${v ? " on" : ""}` }, v ? ico("check") : null);
+    if (col.type === "json") {
+      const bad = jsonIssues(col, v).length;
+      const text = document.createTextNode(cellText(col, v));
+      return bad ? h("span", { class: "je-sheet invalid", title: "Does not match the type" }, h("span", { class: "je-bad" }, ico("triangle-exclamation-point"), h("span", { class: "sr-only" }, "Does not match the type: ")), text) : text;
+    }
     return document.createTextNode(toText(col, v));
   };
   const setText = (r, c, text, opts) => {
     const col = a.cols[c];
     const row = a.rows[r];
-    if (!col || !row || col.type === "formula") return { ok: true };
+    if (!col || !row || col.type === "formula" || col.stub) return { ok: true };
     const v = fromText(col, text);
     if (v === void 0) return { ok: false, error: `${col.name}: cannot read that value.` };
     return a.setCell(row, col, v, opts);
@@ -88,6 +100,14 @@ export function renderSheet(a) {
     const row = a.rows[r];
     const td = cellAt(r, c);
     if (!col || !row || !td) return;
+    if (col.stub) return a.toggleGroup?.(col.groupId);
+    if (a.displayOf?.(col) === "hide" && !COMPOSITE(col)) {
+      return openCellDialog(col, row.values[col.id], (v) => {
+        const x = a.setCell(row, col, v);
+        if (!x.ok) toast(x.error, "error");
+        refreshCell(r, c);
+      }, { rowId: row.id });
+    }
     if (col.type === "formula") {
       toast("Formula cells are computed. Click the column name to edit the formula.");
       return;
@@ -151,7 +171,7 @@ export function renderSheet(a) {
     const touched = [];
     for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) {
       if (!setText(r, c, "", { defer: true }).ok) bad++;
-      else if (a.rows[r] && a.cols[c]?.type !== "formula") touched.push(a.rows[r]);
+      else if (a.rows[r] && a.cols[c] && a.cols[c].type !== "formula" && !a.cols[c].stub) touched.push(a.rows[r]);
     }
     a.commitRows(touched);
     for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) refreshCell(r, c);
@@ -162,7 +182,7 @@ export function renderSheet(a) {
     const out = [];
     for (let r = g.r1; r <= g.r2; r++) {
       const line = [];
-      for (let c = g.c1; c <= g.c2; c++) line.push(toText(a.cols[c], a.rows[r].values[a.cols[c].id]));
+      for (let c = g.c1; c <= g.c2; c++) line.push(a.cols[c].stub ? "" : toText(a.cols[c], a.rows[r].values[a.cols[c].id]));
       out.push(line);
     }
     return toTsv(out);
@@ -186,6 +206,7 @@ export function renderSheet(a) {
       const row = targets[g.r1 + i];
       if (c >= C || !row) return;
       const col = a.cols[c];
+      if (col.stub || col.type === "formula") return;
       const v = fromText(col, t);
       if (v === void 0 || !a.setCell(row, col, v, { defer: true }).ok) bad++;
       else touched.push(row);
@@ -239,7 +260,7 @@ export function renderSheet(a) {
       paint();
       return;
     }
-    if (!mod && !e.altKey && e.key.length === 1 && !COMPOSITE(a.cols[s.f.c] || {}) && a.cols[s.f.c]?.type !== "checkbox" && a.cols[s.f.c]?.type !== "select") {
+    if (!mod && !e.altKey && e.key.length === 1 && !COMPOSITE(a.cols[s.f.c] || {}) && !a.cols[s.f.c]?.stub && a.displayOf?.(a.cols[s.f.c]) !== "hide" && a.cols[s.f.c]?.type !== "checkbox" && a.cols[s.f.c]?.type !== "select") {
       e.preventDefault();
       edit(s.f.r, s.f.c, e.key);
     }
@@ -266,7 +287,7 @@ export function renderSheet(a) {
     const row = a.rows[r];
     const tds = a.cols.map((col, c) => {
       const td = h("td", {
-        class: `sheet-cell t-${col.type}${frozenClass(a, c)}${wrapClass(a, col)}`,
+        class: `sheet-cell t-${col.type}${frozenClass(a, c)}${wrapClass(a, col)}${displayClass(a, col)}`,
         style: cellStyle(a, col, c, RN),
         "data-r": r,
         "data-c": c,
@@ -323,6 +344,7 @@ export function renderSheet(a) {
   });
   queueMicrotask(() => root.isConnected && cleanup.observe(root.parentNode || document.body, { childList: true, subtree: true }));
   const footer = h("tr", { class: "sheet-foot" }, h("th", {}), a.cols.map((col, ci) => {
+    if (col.stub) return h("td", { class: `${frozenClass(a, ci).trim()} stub`, style: cellStyle(a, col, ci, RN) });
     const cur = a.view.calc?.[col.id] || "none";
     const val = cur === "none" ? null : calculate(col, a.rows, cur);
     const opts = CALCS.filter((k) => !k.numeric || isNumeric(col));
@@ -349,7 +371,10 @@ export function renderSheet(a) {
       "thead",
       {},
       h("tr", { class: "sheet-letters" }, h("th", {}), a.cols.map((col, i) => h("th", { class: frozenClass(a, i).trim(), style: cellStyle(a, col, i, RN) }, colLetter(i)))),
-      h("tr", {}, h("th", {}), a.cols.map((col, i) => bindContextMenu(h("th", { class: `sheet-name${frozenClass(a, i)}`, style: cellStyle(a, col, i, RN), title: "Edit column", onClick: () => a.editColumn(col) }, h("span", {}, col.name), resizeHandle(a, col, { colEl: cg[i], tableEl: () => table, extra: RN })), () => a.columnMenu(col))), h("th", { class: "sheet-addcol", title: "Add column", "aria-label": "Add column", onClick: () => a.editColumn(null) }, ico("plus")))
+      headerRows(a.cols, a.groups || []).map((cells, level) => h("tr", { class: `grp-row lvl-${level}` }, h("th", { "aria-hidden": "true" }), cells.map((cell) => groupHeaderCell(a, cell, level)), h("th", { class: "grp-blank", "aria-hidden": "true" }))),
+      h("tr", {}, h("th", {}), a.cols.map((col, i) => bindContextMenu(col.stub ? h("th", { class: `sheet-name stub-head${frozenClass(a, i)}`, style: cellStyle(a, col, i, RN), title: `${col.name}: collapsed group, click to expand` }, h("button", { class: "stub-btn", "aria-expanded": "false", onClick: () => a.toggleGroup(col.groupId) }, ico("chevrons-left-right"), h("span", {}, col.name))) : h("th", { class: `sheet-name${frozenClass(a, i)}${displayClass(a, col)}`, style: cellStyle(a, col, i, RN), title: "Edit column", tabindex: 0, onClick: () => a.editColumn(col), onKeydown: (e) => {
+        if (e.key === "Enter" && e.target === e.currentTarget) a.editColumn(col);
+      } }, h("span", {}, col.name), resizeHandle(a, col, { colEl: cg[i], tableEl: () => table, extra: RN })), () => a.columnMenu(col))), h("th", { class: "sheet-addcol", title: "Add column", "aria-label": "Add column", onClick: () => a.editColumn(null) }, ico("plus")))
     ),
     tbody,
     h("tfoot", {}, footer)

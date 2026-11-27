@@ -4,6 +4,8 @@ import { ico } from "../icons/index.js";
 import { confirmDialog, toast } from "./dialogs.js";
 import { formulaCell } from "./cellEditors.js";
 import { summarize } from "../schema.js";
+import { columnDisplay, sectionColumns, headerRows, OBFUSCATED } from "../columns.js";
+import { cellText, jsonIssues, watchMarquee } from "./cellEditors.js";
 import { toText } from "../dbviews.js";
 import {
   cleanKeys, splitKeys, primaryKeyCol, rowKey, matchKeys, resolveConfig, columnSelection, toggleColumn, moveColumn,
@@ -14,9 +16,17 @@ import {
 const clone = (v) => v == null ? v : JSON.parse(JSON.stringify(v));
 let uid = 0;
 
-/** Read-only value, formatted like the database table cells. */
+/** Read-only value, formatted like the database table cells, following the column's display (ticket 012). */
 function valueNode(col, value, rowId = "") {
   if (!col) return h("span", {});
+  const mode = columnDisplay(col);
+  if (mode === "hide") return h("span", { class: "rp-hidden", title: "Hidden: open the record to see it" });
+  if (mode === "obfuscate") return h("span", { class: "rp-obf", title: "Hidden: open the record to see it" }, cellText(col, value) ? OBFUSCATED : "");
+  if (mode === "marquee") return watchMarquee(h("span", { class: "rp-mq" }, h("span", { class: "mq-text" }, cellText(col, value))));
+  if (col.type === "json") {
+    const bad = jsonIssues(col, value).length;
+    return h("span", { class: `rp-struct${bad ? " invalid" : ""}`, title: bad ? "Does not match the type" : null }, bad ? h("span", { class: "je-bad" }, ico("triangle-exclamation-point"), h("span", { class: "sr-only" }, "Does not match the type: ")) : null, summarize(col, value));
+  }
   if (col.type === "formula") return formulaCell(col, value, "");
   if (col.type === "checkbox") {
     return value ? h("span", { class: "rp-check" }, ico("check"), " Yes") : h("span", { class: "rp-check off" }, "No");
@@ -115,6 +125,17 @@ export function recordPreviewBody(b, inst, a) {
         openRow(r.id);
       }
     });
+    // card rows under their column-group headings (ticket 011), in the preview's own column order
+    const cardRows = (list, row) => {
+      const groups = data.columnGroups || [];
+      if (!groups.length) return list.map(row);
+      const byCol = new Map(list.map((s) => [s.col.id, s]));
+      const secs = sectionColumns(list.map((s) => s.col), groups);
+      return secs.flatMap((sec) => [
+        sec.group ? h("div", { class: "rp-group-head", role: "presentation" }, sec.group.label, sec.sub ? ` \u203a ${sec.sub.label}` : "") : null,
+        ...sec.cols.map((c) => row(byCol.get(c.id)))
+      ]).filter(Boolean);
+    };
     const nodes = [];
     if (layout === "card") {
       for (const m of matches) {
@@ -127,13 +148,14 @@ export function recordPreviewBody(b, inst, a) {
             "article",
             { class: "rp-card", ...rowOpen(r) },
             h("div", { class: "rp-card-top" }, dupBadge(m), openBtn(r, m.key)),
-            h("dl", { class: "rp-dl" }, sel.map((s) => {
+            h("dl", { class: "rp-dl" }, cardRows(sel, (s) => {
               const al = alignOf(s, s.col);
+              const wrap = s.wrap || columnDisplay(s.col) === "wrap";
               return h(
                 "div",
                 { class: "rp-dl-row" },
                 h("dt", {}, labelOf(s, s.col)),
-                h("dd", { class: `${al === "right" ? "r" : ""}${s.wrap ? "" : " nowrap"}`, style: s.width ? `max-width:${s.width}px` : null }, valueNode(s.col, r.values?.[s.col.id]))
+                h("dd", { class: `${al === "right" ? "r" : ""}${wrap ? "" : " nowrap"}`, style: s.width ? `max-width:${s.width}px` : null }, valueNode(s.col, r.values?.[s.col.id]))
               );
             }))
           ));
@@ -145,14 +167,14 @@ export function recordPreviewBody(b, inst, a) {
         nodes.push(h("div", { class: "rp-wrap" }, h(
           "table",
           { class: "rp-table" },
-          h("thead", {}, h("tr", {}, sel.map((s) => h("th", { class: alignOf(s, s.col) === "right" ? "r" : "", style: s.width ? `width:${s.width}px;min-width:${s.width}px;max-width:${s.width}px` : null }, labelOf(s, s.col))), h("th", { class: "rp-act" }, h("span", { class: "sr-only" }, "Actions")))),
+          h("thead", {}, headerRows(sel.map((s) => s.col), data.columnGroups || []).map((cells) => h("tr", { class: "rp-grp-row" }, cells.map((c) => h("th", { colspan: c.span, scope: c.group ? "colgroup" : null, class: c.group ? "rp-grp" : "rp-grp empty" }, c.group?.label ?? "")), h("th", { class: "rp-act" }))), h("tr", {}, sel.map((s) => h("th", { class: alignOf(s, s.col) === "right" ? "r" : "", style: s.width ? `width:${s.width}px;min-width:${s.width}px;max-width:${s.width}px` : null }, labelOf(s, s.col))), h("th", { class: "rp-act" }, h("span", { class: "sr-only" }, "Actions")))),
           h("tbody", {}, found.flatMap((m) => m.rows.map((r) => h(
             "tr",
             { class: "rp-row", ...rowOpen(r) },
             sel.map((s) => h(
               "td",
               {
-                class: `${alignOf(s, s.col) === "right" ? "r" : ""}${s.wrap ? " wrap" : " nowrap"}`,
+                class: `${alignOf(s, s.col) === "right" ? "r" : ""}${s.wrap || columnDisplay(s.col) === "wrap" ? " wrap" : " nowrap"}`,
                 style: s.width ? `width:${s.width}px;min-width:${s.width}px;max-width:${s.width}px` : null
               },
               valueNode(s.col, r.values?.[s.col.id])

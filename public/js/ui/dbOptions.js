@@ -1,4 +1,6 @@
-import { needsValue, opsFor, OP_LABEL } from "../dbviews.js";
+import { needsValue, opsFor, OP_LABEL, pathCol } from "../dbviews.js";
+import { specOf, leafPaths } from "../typespec.js";
+import { DISPLAY_MODES, DISPLAY_LABEL, columnDisplay, setViewDisplay } from "../columns.js";
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
@@ -12,6 +14,24 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
     { "aria-label": "Property", value, onChange: (e) => onChange(e.target.value) },
     db.columns.map((c) => h("option", { value: c.id }, c.name))
   );
+  let uid = 0;
+  /** Dotted-path field for a Custom (JSON) column (filters and sorts read a nested field, e.g. stats.hp). */
+  function pathInput(col, item, after) {
+    if (col?.type !== "json") return null;
+    const id = `dbo-paths-${++uid}`;
+    const paths = leafPaths(specOf(col.typeText));
+    return h(
+      "span",
+      { class: "opt-path" },
+      h("input", { type: "text", list: id, class: "opt-path-input", "aria-label": "Field path (empty = whole value)", placeholder: "field path, e.g. stats.hp", value: item.path ?? "", autocomplete: "off", onChange: (e) => {
+        const p = e.target.value.trim().replace(/^\.+|\.+$/g, "");
+        if (p) item.path = p;
+        else delete item.path;
+        after();
+      } }),
+      h("datalist", { id }, paths.map((p) => h("option", { value: p.path })))
+    );
+  }
   function valueInput(col, rule) {
     const set = (v) => {
       rule.value = v;
@@ -26,6 +46,7 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
         (col.config?.options || []).map((o) => h("option", { value: o }, o))
       );
     }
+    if (col.type === "json" && rule.path) col = pathCol(col, rule.path);
     const type = col.type === "number" ? "number" : col.type === "date" ? "date" : "text";
     return h("input", { type, step: type === "number" ? "any" : null, "aria-label": "Value", value: rule.value ?? "", placeholder: "Value", onInput: (e) => set(e.target.value) });
   }
@@ -44,6 +65,12 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
             rule.col = id;
             rule.op = opsFor(c)[0];
             rule.value = "";
+            delete rule.path;
+            redraw();
+            drawFilter();
+          }),
+          pathInput(col, rule, () => {
+            if (!opsFor(col, rule.path).includes(rule.op)) rule.op = opsFor(col, rule.path)[0];
             redraw();
             drawFilter();
           }),
@@ -54,7 +81,7 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
               redraw();
               drawFilter();
             } },
-            opsFor(col).map((op) => h("option", { value: op }, OP_LABEL[op]))
+            opsFor(col, rule.path).map((op) => h("option", { value: op }, OP_LABEL[op]))
           ),
           valueInput(col, rule),
           h("button", { class: "icon", title: "Remove filter", "aria-label": "Remove filter", onClick: () => {
@@ -96,7 +123,13 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
         h("span", { class: "opt-lead" }, i === 0 ? "Sort by" : "then by"),
         colSelect(s.col, (id) => {
           s.col = id;
+          delete s.path;
           redraw();
+          drawSort();
+        }),
+        pathInput(db.columns.find((c) => c.id === s.col), s, () => {
+          redraw();
+          drawSort();
         }),
         h(
           "select",
@@ -124,21 +157,34 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
   }
   function drawProps() {
     fill(
-      h("p", { class: "hint" }, "Choose which properties this view shows. The first property is the title and always stays."),
+      h("p", { class: "hint" }, "Choose which properties this view shows and how. The first property is the title and always stays. Display overrides the column's own setting in this view only."),
       ...db.columns.map((c, i) => h(
-        "label",
-        { class: "opt-check" },
-        h("input", {
-          type: "checkbox",
-          checked: i === 0 || !view.hidden.includes(c.id),
-          disabled: i === 0,
-          onChange: (e) => {
-            view.hidden = view.hidden.filter((x) => x !== c.id);
-            if (!e.target.checked) view.hidden.push(c.id);
+        "div",
+        { class: "opt-prop" },
+        h(
+          "label",
+          { class: "opt-check" },
+          h("input", {
+            type: "checkbox",
+            checked: i === 0 || !view.hidden.includes(c.id),
+            disabled: i === 0,
+            onChange: (e) => {
+              view.hidden = view.hidden.filter((x) => x !== c.id);
+              if (!e.target.checked) view.hidden.push(c.id);
+              redraw();
+            }
+          }),
+          ` ${c.name}`
+        ),
+        h(
+          "select",
+          { class: "opt-display", "aria-label": `Display of ${c.name} in this view`, value: view.display?.[c.id] ?? "", onChange: (e) => {
+            setViewDisplay(view, c.id, e.target.value || null);
             redraw();
-          }
-        }),
-        ` ${c.name}`
+          } },
+          h("option", { value: "" }, `Default (${DISPLAY_LABEL[columnDisplay(c)]})`),
+          DISPLAY_MODES.map((m) => h("option", { value: m }, DISPLAY_LABEL[m]))
+        )
       ))
     );
   }
@@ -158,6 +204,9 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
         redraw();
         drawSort();
         return false;
+      } }] : [],
+      ...kind === "props" && a.editColumnsJson ? [{ label: "Edit columns as JSON\u2026", run: () => {
+        setTimeout(() => a.editColumnsJson(), 0);
       } }] : [],
       { label: "Done", class: "primary" }
     ],

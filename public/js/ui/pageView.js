@@ -5,6 +5,9 @@ import { debounce, h } from "./dom.js";
 import { iconNode, ico, pageIcon } from "../icons/index.js";
 import { openMenu } from "./popover.js";
 import { renderCell } from "./cellEditors.js";
+import { jsonEditor } from "./valueEditors.js";
+import { specOf } from "../typespec.js";
+import { orderColumns, sectionColumns } from "../columns.js";
 import { toast, confirmDialog } from "./dialogs.js";
 import { saveTextFile } from "./files.js";
 import { pickEmoji } from "./emoji.js";
@@ -352,15 +355,34 @@ export function renderRowPage(root, env, db, row) {
       if (nameCol) row.values[nameCol.id] = v;
     }
   });
-  const props = h("div", { class: "row-props" }, db.columns.slice(1).map((col) => h(
+  const save = async (col, v) => {
+    row.values[col.id] = v;
+    await env.ws.saveRow(row);
+  };
+  // Custom (JSON) properties show their full form here, saved as you edit (not while the raw JSON does not parse)
+  const valueOf = (col) => {
+    if (col.type !== "json") return renderCell(col, row.values[col.id], (v) => save(col, v));
+    const later = debounce((v) => save(col, v == null ? null : JSON.parse(JSON.stringify(v))), 400);
+    let ed = null;
+    ed = jsonEditor({ spec: specOf(col.typeText), value: row.values[col.id], label: col.name, onChange: (v) => {
+      if (!ed?.rawError()) later(v);
+    } });
+    return h("div", { class: "row-json" }, ed.el);
+  };
+  const propRow = (col) => h(
     "div",
-    { class: "row-prop" },
+    { class: `row-prop${col.type === "json" ? " row-prop-json" : ""}` },
     h("div", { class: "row-prop-name" }, col.name),
-    h("div", { class: "row-prop-val" }, renderCell(col, row.values[col.id], async (v) => {
-      row.values[col.id] = v;
-      await env.ws.saveRow(row);
-    }))
-  )));
+    h("div", { class: "row-prop-val" }, valueOf(col))
+  );
+  const groups = db.columnGroups || [];
+  const rest = orderColumns(db.columns, groups).filter((c) => c.id !== nameCol?.id);
+  const props = h("div", { class: "row-props" }, groups.length ? sectionColumns(rest, groups).map((sec) => sec.group ? h(
+    "section",
+    { class: `row-group${sec.sub ? " sub" : ""}`, "aria-label": sec.sub ? `${sec.group.label}, ${sec.sub.label}` : sec.group.label },
+    h("h3", { class: "row-group-head" }, sec.group.label, sec.sub ? h("span", { class: "row-group-sub" }, ` \u203a ${sec.sub.label}`) : null),
+    sec.cols.map(propRow)
+  ) : sec.cols.map(propRow)) : rest.map(propRow));
   const editor = createBlockEditor(row, ctx);
   root.classList.remove("doc-wide", "doc-small");
   root.replaceChildren(header, props, h("div", { class: "doc-body" }, editor.el));

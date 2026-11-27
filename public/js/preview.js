@@ -215,7 +215,7 @@ export function displayText(col, value) {
   if (!col) return "";
   if (col.type === "formula") return formatResult(value);
   if (col.type === "checkbox") return value ? "Yes" : "No";
-  if (col.type === "array" || col.type === "dictionary") return summarize(col, value);
+  if (col.type === "array" || col.type === "dictionary" || col.type === "json") return summarize(col, value);
   return toText(col, value);
 }
 

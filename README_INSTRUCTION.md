@@ -348,6 +348,29 @@ Want the same data in two places? **New → Database view of…** or **Sheet vie
 
 ---
 
+### Custom (JSON) columns
+
+Choose the column type **Custom (JSON)** and write a type, for example `Dictionary{name: String, level: int(1..99), stats: Dictionary{hp: int, sp: int}}`. Building blocks:
+
+- `String`, `bool`, `int`, `float`; ranges `int(0..10)`, `float(..1.5)`
+- one of several words `("low", "mid", "high")`; any of several `Array[("a", "b")]`
+- lists `Array[T]`; fixed fields `Dictionary{key: T, …}` (nest freely); any object `Dictionary`
+- alternatives `String | Dictionary{…}`
+
+Click a cell to edit it in a form (number fields with sliders, pickers for choices, add/remove/reorder for lists, a shape switch for alternatives) or in the **Raw JSON** tab. Numbers outside their range are clamped when you leave the field. Values that don't match the type are kept as written and marked with a warning icon and the reason. The row page shows the full form. Filters and sorts can read a field: type a path such as `stats.hp` next to the property. CSV export writes the JSON text.
+
+**Edit columns as JSON** (column header menu, or **Properties → Edit columns as JSON…**) edits the whole column setup as `{ columns, columnGroups }`. It's checked before saving, with a message for each problem. Keep each column's `id` so its values survive; removing a column asks first.
+
+### Column groups
+
+In a column header's menu choose **Group with…**, pick the columns and name the group. Grouped columns sit next to each other under a label row in tables and sheets. Click or right-click a label to rename it, add or remove columns, collapse or expand it (each view remembers its own), add a subgroup (two levels at most) or ungroup. Row pages and record previews list properties under their group headings.
+
+### Column display
+
+Each column can show values as **Clip** (default), **Wrap**, **Marquee** (long text scrolls sideways; it stays still with reduced motion), **Obfuscate** (`———` until you open the cell) or **Hide contents** (a narrow blank column). Set it in the column editor for all views, or per view in the column header menu (**Display in this view**), **Properties**, or **Layout → Column display**. Search, filters, sorts, formulas and exports always use the real value. Obfuscate is for tidiness and screen privacy, not security. **Column width…** in the column menu sets a width from the keyboard or on touch.
+
+On a phone, tap a calendar day to see its rows and add one.
+
 ### Right-click menus in databases
 
 - Right-click a row, card or post in any layout (long-press on a phone, or Shift+F10 / the Menu key on a focused item) to open, duplicate, copy a link to, or delete it. Delete asks first and can't be undone.
