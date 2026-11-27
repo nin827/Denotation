@@ -11,3 +11,8 @@ Raised: 2026-11-27
 4. `app.js`: `route()` calls `drawSidebar()` twice per navigation; drop one.
 5. Saving after a `SUM(ALL(..))`-style formula change writes every row synchronously: add `store.setMany` or chunked
    deferred saves, flushed on hide like other pending saves.
+6. (from constants) After a constant changes, database formula caches recompute only when that database is opened;
+   the MCP server sees stale values until then. Consider recomputing affected databases in the background.
+7. `pageView.js` `exportMarkdown` lookup has no `pageId`, so constants/statuses resolve via the first repository;
+   add `pageId`.
+8. Search (`plainText` → `stripInline` without a resolver) doesn't see constant values, page-chip titles or status labels.

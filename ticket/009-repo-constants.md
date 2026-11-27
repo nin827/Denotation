@@ -1,6 +1,6 @@
 # 009: Repo-wide constants
 
-Status: queued (starts after the performance pass, which owns the editor files)
+Status: resolved (built; see commit "Repo constants")
 Raised: 2026-11-27
 
 Request: label a constant, e.g. `foundedyear` = `2029`, per repository. Typing `@foundedyear` shows a dropdown below the
