@@ -222,6 +222,18 @@ Insert one with `/pivot`. Then, using the controls on the block:
 
 Totals for every row and column are shown, and the table updates when the database changes.
 
+### Record preview
+
+Show a few rows from a database right inside a page, looked up by their key.
+
+1. Type `/Record preview` (under Advanced) and pick a database.
+2. Type one or more **keys**, the values in the database's key column (the first column unless you change it). Press Enter or a comma after each. Matching ignores capitals and extra spaces.
+3. Use the **gear** to choose which columns show, their order, width, wrapping, alignment and labels, and whether rows show as a **table** or as **cards** (cards are the default for a single key).
+
+Missing keys say "No row with key …", and keys used by more than one row are marked. Click a row to open it.
+
+**Presets** keep record previews consistent. In the gear menu, **Save as preset…** stores the current display on the database itself. Other blocks can pick it under **Use preset**, and **Edit preset** changes every block that uses it, on every page. **Detach** gives one block its own copy. Deleting a preset leaves each block with a copy of it. Changing the **primary key column** changes it for the database everywhere.
+
 ### Locking a page
 
 **Lock page** in the page options makes the whole page read-only: no handles, no typing. Unlock it the same way. Pages in the trash are read-only too.

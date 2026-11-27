@@ -37,6 +37,7 @@ public/
     dbviews.js          filters, sorts, groups, chart/layout helpers (pure)
     formula.js          Excel-like formula engine             (pure)
     pivot.js            pivot tables                           (pure)
+    preview.js          record preview: key matching, preset/config resolution (pure)
     csv.js              CSV parse/serialise                    (pure)
     prefs.js            appearance preferences and tokens      (pure)
     ids.js              id generation
@@ -84,6 +85,9 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 
 - **Page types:** `repo` (top-level group), `doc` (blocks), `database` (columns + rows + views; `sourceId` makes it a linked view of another database), `sync` (synced block source).
 - **Rows** belong to a database, hold `values[colId]`, and have their own `blocks`, so each row is also a page. Formula columns cache their result in `values[colId]`; `applyFormulas` recomputes them.
+- **Record preview block** (`type: "preview"`): `{ dbId, keys, presetId, config, snapshot }`. Database pages may carry
+  `primaryKey: <colId>` (default first column) and `previewPresets: [{ id, name, layout, columns }]`. Resolution:
+  preset → snapshot (preset deleted) → own config → default.
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
 ## 7. UI conventions
