@@ -21,3 +21,8 @@ Raised: 2026-11-27
 10. Column groups: group label rows aren't sticky; freeze offsets ignore collapsed-group stubs.
 11. Table data sources: column ids are positional (`c0…`), so inserting a table column shifts chips that refer to
     later columns. Consider stable column ids on table blocks.
+
+## Done (commit "Faster local storage")
+- Items 2, 3 and 5: record cache, row index by `dbId`, `setMany` / `ws.saveRows` (also used by formula recompute in
+  `settle`). Also fixed: `createRow`'s `createdAt` counter wrapped after 1000 rows in one millisecond, so big CSV
+  imports came back out of order.

@@ -41,7 +41,6 @@ exports (ZIP/JSON)?
   Settings → Security whenever the app is unlocked. Off by default.
 
 ## Follow-ups
-- `bumpManifest` in `sync.js` drops unknown manifest fields, so an older app version could strip `encrypted` and write
-  plain files. Make it keep unknown fields; meanwhile update every device.
+- Done: `bumpManifest` keeps unknown manifest fields (older app versions could still strip them; update every device).
 - Not yet tried in real 7-Zip / WinRAR / Keka / Archive Utility (checked against an independent implementation only).
 - Optional `DENOTATION_PIN` for the MCP server.

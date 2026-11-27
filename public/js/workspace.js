@@ -139,7 +139,7 @@ export function createWorkspace(store) {
     const db = await createPage({ type: "database", title, parentId });
     db.columns = t.columns.map((c) => ({ id: newId(), name: c.name, type: c.type, config: {} }));
     await savePage(db);
-    for (const r of t.rows) await createRow(db, Object.fromEntries(db.columns.map((c, i) => [c.id, checked(c, r[i])])));
+    await createRows(db, t.rows.map((r) => Object.fromEntries(db.columns.map((c, i) => [c.id, checked(c, r[i])]))));
     return { db, rows: t.rows.length };
   };
   /**
@@ -152,7 +152,7 @@ export function createWorkspace(store) {
     db.columns = t.columns.map((c) => ({ id: newId(), name: c.name, type: "text", config: {} }));
     if (t.keyIndex > 0) db.primaryKey = db.columns[t.keyIndex].id;
     await savePage(db);
-    for (const r of t.rows) await createRow(db, Object.fromEntries(db.columns.map((c, i) => [c.id, r.values[t.columns[i].id]])));
+    await createRows(db, t.rows.map((r) => Object.fromEntries(db.columns.map((c, i) => [c.id, r.values[t.columns[i].id]]))));
     return { db, rows: t.rows.length };
   };
   const appendCsv = async (db, text) => {
@@ -160,35 +160,55 @@ export function createWorkspace(store) {
     if (!rows.length) throw new Error("That file has no rows.");
     if (!matched) throw new Error("No column of the file matches this database.");
     if (rows.length > CSV_MAX_ROWS) throw new Error(`Too many rows (${rows.length}). The limit is ${CSV_MAX_ROWS}.`);
-    const made = [];
-    for (const patch of rows) {
+    return createRows(db, rows.map((patch) => {
       const clean = {};
       for (const c of db.columns) if (c.id in patch) clean[c.id] = checked(c, patch[c.id]);
-      made.push(await createRow(db, clean));
-    }
-    return made;
+      return clean;
+    }));
   };
   const listRows = async (dbId) => (await store.list("rows", { dbId })).sort(byCreated);
+  // createdAt strictly increases within a session, so rows made in one millisecond (or one batch) keep their order.
+  let lastCreated = 0;
+  const makeRow = (db, patch = {}) => ({
+    id: newId(),
+    dbId: db.id,
+    createdAt: (lastCreated = Math.max(Date.now(), lastCreated + 1e-3)),
+    values: { ...Object.fromEntries(db.columns.map((c) => [c.id, defaultValue(c)])), ...patch }
+  });
+  /** Save many records of one collection in one batch (store.setMany when the adapter has it), then notify once. */
+  const putMany = async (col, list) => {
+    if (!list.length) return;
+    if (typeof store.setMany === "function") await store.setMany(col, list);
+    else for (const r of list) await store.set(col, r.id, r);
+    notify();
+  };
   const createRow = async (db, patch = {}) => {
-    const row = {
-      id: newId(),
-      dbId: db.id,
-      createdAt: Date.now() + (createRow.n = ((createRow.n ?? 0) + 1) % 1e3) / 1e3,
-      // keeps rows made in one millisecond in order
-      values: { ...Object.fromEntries(db.columns.map((c) => [c.id, defaultValue(c)])), ...patch }
-    };
+    const row = makeRow(db, patch);
     await put("rows", row.id, row);
     return row;
+  };
+  const createRows = async (db, patches) => {
+    const rows = patches.map((p) => makeRow(db, p));
+    await putMany("rows", rows);
+    return rows;
   };
   const saveRow = (row) => {
     row.updatedAt = Date.now();
     return put("rows", row.id, row);
+  };
+  /** saveRow for many rows at once (formula recompute, paste, column changes). */
+  const saveRows = (rows) => {
+    const list = [...rows];
+    const now = Date.now();
+    for (const r of list) r.updatedAt = now;
+    return putMany("rows", list);
   };
   const deleteRow = (id) => del("rows", id);
   const updateColumns = async (db, columns) => {
     const rows = await listRows(db.id);
     db.columns = columns;
     await savePage(db);
+    const changed = [];
     for (const row of rows) {
       const next = Object.fromEntries(columns.map((c) => [
         c.id,
@@ -196,9 +216,10 @@ export function createWorkspace(store) {
       ]));
       if (JSON.stringify(next) !== JSON.stringify(row.values)) {
         row.values = next;
-        await saveRow(row);
+        changed.push(row);
       }
     }
+    await saveRows(changed);
   };
   const deletePage = async (id) => {
     const pages = await listPages();
@@ -569,8 +590,8 @@ export function createWorkspace(store) {
     if (!data || data.app !== "denotation" && data.app !== "denotion" || !Array.isArray(data.pages) || !Array.isArray(data.rows)) {
       throw new Error("Not a Denotation export file");
     }
-    for (const p of data.pages) await put("pages", p.id, p);
-    for (const r of data.rows) await put("rows", r.id, r);
+    await putMany("pages", data.pages);
+    await putMany("rows", data.rows);
     return { pages: data.pages.length, rows: data.rows.length };
   };
   return {
@@ -610,6 +631,8 @@ export function createWorkspace(store) {
     getRow,
     createRow,
     saveRow,
+    saveRows,
+    createRows,
     deleteRow,
     updateColumns,
     exportAll,

@@ -19,6 +19,11 @@ export function createMemoryAdapter() {
     async set(name, id, data) {
       col(name).set(id, JSON.stringify(data));
     },
+    /** set() for each record (by record.id), in order. */
+    async setMany(name, records) {
+      const c = col(name);
+      for (const data of records) c.set(data.id, JSON.stringify(data));
+    },
     async remove(name, id) {
       col(name).delete(id);
     }

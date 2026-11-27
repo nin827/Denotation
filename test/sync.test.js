@@ -241,7 +241,7 @@ test("manifest stamp: bump keeps the format, increments rev, sets writer; any di
   assert.deepEqual(first, { app: "denotation", format: "json", version: 1, updatedAt: 1000, rev: 1, writer: "w-a" });
   const old = { app: "denotation", format: "json", version: 1, exportedAt: "2026-01-01T00:00:00.000Z", junk: "<x>", rev: 7, updatedAt: 5000, writer: "w-b" };
   const next = bumpManifest(old, "mcp-1", 2000);
-  assert.deepEqual(next, { app: "denotation", format: "json", version: 1, exportedAt: old.exportedAt, updatedAt: 5001, rev: 8, writer: "mcp-1" }, "updatedAt never goes back; unknown keys dropped");
+  assert.deepEqual(next, { app: "denotation", format: "json", version: 1, exportedAt: old.exportedAt, updatedAt: 5001, rev: 8, writer: "mcp-1", junk: "<x>" }, "updatedAt never goes back; unknown keys kept");
   assert.equal(manifestStamp(null), null);
   assert.deepEqual(manifestStamp({ rev: "3", writer: 5, updatedAt: "x" }), { rev: 3, writer: "", updatedAt: 0 });
   assert.deepEqual(manifestStamp({ app: "denotation" }), { rev: 0, writer: "", updatedAt: 0 }, "an unstamped manifest");
@@ -252,4 +252,26 @@ test("manifest stamp: bump keeps the format, increments rev, sets writer; any di
   assert.equal(sameStamp(s, { ...s, updatedAt: 1 }), false);
   assert.equal(sameStamp(null, null), true);
   assert.equal(sameStamp(null, s), false);
+});
+
+test("bumpManifest keeps unknown fields (encryption, newer apps) and still normalises the known ones", () => {
+  const enc = { encrypted: true, keyId: "a1b2c3d4e5f60718", encryption: { state: "encrypting", startedAt: 9 } };
+  const prev = { app: "denotion", format: "markdown", version: 7, exportedAt: 42, updatedAt: "100", rev: "4", writer: { x: 1 }, ...enc, future: [1, { y: 2 }], gone: undefined };
+  const next = bumpManifest(prev, "w".repeat(80), 50);
+  assert.deepEqual(next, { app: "denotation", format: "json", version: 1, updatedAt: 101, rev: 5, writer: "w".repeat(64), ...enc, future: [1, { y: 2 }] });
+  assert.equal("exportedAt" in next, false, "a non-string exportedAt is still dropped");
+  assert.equal("gone" in next, false);
+  // A chain of bumps by writers that know nothing about encryption never strips it.
+  let m = { app: "denotation", format: "json", version: 1, rev: 1, writer: "a", updatedAt: 1, ...enc };
+  for (let i = 0; i < 5; i++) m = bumpManifest(JSON.parse(JSON.stringify(m)), `w${i}`, i);
+  assert.deepEqual({ encrypted: m.encrypted, keyId: m.keyId, encryption: m.encryption }, enc);
+  assert.equal(m.rev, 6);
+  // Hostile input: no prototype pollution, arrays / non-objects count as empty.
+  const evil = JSON.parse('{"__proto__": {"polluted": true}, "rev": 1}');
+  const out = bumpManifest(evil, "w", 1);
+  assert.equal(out.polluted, undefined);
+  assert.equal({}.polluted, undefined);
+  assert.equal(Object.getPrototypeOf(out), Object.prototype);
+  assert.deepEqual(bumpManifest([1, 2], "w", 5), { app: "denotation", format: "json", version: 1, updatedAt: 5, rev: 1, writer: "w" });
+  assert.deepEqual(bumpManifest("x", "w", 5), bumpManifest(null, "w", 5));
 });

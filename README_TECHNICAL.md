@@ -89,11 +89,18 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
   list(collection, filter?) -> Promise<object[]>,
   get(collection, id)       -> Promise<object|null>,
   set(collection, id, data) -> Promise<void>,
-  remove(collection, id)    -> Promise<void> }
+  remove(collection, id)    -> Promise<void>,
+  setMany?(collection, records) -> Promise<void> }  // optional; each record by `id`; same result as awaiting `set` for each
 ```
 
 - `config.adapter: "auto"` uses `artifact-db` inside a Claude artifact, else `local`, else `memory` (with a note in the sidebar footer).
 - `local` keys look like `denotion:<collection>:<id>`.
+- `local` caches records in memory by storage key (`{ raw, text, dbId }`); every read compares the stored string, so
+  changes from any source are seen. Readers always get a fresh `JSON.parse` copy. Decrypted plaintext is cached only while
+  unlocked and dropped on any keyring key change (lock / unlock / adopt) or `dropCache()`. Per-collection key lists and a
+  `dbId → keys` row index follow the adapter's own writes and are rebuilt on `storage` events or key-count drift. Writes
+  to one key land in call order, even with encryption. `store.js` `setManyIn` falls back to a loop of `set`;
+  `workspace.js` uses it via `createRows` / `saveRows` (one change notification per batch; `createdAt` strictly increasing).
 - Collections: `pages` and `rows`. Every record carries `updatedAt` or `createdAt`.
 - Keep each record under ~250 KB. Images are embedded as data URLs and shrunk to about 150 KB.
 - Preferences live in `localStorage["denotion:prefs"]`.
@@ -121,7 +128,7 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
   provider uses File System Access; Google Drive / OneDrive will plug in as providers). Per-device config:
   `localStorage["denotion:storage-locations"]` = `[{ id, type, name, role: "main"|"backup", addedAt, lastSyncAt }]`;
   handles in IndexedDB (db `denotation`, store `handles`, key `loc:<id>`); the old single folder handle migrates to a main.
-  - **Main** (zero or one): two-way. Change detection: every writer stamps `denotation.json` with `{ …, updatedAt, rev, writer }` after changing records (`bumpManifest` in `sync.js`; `rev` +1, `writer` a per-device id in `localStorage["denotion:device-id"]`, or `mcp-<hex>` for the MCP server); the device keeps the stamp it last synced with as `seen` on the location. **Auto** (`denotion:folder-sync` = `{ mode, pushMinutes }`, migrated from the old mode string): a full merge on connect (add / make main / permission grant / boot / switch to Auto); a check that reads only the manifest on focus / visibility and every 30 s while visible, which pulls (full merge) only when the stamp differs. One shared 30 s cooldown (`SYNC_COOLDOWN_MS`) spaces checks and covers pulls and manual Pull / Push: a focus inside the window queues one trailing check; manual calls are refused with `code: "cooldown"` and the UI shows the seconds left. Local edits are queued and pushed every `pushMinutes` (5 / 10 / 15 / 30 / 60, default and minimum 5): stamp unchanged → write just those records and bump the stamp; changed → full merge. Pending edits are pushed at once (`flush()`) on `pagehide` / `beforeunload` / hidden, on disconnect / remove / make main / switch to Manual, and before Pull / Push, without moving the interval. **Manual**: no automatic
+  - **Main** (zero or one): two-way. Change detection: every writer stamps `denotation.json` with `{ …, updatedAt, rev, writer }` after changing records (`bumpManifest` in `sync.js` keeps unknown fields such as `encrypted` / `keyId` and normalises the known ones; `rev` +1, `writer` a per-device id in `localStorage["denotion:device-id"]`, or `mcp-<hex>` for the MCP server); the device keeps the stamp it last synced with as `seen` on the location. **Auto** (`denotion:folder-sync` = `{ mode, pushMinutes }`, migrated from the old mode string): a full merge on connect (add / make main / permission grant / boot / switch to Auto); a check that reads only the manifest on focus / visibility and every 30 s while visible, which pulls (full merge) only when the stamp differs. One shared 30 s cooldown (`SYNC_COOLDOWN_MS`) spaces checks and covers pulls and manual Pull / Push: a focus inside the window queues one trailing check; manual calls are refused with `code: "cooldown"` and the UI shows the seconds left. Local edits are queued and pushed every `pushMinutes` (5 / 10 / 15 / 30 / 60, default and minimum 5): stamp unchanged → write just those records and bump the stamp; changed → full merge. Pending edits are pushed at once (`flush()`) on `pagehide` / `beforeunload` / hidden, on disconnect / remove / make main / switch to Manual, and before Pull / Push, without moving the interval. **Manual**: no automatic
     writes; Pull / Push mirror one side onto the other after a conflict warning; a read-only check (once per window)
     powers the footer counts. Connect, make main and permission grants run at once and start the cooldown.
   - **Backups**: copy-only. The app writes changed records, tombstones, `denotation.json` and `permissions.json` after each push / sync of the main (or on the push interval with no main), and when the page is hidden; never reads them during sync. Restore = JSON restore with fresh

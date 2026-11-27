@@ -235,13 +235,22 @@ export function sameStamp(a, b) {
   if (!a || !b) return !a && !b;
   return a.rev === b.rev && a.writer === b.writer && a.updatedAt === b.updatedAt;
 }
-/** The manifest a writer stores after a change: the previous one with a bumped stamp (unknown keys dropped). */
+const MANIFEST_KNOWN = new Set(["app", "format", "version", "exportedAt", "updatedAt", "rev", "writer"]);
+/**
+ * The manifest a writer stores after a change: the previous one with a bumped stamp. Known fields are normalised;
+ * unknown fields (e.g. `encrypted`, `keyId`, `encryption` from crypto.js, or ones a newer app adds) are kept as
+ * they are, so an app that doesn't know them can't strip them.
+ */
 export function bumpManifest(prev, writer, now = Date.now()) {
-  const p = prev && typeof prev === "object" ? prev : {};
+  const p = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
   const out = { app: "denotation", format: "json", version: 1 };
   if (typeof p.exportedAt === "string") out.exportedAt = p.exportedAt.slice(0, 40);
   out.updatedAt = Math.max(Number(now) || 0, (Number(p.updatedAt) || 0) + 1);
   out.rev = (manifestStamp(p)?.rev ?? 0) + 1;
   out.writer = String(writer ?? "").slice(0, 64);
+  for (const [k, v] of Object.entries(p)) {
+    if (MANIFEST_KNOWN.has(k) || k === "__proto__" || v === undefined) continue;
+    out[k] = v;
+  }
   return out;
 }

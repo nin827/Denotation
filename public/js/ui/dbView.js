@@ -109,9 +109,18 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
     next.then(() => queue.get(row.id) === next && queue.delete(row.id), () => queue.get(row.id) === next && queue.delete(row.id));
     return next;
   };
+  /** One batched save for several rows, queued behind each row's pending save and ahead of later ones. */
+  const saveRowsQueued = (list) => {
+    const next = Promise.all(list.map((r) => (queue.get(r.id) ?? Promise.resolve()).catch(() => {}))).then(() => ws.saveRows(list));
+    const done = () => list.forEach((r) => queue.get(r.id) === next && queue.delete(r.id));
+    list.forEach((r) => queue.set(r.id, next));
+    next.then(done, done);
+    return next;
+  };
   const settle = () => {
-    for (const r of applyFormulas(db.columns, rows)) saveRow(r).catch(() => {
-    });
+    const ch = applyFormulas(db.columns, rows);
+    if (ch.length > 1 && ws.saveRows) saveRowsQueued(ch).catch(() => {});
+    else for (const r of ch) saveRow(r).catch(() => {});
     const els = root.querySelectorAll("[data-frow]");
     if (!els.length) return;
     const byId = new Map(rows.map((r) => [r.id, r]));
@@ -219,14 +228,8 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
       /** Saves each distinct row once and recomputes formulas once (after a batch of deferred setCell calls). */
       commitRows(list) {
         const uniq = [...new Set(list)];
-        if (uniq.length > 1 && ws.saveRows) {
-          // One batched save, queued behind each row's pending save and ahead of later ones (same order as saveRow).
-          const next = Promise.all(uniq.map((r) => (queue.get(r.id) ?? Promise.resolve()).catch(() => {}))).then(() => ws.saveRows(uniq));
-          const done = () => uniq.forEach((r) => queue.get(r.id) === next && queue.delete(r.id));
-          uniq.forEach((r) => queue.set(r.id, next));
-          next.then(done, done);
-          next.catch((e) => toast(e.message, "error"));
-        } else for (const row of uniq) saveRow(row).catch((e) => toast(e.message, "error"));
+        if (uniq.length > 1 && ws.saveRows) saveRowsQueued(uniq).catch((e) => toast(e.message, "error"));
+        else for (const row of uniq) saveRow(row).catch((e) => toast(e.message, "error"));
         settle();
       }
     };

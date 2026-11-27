@@ -273,7 +273,7 @@ export const encryptRecord = (dek, kid, col, id, rec) => encryptText(dek, kid, c
 export const decryptRecord = async (dek, col, id, env) => JSON.parse(await decryptText(dek, col, id, env));
 
 // ---------- manifest fields ----------
-/** Encryption fields of a manifest (bumpManifest keeps only the stamp and format fields). */
+/** Encryption fields of a manifest (bumpManifest keeps these too, as unknown fields). */
 export function encFields(m) {
   const out = {};
   if (!m || typeof m !== "object") return out;

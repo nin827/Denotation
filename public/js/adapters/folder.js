@@ -856,6 +856,18 @@ export function createFolderAdapter(cache, {
       await cache.set(col, id, data);
       if (COLS.includes(col)) schedule(col, id);
     },
+    /** Batched set(): one cache write call, then every record is queued for the push like set() does. */
+    async setMany(col, records) {
+      try {
+        if (typeof cache.setMany === "function") await cache.setMany(col, records);
+        else for (const r of records) await cache.set(col, r.id, r);
+      } catch (e) {
+        // Part of the batch may be saved (e.g. quota): queue exactly the records the cache now holds, as set() would have.
+        if (COLS.includes(col)) for (const r of records) if (JSON.stringify(await cache.get(col, r.id).catch(() => null)) === JSON.stringify(r)) schedule(col, r.id);
+        throw e;
+      }
+      if (COLS.includes(col)) for (const r of records) schedule(col, r.id);
+    },
     async remove(col, id) {
       await cache.remove(col, id);
       if (!COLS.includes(col) || !locs.length) return;

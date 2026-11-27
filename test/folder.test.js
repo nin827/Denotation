@@ -1216,3 +1216,81 @@ test("locked app (key dropped): automatic syncs wait, the folder is untouched", 
   await advance(31_000);
   assert.equal(JSON.stringify(folderFiles(dir)), before);
 }));
+
+// ---------- setMany passthrough ----------
+const lsStub = () => {
+  const m = new Map();
+  let keys = null;
+  return {
+    get length() {
+      return m.size;
+    },
+    key: (i) => (keys ??= [...m.keys()])[i] ?? null,
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => {
+      if (!m.has(k)) keys = null;
+      m.set(k, String(v));
+    },
+    removeItem: (k) => {
+      if (m.delete(k)) keys = null;
+    }
+  };
+};
+const dirFiles = (dir) => {
+  const out = {};
+  for (const sub of ["pages", "rows"]) for (const [n, f] of dir.tree.get(sub)?.tree ?? []) out[`${sub}/${n}`] = f.content;
+  return out;
+};
+for (const kind of ["local", "memory", "no-setMany"]) {
+  test(`setMany marks every record dirty like N set() calls and pushes the same files (${kind} cache)`, () => withClock(async () => {
+    const { createLocalAdapter } = await import("../public/js/adapters/local.js");
+    const makeCache = () => {
+      if (kind === "local") return createLocalAdapter(lsStub(), "denotion", { win: null });
+      const m = createMemoryAdapter();
+      if (kind === "no-setMany") delete m.setMany;
+      return m;
+    };
+    const run = async (batched) => {
+      const dir = fakeDir("V");
+      const fs = createFolderAdapter(makeCache(), { win: fakeWin(), pollMs: 0, storage: null });
+      await fs.connect(dir);
+      await advance(1_000);
+      const rows = Array.from({ length: 30 }, (_, i) => ({ id: `r${i % 25}`, dbId: "db", createdAt: i, updatedAt: 100 + i, values: { a: i } }));
+      if (batched) await fs.setMany("rows", rows);
+      else for (const r of rows) await fs.set("rows", r.id, r);
+      await fs.set("pages", "p", page("p", "P", 5));
+      const unpushed = fs.status().unpushed;
+      const listed = (await fs.list("rows", { dbId: "db" })).sort((a, b) => a.createdAt - b.createdAt);
+      await advance(5 * MIN);
+      return { unpushed, after: fs.status().unpushed, files: dirFiles(dir), listed };
+    };
+    const one = await run(false);
+    const many = await run(true);
+    assert.equal(one.unpushed, 26);
+    assert.deepEqual(many, one);
+    assert.equal(Object.keys(many.files).filter((k) => k.startsWith("rows/")).length, 25);
+  }));
+}
+test("setMany in manual mode: every record counts as unpushed until Push", async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), mode: "manual", pollMs: 0, cooldownMs: 0, storage: null });
+  await fs.connect(dir);
+  await fs.setMany("rows", [{ id: "a", dbId: "d", createdAt: 1, values: {} }, { id: "b", dbId: "d", createdAt: 2, values: {} }]);
+  assert.equal(fs.status().unpushed, 2);
+  assert.equal(dir.read("rows/a.json"), undefined, "manual mode writes nothing on its own");
+});
+test("setMany that fails part-way (quota) still queues the records it saved, and only those", async () => {
+  const { createLocalAdapter } = await import("../public/js/adapters/local.js");
+  const s = lsStub();
+  let n = 0;
+  const set = s.setItem;
+  s.setItem = (k, v) => {
+    if (k.startsWith("denotion:rows:") && ++n > 3) throw new Error("QuotaExceededError");
+    set(k, v);
+  };
+  const fs = createFolderAdapter(createLocalAdapter(s, "denotion", { win: null }), { win: fakeWin(), mode: "manual", pollMs: 0, cooldownMs: 0, storage: null });
+  await fs.connect(fakeDir("V"));
+  const rows = Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, dbId: "d", createdAt: i, values: {} }));
+  await assert.rejects(fs.setMany("rows", rows), /Quota/);
+  assert.equal(fs.status().unpushed, 3);
+});

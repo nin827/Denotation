@@ -75,7 +75,7 @@ export async function createArtifactDbAdapter({ scope = "private", claude = glob
     });
     return next;
   };
-  return {
+  const api = {
     name: "artifact-db",
     label: priv ? "Claude artifact (private to you)" : "Claude artifact (shared)",
     scope,
@@ -119,6 +119,10 @@ export async function createArtifactDbAdapter({ scope = "private", claude = glob
         seen.set(key, json);
       });
     },
+    /** No batch call in the artifact database: set() for each record (by record.id), one after another, in order. */
+    async setMany(col, records) {
+      for (const data of records) await api.set(col, data.id, data);
+    },
     async remove(col, id) {
       const ref = docRef(col, id);
       const key = keyOf(col, id);
@@ -128,6 +132,7 @@ export async function createArtifactDbAdapter({ scope = "private", claude = glob
       });
     }
   };
+  return api;
 }
 const PRIVATE_PREFIX = "data/users";
 const SEGMENT = /^[A-Za-z0-9_\-.~:@+]+$/;

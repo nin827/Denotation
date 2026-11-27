@@ -4,6 +4,15 @@ const ADAPTERS = {
   "artifact-db": async (config) => (await import("./adapters/artifact-db.js")).createArtifactDbAdapter(config.artifactDb),
   firebase: async (config) => (await import("./adapters/firebase.js")).createFirebaseAdapter(config.firebase)
 };
+/**
+ * Save many records of one collection (each by its `id`): the adapter's setMany when it has one, else set() one by
+ * one in order. The result is the same as awaiting set(collection, r.id, r) for each record.
+ */
+export async function setManyIn(store, collection, records) {
+  const list = [...records];
+  if (typeof store?.setMany === "function") return store.setMany(collection, list);
+  for (const r of list) await store.set(collection, r.id, r);
+}
 const inClaudeArtifact = () => typeof globalThis.claude?.use === "function";
 export async function createStore(config = {}) {
   const name = config.adapter ?? "auto";
