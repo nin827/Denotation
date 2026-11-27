@@ -13,7 +13,7 @@ Denotation is a personal workspace that runs entirely in your browser: pages mad
 3. [Writing pages](#3-writing-pages)
 4. [Databases](#4-databases)
 5. [Formulas](#5-formulas)
-6. [Tickets](#6-tickets)
+6. [Feedback](#6-feedback)
 7. [Your data](#7-your-data)
 8. [Appearance](#8-appearance)
 9. [Keyboard shortcuts](#9-keyboard-shortcuts)
@@ -63,10 +63,10 @@ The sidebar is on the left. From top to bottom:
 | **New** button | Opens a menu to create a page, database, sheet, or a database from a CSV file |
 | Search icon | Opens quick find |
 | Lock / close icons | Lock the sidebar open, or close it when it is unlocked |
-| **Search**, **Settings**, **Ticket**, **Trash** | The four tools. Settings opens [Appearance](#8-appearance); Ticket opens the [feedback form](#6-tickets) |
+| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Export ▸**, **Import ▸**, **Folder ▸** (Chrome or Edge) and **AI access…** |
 | **Favorites** | Pages you starred (only shown when you have some) |
 | **Repositories** | Your top-level folders, with their pages nested underneath |
-| Footer | Where your data is stored, plus **Export** and **Import** |
+| Footer | Where your data is stored (this browser, or the connected folder) |
 
 On a wide screen the sidebar is **locked open** by default. Unlock it with the padlock icon if you want more room: it then slides in over the page when you open it, and out of the way when you pick a page. On a phone it starts closed, and a small button on the left edge opens it. **Ctrl/Cmd + \\** also opens and closes the sidebar once it is unlocked.
 
@@ -337,17 +337,17 @@ Pivot tables and the sheet footer are the quickest way to total a column without
 
 ---
 
-## 6. Tickets
+## 6. Feedback
 
-The **Ticket** button in the sidebar is a built-in way to jot down feedback or a request, for yourself or for whoever looks after your workspace. It is not an outside service: tickets live in your own workspace.
+**Feedback** is a built-in way to jot down an idea, a problem or a feature request, for yourself or for whoever looks after your workspace. It isn't an outside service: feedback stays in your own workspace.
 
-1. Click **Ticket** in the sidebar.
-2. Choose **Feedback** or **Request**.
-3. Write a short **Title**.
-4. Add **Details** if you like. Markdown works (`**bold**`, `` `code` ``, lists, quotes, links), there is a small toolbar, and a **Preview** tab. You can attach up to three small pictures: paste or drop them in, or use the picture button.
-5. Press **File ticket**.
+1. Open **⋯ → Feedback**.
+2. Choose **Feedback** or **Feature request**.
+3. Write a short **title**, then press **Enter** to start writing.
+4. Write it just like a page: type `/` for blocks, use markdown shortcuts, and paste or drop pictures.
+5. Press **File feedback** (or **Cancel**, which leaves no trace).
 
-The first ticket creates a database called **Tickets** in your repository. It has the columns *Title*, *Type*, *Status* (Open, In progress or Done) and *Details*, plus two views: **All tickets** (a table) and **By status** (a board). Each ticket is a row, and a full page, so the long write-up and pictures are inside it. Move tickets across the board as they progress.
+The first one creates a database called **Feedback** in your repository, with the columns *Title*, *Type*, *Status* (Open, In progress or Done) and *Details*, and two views: **All feedback** (a table) and **By status** (a board). Each item is a row and a full page. Move items across the board as they progress. A database from an older version called **Tickets** is renamed to Feedback automatically.
 
 ---
 
@@ -540,4 +540,4 @@ Some embedded views block downloads. Denotation then copies the data to your cli
 Inside a block, that key makes a link. Click outside the text first, or use the **Search** button in the sidebar.
 
 **Something else is wrong.**
-Reload the page, since your changes are saved as you go. If it keeps happening, file a **Ticket** (section 6) describing what you did, then export a backup.
+Reload the page, since your changes are saved as you go. If it keeps happening, file **Feedback** (section 6) describing what you did, then export a backup.
