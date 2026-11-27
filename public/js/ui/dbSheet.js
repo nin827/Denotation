@@ -1,0 +1,337 @@
+import {
+  toText,
+  fromText,
+  toTsv,
+  parseTsv,
+  calculate,
+  CALCS,
+  isNumeric,
+  colWidth,
+  colLetter
+} from "../dbviews.js";
+import { parseCsv } from "../csv.js";
+import { h } from "./dom.js";
+import { ico } from "../icons/index.js";
+import { openValueEditor } from "./valueEditors.js";
+import { formulaCell } from "./cellEditors.js";
+import { toast } from "./dialogs.js";
+import { frozenClass, wrapClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
+
+const sel = new Map();
+const RN = 38;
+const COMPOSITE = (c) => c.type === "array" || c.type === "dictionary";
+export function renderSheet(a) {
+  const R = a.rows.length;
+  const C = a.cols.length;
+  const s = sel.get(a.db.id) ?? { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } };
+  sel.set(a.db.id, s);
+  const clamp = () => {
+    for (const p of [s.a, s.f]) {
+      p.r = Math.max(0, Math.min(R - 1, p.r));
+      p.c = Math.max(0, Math.min(C - 1, p.c));
+    }
+  };
+  clamp();
+  const range = () => ({ r1: Math.min(s.a.r, s.f.r), r2: Math.max(s.a.r, s.f.r), c1: Math.min(s.a.c, s.f.c), c2: Math.max(s.a.c, s.f.c) });
+  const tbody = h("tbody");
+  const cellEls = [];
+  const paint = () => {
+    const g = range();
+    cellEls.forEach((row, r) => row.forEach((td, c) => {
+      const inR = r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2;
+      td.classList.toggle("sel", inR);
+      td.classList.toggle("focus", r === s.f.r && c === s.f.c);
+    }));
+    cellEls[s.f.r]?.[s.f.c]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  };
+  const select = (r, c, extend) => {
+    s.f = { r, c };
+    if (!extend) s.a = { r, c };
+    clamp();
+    paint();
+    root.focus({ preventScroll: true });
+  };
+  const display = (col, v, rowId) => {
+    if (col.type === "formula") return formulaCell(col, v, rowId);
+    if (col.type === "checkbox") return h("span", { class: `sheet-check${v ? " on" : ""}` }, v ? ico("check") : null);
+    return document.createTextNode(toText(col, v));
+  };
+  const setText = (r, c, text) => {
+    const col = a.cols[c];
+    const row = a.rows[r];
+    if (!col || !row || col.type === "formula") return { ok: true };
+    const v = fromText(col, text);
+    if (v === void 0) return { ok: false, error: `${col.name}: cannot read that value.` };
+    return a.setCell(row, col, v);
+  };
+  const refreshCell = (r, c) => {
+    const td = cellEls[r]?.[c];
+    if (!td) return;
+    td.replaceChildren(display(a.cols[c], a.rows[r].values[a.cols[c].id], a.rows[r].id));
+  };
+  function edit(r, c, seed) {
+    const col = a.cols[c];
+    const row = a.rows[r];
+    const td = cellEls[r]?.[c];
+    if (!col || !row || !td) return;
+    if (col.type === "formula") {
+      toast("Formula cells are computed. Click the column name to edit the formula.");
+      return;
+    }
+    const cur = row.values[col.id];
+    if (col.type === "checkbox") {
+      a.setCell(row, col, !cur);
+      refreshCell(r, c);
+      return;
+    }
+    if (COMPOSITE(col)) {
+      openValueEditor(col, cur, (v) => {
+        const x = a.setCell(row, col, v);
+        if (!x.ok) toast(x.error, "error");
+        refreshCell(r, c);
+      });
+      return;
+    }
+    let input;
+    if (col.type === "select") {
+      input = h("select", {}, h("option", { value: "" }, ""), (col.config?.options || []).map((o) => h("option", { value: o }, o)));
+      input.value = cur ?? "";
+    } else {
+      input = h("input", { type: col.type === "date" ? "date" : "text", class: "sheet-input" });
+      input.value = seed !== void 0 ? seed : toText(col, cur);
+    }
+    let done = false;
+    const finish = (commit, move) => {
+      if (done) return;
+      done = true;
+      if (commit) {
+        const res = setText(r, c, input.value);
+        if (!res.ok) toast(res.error, "error");
+      }
+      refreshCell(r, c);
+      if (move) select(Math.min(R - 1, r + move.r), Math.min(C - 1, c + move.c));
+      else root.focus({ preventScroll: true });
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true, { r: e.shiftKey ? -1 : 1, c: 0 });
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        finish(true, { r: 0, c: e.shiftKey ? -1 : 1 });
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+    td.replaceChildren(input);
+    input.focus();
+    if (seed === void 0 && input.select) input.select();
+  }
+  function clear() {
+    const g = range();
+    let bad = 0;
+    for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) {
+      if (!setText(r, c, "").ok) bad++;
+      refreshCell(r, c);
+    }
+    if (bad) toast(`${bad} cell${bad > 1 ? "s" : ""} cannot be empty.`, "error");
+  }
+  const gridText = () => {
+    const g = range();
+    const out = [];
+    for (let r = g.r1; r <= g.r2; r++) {
+      const line = [];
+      for (let c = g.c1; c <= g.c2; c++) line.push(toText(a.cols[c], a.rows[r].values[a.cols[c].id]));
+      out.push(line);
+    }
+    return toTsv(out);
+  };
+  async function paste(text) {
+    let grid = parseTsv(text);
+    if (!/\t/.test(text)) {
+      const csv = parseCsv(text);
+      if (csv.length >= 2 && csv[0].length >= 2) grid = csv;
+    }
+    if (!grid.length) return;
+    const g = range();
+    const single = grid.length === 1 && grid[0].length === 1;
+    const rows = single ? Array.from({ length: g.r2 - g.r1 + 1 }, () => Array(g.c2 - g.c1 + 1).fill(grid[0][0])) : grid;
+    const targets = a.rows.slice();
+    while (g.r1 + rows.length > targets.length) targets.push(await a.addRow());
+    let bad = 0;
+    rows.forEach((line, i) => line.forEach((t, j) => {
+      const c = g.c1 + j;
+      const row = targets[g.r1 + i];
+      if (c >= C || !row) return;
+      const col = a.cols[c];
+      const v = fromText(col, t);
+      if (v === void 0 || !a.setCell(row, col, v).ok) bad++;
+    }));
+    a.redraw();
+    if (bad) toast(`${bad} value${bad > 1 ? "s" : ""} skipped (invalid for the column type).`, "error");
+  }
+  const onKey = (e) => {
+    if (!R || !C) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const move = (dr, dc) => {
+      e.preventDefault();
+      select(s.f.r + dr, s.f.c + dc, e.shiftKey);
+    };
+    switch (e.key) {
+      case "ArrowUp":
+        return move(-1, 0);
+      case "ArrowDown":
+        return move(1, 0);
+      case "ArrowLeft":
+        return move(0, -1);
+      case "ArrowRight":
+        return move(0, 1);
+      case "Tab":
+        return move(0, e.shiftKey ? -1 : 1);
+      case "Enter":
+        e.preventDefault();
+        return edit(s.f.r, s.f.c);
+      case "F2":
+        e.preventDefault();
+        return edit(s.f.r, s.f.c);
+      case "Delete":
+      case "Backspace":
+        e.preventDefault();
+        return clear();
+      case "Escape":
+        return select(s.f.r, s.f.c);
+      case " ":
+        if (a.cols[s.f.c]?.type === "checkbox") {
+          e.preventDefault();
+          return edit(s.f.r, s.f.c);
+        }
+        break;
+      default:
+    }
+    if (mod && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      s.a = { r: 0, c: 0 };
+      s.f = { r: R - 1, c: C - 1 };
+      paint();
+      return;
+    }
+    if (!mod && !e.altKey && e.key.length === 1 && !COMPOSITE(a.cols[s.f.c] || {}) && a.cols[s.f.c]?.type !== "checkbox" && a.cols[s.f.c]?.type !== "select") {
+      e.preventDefault();
+      edit(s.f.r, s.f.c, e.key);
+    }
+  };
+  const root = h("div", { class: "sheet", tabindex: 0, role: "grid", "aria-label": "Sheet", onKeydown: onKey });
+  root.addEventListener("copy", (e) => {
+    if (!R) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", gridText());
+  });
+  root.addEventListener("cut", (e) => {
+    if (!R) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", gridText());
+    clear();
+  });
+  root.addEventListener("paste", (e) => {
+    if (e.target.closest?.("input,select")) return;
+    e.preventDefault();
+    paste(e.clipboardData.getData("text/plain"));
+  });
+  a.rows.forEach((row, r) => {
+    const tds = a.cols.map((col, c) => {
+      const td = h("td", {
+        class: `sheet-cell t-${col.type}${frozenClass(a, c)}${wrapClass(a, col)}`,
+        style: cellStyle(a, col, c, RN),
+        "data-r": r,
+        "data-c": c,
+        role: "gridcell",
+        onMousedown: (e) => {
+          if (e.target.closest("input,select")) return;
+          e.preventDefault();
+          select(r, c, e.shiftKey);
+          dragging = true;
+        },
+        onMouseenter: () => {
+          if (dragging) {
+            s.f = { r, c };
+            paint();
+          }
+        },
+        onDblclick: () => edit(r, c)
+      }, display(col, row.values[col.id], row.id));
+      return td;
+    });
+    cellEls.push(tds);
+    tbody.append(h(
+      "tr",
+      {},
+      h("th", { class: "sheet-rn", title: "Select row; double-click to open as page", onMousedown: (e) => {
+        e.preventDefault();
+        s.a = { r, c: 0 };
+        s.f = { r, c: C - 1 };
+        paint();
+        root.focus({ preventScroll: true });
+      }, onDblclick: () => a.onOpenRow?.(row.id) }, String(r + 1)),
+      tds
+    ));
+  });
+  let dragging = false;
+  const stop = () => {
+    dragging = false;
+  };
+  document.addEventListener("mouseup", stop);
+  const cleanup = new MutationObserver(() => {
+    if (!root.isConnected) {
+      document.removeEventListener("mouseup", stop);
+      cleanup.disconnect();
+    }
+  });
+  queueMicrotask(() => root.isConnected && cleanup.observe(root.parentNode || document.body, { childList: true, subtree: true }));
+  const footer = h("tr", { class: "sheet-foot" }, h("th", {}), a.cols.map((col, ci) => {
+    const cur = a.view.calc?.[col.id] || "none";
+    const val = cur === "none" ? null : calculate(col, a.rows, cur);
+    const opts = CALCS.filter((k) => !k.numeric || isNumeric(col));
+    const pick = h("select", {
+      class: "sheet-calc",
+      "aria-label": `Calculate ${col.name}`,
+      onChange: async (e) => {
+        a.view.calc = { ...a.view.calc || {}, [col.id]: e.target.value };
+        await a.saveView?.();
+        a.redraw();
+      }
+    }, opts.map((k) => h("option", { value: k.id, selected: k.id === cur }, k.id === "none" ? "Calculate" : k.label)));
+    return h("td", { class: frozenClass(a, ci).trim(), style: cellStyle(a, col, ci, RN) }, cur !== "none" && val !== null ? h("span", { class: "calc-val" }, `${CALCS.find((k) => k.id === cur).label}: ${val}`) : null, pick);
+  }));
+  const cg = a.cols.map((col) => {
+    const c = h("col");
+    c.style.width = `${colWidth(a.view, col)}px`;
+    return c;
+  });
+  const table = h(
+    "table",
+    { class: "sheet-table fixed", style: `width:${tableWidth(a, RN)}px` },
+    h(
+      "thead",
+      {},
+      h("tr", { class: "sheet-letters" }, h("th", {}), a.cols.map((col, i) => h("th", { class: frozenClass(a, i).trim(), style: cellStyle(a, col, i, RN) }, colLetter(i)))),
+      h("tr", {}, h("th", {}), a.cols.map((col, i) => h("th", { class: `sheet-name${frozenClass(a, i)}`, style: cellStyle(a, col, i, RN), title: "Edit column", onClick: () => a.editColumn(col) }, h("span", {}, col.name), resizeHandle(a, col, { colEl: cg[i], tableEl: () => table, extra: RN }))), h("th", { class: "sheet-addcol", title: "Add column", "aria-label": "Add column", onClick: () => a.editColumn(null) }, ico("plus")))
+    ),
+    tbody,
+    h("tfoot", {}, footer)
+  );
+  table.prepend(h("colgroup", {}, h("col", { style: `width:${RN}px` }), cg, h("col", { style: "width:40px" })));
+  root.append(
+    h("div", { class: "tbl-scroll" }, table),
+    h("button", { class: "add-row sheet-add", onClick: async () => {
+      await a.addRow();
+      sel.set(a.db.id, { a: { r: R, c: 0 }, f: { r: R, c: 0 } });
+      a.redraw();
+    } }, ico("plus"), " New row"),
+    h("div", { class: "hint sheet-hint" }, "Arrows move, Shift extends, Enter or typing edits, Ctrl+C / V copy and paste from Excel or Sheets.")
+  );
+  paint();
+  return root;
+}

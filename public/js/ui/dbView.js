@@ -1,0 +1,439 @@
+import { applyFormulas, formatResult, isErrorValue, renameColumnRefs } from "../formula.js";
+import { validate, describe, typeLabel } from "../schema.js";
+import {
+  ensureViews,
+  visibleRows,
+  isNumeric,
+  CHART_TYPES,
+  CHART_AGGS,
+  newView,
+  VIEW_TYPES,
+  typeInfo,
+  colWidth
+} from "../dbviews.js";
+import { databaseToCsv } from "../csv.js";
+import { h } from "./dom.js";
+import { ico } from "../icons/index.js";
+import { openMenu } from "./popover.js";
+import { openModal } from "./modal.js";
+import { renderCell } from "./cellEditors.js";
+import { toast, confirmDialog } from "./dialogs.js";
+import { openColumnEditor } from "./columnEditor.js";
+import { openDbOptions } from "./dbOptions.js";
+import {
+  groupSections,
+  renderBoard,
+  renderList,
+  renderGallery,
+  renderCalendar,
+  renderFeed
+} from "./dbLayouts.js";
+import { renderChart, renderDashboard } from "./dbCharts.js";
+import {
+  openLayoutMenu,
+  tableWidth,
+  frozenClass,
+  cellStyle,
+  resizeHandle,
+  wrapClass
+} from "./dbCols.js";
+import { renderSheet } from "./dbSheet.js";
+import { pickCsv } from "./csvFile.js";
+import { saveTextFile } from "./files.js";
+
+const activeView = new Map();
+export async function renderDatabase(root, ws, link, { onOpenRow, onOpenPage } = {}) {
+  const src = link.sourceId ? await ws.getPage(link.sourceId) : null;
+  if (link.sourceId && (!src || src.trashedAt)) {
+    root.replaceChildren(h("p", { class: "hint" }, src ? "The source database of this linked view is in the trash. Restore it to see the data." : "The source database of this linked view no longer exists."));
+    return;
+  }
+  const data = src ?? link;
+  const db = Object.create(null);
+  Object.defineProperties(db, {
+    id: { get: () => link.id },
+    title: { get: () => link.title },
+    columns: { get: () => data.columns, set: (v) => {
+      data.columns = v;
+    }, enumerable: true },
+    views: { get: () => link.views, set: (v) => {
+      link.views = v;
+    }, enumerable: true }
+  });
+  let rows = await ws.listRows(data.id);
+  ensureViews(db);
+  const bar = h("div", { class: "db-toolbar" });
+  const body = h("div", { class: "db-wrap" });
+  const current = () => db.views.find((v) => v.id === activeView.get(db.id)) ?? db.views[0];
+  const saveViews = () => ws.savePage(link);
+  const reload = async () => {
+    rows = await ws.listRows(data.id);
+    settle();
+    draw();
+  };
+  const queue = new Map();
+  const saveRow = (row) => {
+    const prev = queue.get(row.id) ?? Promise.resolve();
+    const next = prev.catch(() => {
+    }).then(() => ws.saveRow(row));
+    queue.set(row.id, next);
+    return next;
+  };
+  const settle = () => {
+    for (const r of applyFormulas(db.columns, rows)) saveRow(r).catch(() => {
+    });
+    for (const el of root.querySelectorAll("[data-frow]")) {
+      const row = rows.find((r) => r.id === el.dataset.frow);
+      const v = row?.values?.[el.dataset.fcol];
+      el.textContent = formatResult(v);
+      el.classList.toggle("f-err", isErrorValue(v));
+      el.classList.toggle("num", typeof v === "number");
+    }
+  };
+  settle();
+  const editColumn = (col) => openColumnEditor({
+    column: col,
+    columns: db.columns,
+    rows,
+    onSave: async (next) => {
+      let columns = col ? db.columns.map((c) => c.id === col.id ? next : c) : [...db.columns, next];
+      if (col && col.name !== next.name) {
+        columns = columns.map((c) => c.type === "formula" && c.id !== next.id ? { ...c, config: { ...c.config, expr: renameColumnRefs(c.config?.expr, col.name, next.name) } } : c);
+      }
+      await ws.updateColumns(data, columns);
+      ensureViews(db);
+      await reload();
+    },
+    onDelete: col && db.columns.length > 1 ? async () => {
+      await ws.updateColumns(data, db.columns.filter((c) => c.id !== col.id));
+      ensureViews(db);
+      await saveViews();
+      await reload();
+    } : null
+  });
+  const api = () => {
+    const view = current();
+    const shown = db.columns.filter((c, i) => i === 0 || !view.hidden.includes(c.id));
+    return {
+      ws: ws,
+      db,
+      view: view,
+      saveView: saveViews,
+      settle,
+      allRows: rows,
+      rows: visibleRows(db, view, rows),
+      cols: shown,
+      onOpenRow,
+      editColumn,
+      saveRow,
+      redraw: () => draw(),
+      reload,
+      title: (row) => String(row.values?.[db.columns[0].id] ?? "") || "Untitled",
+      async addRow(patch = {}) {
+        const row = await ws.createRow(data, patch);
+        rows.push(row);
+        settle();
+        return row;
+      },
+      async removeRow(row) {
+        await ws.deleteRow(row.id);
+        rows = rows.filter((r) => r.id !== row.id);
+        settle();
+      },
+      /** Validates a raw input for one cell and saves it. Returns { ok, error }. */
+      setCell(row, col, raw) {
+        const r = validate(col, raw);
+        if (!r.ok) return r;
+        row.values[col.id] = r.value;
+        saveRow(row).catch((e) => toast(e.message, "error"));
+        settle();
+        return r;
+      }
+    };
+  };
+  function chartMenu(view) {
+    const c = view.chart ?? (view.chart = { type: "bar", x: null, agg: "count", y: null });
+    const set = (patch) => async () => {
+      Object.assign(c, patch);
+      await saveViews();
+      draw();
+    };
+    const nums = db.columns.filter(isNumeric);
+    const mark = (on) => ico(on ? "check" : "minus");
+    return [
+      { label: "Chart type", icon: ico("chart-pie"), items: CHART_TYPES.map((t) => ({ label: t.label, icon: mark(c.type === t.id), onSelect: set({ type: t.id }) })) },
+      { label: "X axis (group by)", icon: ico("group"), items: db.columns.filter((col) => ["select", "checkbox", "text", "date", "number"].includes(col.type)).map((col) => ({ label: col.name, icon: mark(c.x === col.id), onSelect: set({ x: col.id }) })) },
+      { label: "Value", icon: ico("sigma"), items: [
+        { label: "Row count", icon: mark(c.agg === "count"), onSelect: set({ agg: "count", y: null }) },
+        ...nums.flatMap((col) => CHART_AGGS.filter((g) => g.id !== "count").map((g) => ({ label: `${g.label} of ${col.name}`, icon: mark(c.agg === g.id && c.y === col.id), onSelect: set({ agg: g.id, y: col.id }) })))
+      ] }
+    ];
+  }
+  function renameView(v) {
+    const input = h("input", { type: "text", value: v.name, maxlength: 40 });
+    openModal({
+      title: "Rename view",
+      content: h("label", {}, "Name", input),
+      actions: [{ label: "Cancel" }, { label: "Save", class: "primary", run: async () => {
+        v.name = input.value.trim() || v.name;
+        await saveViews();
+        draw();
+      } }]
+    });
+    input.focus();
+  }
+  function viewMenu(anchor, v) {
+    openMenu(anchor, [
+      { label: "Rename", icon: ico("pencil"), onSelect: () => renameView(v) },
+      { label: "Duplicate", icon: ico("copy"), onSelect: async () => {
+        const c = { ...JSON.parse(JSON.stringify(v)), id: newView("table", db).id, name: `${v.name} copy` };
+        db.views.push(c);
+        activeView.set(db.id, c.id);
+        await saveViews();
+        draw();
+      } },
+      ...VIEW_TYPES.filter((t) => t.id !== v.type).map((t) => ({ label: `Show as ${t.label.toLowerCase()}`, icon: ico(t.icon), onSelect: async () => {
+        v.type = t.id;
+        const fresh = newView(t.id, db);
+        if (t.id === "board" && !v.groupBy) v.groupBy = fresh.groupBy;
+        if (t.id === "calendar" && !v.dateCol) v.dateCol = fresh.dateCol;
+        await saveViews();
+        draw();
+      } })),
+      ...db.views.length > 1 ? [{ label: "Delete view", icon: ico("trash"), danger: true, onSelect: async () => {
+        if (!await confirmDialog(`Delete the view "${v.name}"? Your rows are not affected.`, { title: "Delete view" })) return;
+        db.views = db.views.filter((x) => x.id !== v.id);
+        activeView.set(db.id, db.views[0].id);
+        await saveViews();
+        draw();
+      } }] : []
+    ], { width: 220 });
+  }
+  function drawBar() {
+    const view = current();
+    const filterN = view.filter.rules.length;
+    const badge = (n) => n ? h("span", { class: "badge" }, String(n)) : null;
+    const group = db.columns.find((c) => c.id === view.groupBy);
+    bar.replaceChildren(
+      h(
+        "div",
+        { class: "view-tabs", role: "tablist" },
+        db.views.map((v) => {
+          const on = v.id === view.id;
+          return h(
+            "div",
+            { class: `view-tab${on ? " on" : ""}`, role: "tab", "aria-selected": String(on) },
+            h("button", { class: "vt-main", onClick: () => {
+              activeView.set(db.id, v.id);
+              draw();
+            } }, ico(typeInfo(v.type).icon), h("span", {}, v.name)),
+            on ? h("button", { class: "icon vt-menu", title: "View options", "aria-label": "View options", onClick: (e) => viewMenu(e.currentTarget, v) }, ico("chevron-down")) : null
+          );
+        }),
+        h("button", {
+          class: "icon add-view",
+          title: "Add a view",
+          "aria-label": "Add a view",
+          onClick: (e) => openMenu(e.currentTarget, VIEW_TYPES.map((t) => ({
+            label: t.label,
+            icon: ico(t.icon),
+            onSelect: async () => {
+              const v = newView(t.id, db, db.views.some((x) => x.name === t.label) ? `${t.label} ${db.views.length + 1}` : t.label);
+              db.views.push(v);
+              activeView.set(db.id, v.id);
+              await saveViews();
+              draw();
+            }
+          })), { width: 190 })
+        }, ico("plus"))
+      ),
+      h(
+        "div",
+        { class: "db-tools" },
+        h("button", { class: "tool-filter", onClick: () => openDbOptions("filter", api(), { onDone: async () => {
+          await saveViews();
+          draw();
+        }, redraw: drawBody }) }, ico("funnel"), " Filter", badge(filterN)),
+        h("button", { class: "tool-sort", onClick: () => openDbOptions("sort", api(), { onDone: async () => {
+          await saveViews();
+          draw();
+        }, redraw: drawBody }) }, ico("arrow-up-down"), " Sort", badge(view.sorts.length)),
+        !["calendar", "sheet", "chart", "dashboard"].includes(view.type) ? h("button", {
+          class: "tool-group",
+          onClick: (e) => openMenu(e.currentTarget, [
+            { label: "No grouping", icon: ico(view.groupBy ? "x" : "check"), onSelect: async () => {
+              view.groupBy = null;
+              await saveViews();
+              draw();
+            } },
+            ...db.columns.map((c) => ({ label: c.name, icon: ico(view.groupBy === c.id ? "check" : "group"), onSelect: async () => {
+              view.groupBy = c.id;
+              await saveViews();
+              draw();
+            } }))
+          ], { width: 200 })
+        }, ico("group"), ` Group${group ? `: ${group.name}` : ""}`) : null,
+        view.type === "chart" ? h("button", { class: "tool-chart", onClick: (e) => openMenu(e.currentTarget, chartMenu(view)) }, ico("chart-column"), " Chart") : null,
+        view.type === "calendar" ? h("button", {
+          class: "tool-datecol",
+          onClick: (e) => openMenu(e.currentTarget, db.columns.filter((c) => c.type === "date").map((c) => ({
+            label: c.name,
+            icon: ico(view.dateCol === c.id ? "check" : "calendar"),
+            onSelect: async () => {
+              view.dateCol = c.id;
+              await saveViews();
+              draw();
+            }
+          })), { width: 200, empty: "Add a date column first" })
+        }, ico("calendar"), ` Date: ${db.columns.find((c) => c.id === view.dateCol)?.name ?? "none"}`) : null,
+        ["table", "sheet"].includes(view.type) ? h("button", { class: "tool-layout", onClick: (e) => openLayoutMenu(e.currentTarget, api()) }, ico("move-horizontal"), " Layout") : null,
+        h("button", { class: "tool-props", onClick: () => openDbOptions("props", api(), { onDone: async () => {
+          await saveViews();
+          draw();
+        }, redraw: drawBody }) }, ico("sliders-horizontal"), " Properties", badge(view.hidden.length)),
+        h("button", { class: "tool-csv", onClick: (e) => openMenu(e.currentTarget, csvMenu(), { width: 230 }) }, ico("file-spreadsheet"), " CSV"),
+        h("button", { class: "primary add-row-top", onClick: async () => {
+          await api().addRow();
+          draw();
+        } }, ico("plus"), " New row")
+      )
+    );
+  }
+  function csvMenu() {
+    return [
+      { label: "Export this view as CSV", icon: ico("download"), onSelect: async () => {
+        const a = api();
+        const text = `\uFEFF${databaseToCsv(a.cols, a.rows)}`;
+        try {
+          const how = await saveTextFile(`${(link.title || "database").replace(/[\\/:*?"<>|]+/g, "-")}.csv`, text, "text/csv;charset=utf-8");
+          toast(how === "copied" ? "CSV copied to the clipboard." : `Exported ${a.rows.length} row${a.rows.length === 1 ? "" : "s"}.`);
+        } catch (e) {
+          if (e.code !== "declined") toast(e.message, "error");
+        }
+      } },
+      { label: "Import rows from CSV\u2026", icon: ico("upload"), disabled: link.locked, onSelect: async () => {
+        const file = await pickCsv();
+        if (!file) return;
+        try {
+          const made = await ws.appendCsv(data, file.text);
+          rows.push(...made);
+          settle();
+          draw();
+          toast(`Imported ${made.length} row${made.length === 1 ? "" : "s"}.`);
+        } catch (e) {
+          toast(e.message, "error");
+        }
+      } }
+    ];
+  }
+  function tableLayout(a) {
+    const ACTIONS = 56;
+    const cg = a.cols.map(() => h("col"));
+    cg.forEach((c, i) => {
+      c.style.width = `${colWidth(a.view, a.cols[i])}px`;
+    });
+    const table = h("table", { class: "db-table fixed", style: `width:${tableWidth(a, ACTIONS)}px` });
+    const head = h(
+      "tr",
+      {},
+      a.cols.map((col, i) => h(
+        "th",
+        { class: `col-head${frozenClass(a, i)}`, style: cellStyle(a, col, i), title: describe(col), onClick: () => editColumn(col) },
+        h("span", { class: "th-name" }, col.name),
+        h("small", { class: "type-tag" }, typeLabel(col)),
+        resizeHandle(a, col, { colEl: cg[i], tableEl: table, extra: ACTIONS })
+      )),
+      h("th", { class: "add-col", title: "Add column", "aria-label": "Add column", onClick: () => editColumn(null) }, ico("plus"))
+    );
+    const rowEl = (row) => h(
+      "tr",
+      {},
+      a.cols.map((col, i) => h(
+        "td",
+        { class: `${frozenClass(a, i)}${wrapClass(a, col)}`.trim(), style: cellStyle(a, col, i) },
+        renderCell(col, row.values[col.id], (v) => {
+          row.values[col.id] = v;
+          settle();
+          saveRow(row).catch((e) => toast(e.message, "error"));
+        }, { wrap: wrapClass(a, col) !== "", rowId: row.id })
+      )),
+      h(
+        "td",
+        { class: "row-actions" },
+        h("button", { class: "icon", title: "Open as page", "aria-label": "Open as page", onClick: () => onOpenRow?.(row.id) }, ico("arrow-up-right")),
+        h("button", { class: "icon", title: "Delete row", "aria-label": "Delete row", onClick: async () => {
+          await a.removeRow(row);
+          draw();
+        } }, ico("x"))
+      )
+    );
+    const sections = groupSections(a);
+    const tbody = h("tbody", {}, sections.flatMap((g) => [
+      g.label !== null ? h("tr", { class: "group-row" }, h("td", { colspan: a.cols.length + 1 }, h("strong", {}, g.label), h("span", { class: "hint" }, ` ${g.rows.length}`))) : null,
+      ...g.rows.map(rowEl)
+    ]));
+    table.append(h("colgroup", {}, cg, h("col", { style: `width:${ACTIONS}px` })), h("thead", {}, head), tbody);
+    return h("div", { class: "tbl-scroll" }, table);
+  }
+  function drawBody() {
+    const a = api();
+    let content;
+    switch (a.view.type) {
+      case "board":
+        content = renderBoard(a);
+        break;
+      case "list":
+        content = renderList(a);
+        break;
+      case "gallery":
+        content = renderGallery(a);
+        break;
+      case "calendar":
+        content = renderCalendar(a);
+        break;
+      case "sheet":
+        content = renderSheet(a);
+        break;
+      case "feed":
+        content = renderFeed(a);
+        break;
+      case "chart":
+        content = renderChart(a);
+        break;
+      case "dashboard":
+        content = renderDashboard(a);
+        break;
+      default:
+        content = tableLayout(a);
+    }
+    const empty = !a.rows.length && a.allRows.length ? h("p", { class: "hint" }, "No rows match this view's filter.") : null;
+    body.replaceChildren(...[
+      content,
+      empty,
+      a.view.type === "table" ? h("button", { class: "add-row", onClick: async () => {
+        await a.addRow();
+        draw();
+      } }, ico("plus"), " New row") : null
+    ].filter(Boolean));
+  }
+  function draw() {
+    drawBar();
+    drawBody();
+  }
+  draw();
+  root.replaceChildren(
+    src ? h(
+      "p",
+      { class: "hint linked-note" },
+      ico("link-2"),
+      ` Linked view of `,
+      h("a", { href: `#page-${src.id}`, class: "linked-src", onClick: (e) => {
+        e.preventDefault();
+        onOpenPage?.(src.id);
+      } }, src.title || "Untitled"),
+      ". Rows and columns are shared with the source; filters, sorts and layout are yours."
+    ) : h("p", { class: "hint" }, "Click a column header to change its type or settings."),
+    bar,
+    body
+  );
+}
