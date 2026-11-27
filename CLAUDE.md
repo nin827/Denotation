@@ -1,8 +1,8 @@
 # Denotation: notes for Claude Code sessions
 
 Self-use Notion/Obsidian clone. Plain HTML + ES modules, no framework, no runtime build step.
-It was developed as a published Claude Artifact ("Denotion"); the source here was recovered by
-unbundling that artifact. Goal now: host on GitHub Pages as an installable PWA with optional
+It was developed as a published Claude Artifact ("Denotion"); this repo starts fresh from that
+artifact's code. Goal now: host on GitHub Pages as an installable PWA with optional
 Google Drive / OneDrive sync.
 
 ## Working with the owner
@@ -20,10 +20,9 @@ node test/e2e/smoke.cjs      # loads public/ and dist standalone, clicks around,
 ```
 `ESBUILD_PATH=<esbuild package dir> node build/artifact.mjs` uses a preinstalled esbuild when npm is offline.
 
-**Not recovered:** the earlier test suites (unit tests incl. seeded fuzz, 53-step e2e smoke,
-artifact smoke with `test/fake-claude.js`, ui-monkey, ui-size), `FEATURES.md`, and the real
-Firebase adapter were not part of the artifact bundle. `js/adapters/firebase.js` is a stub.
-Rewrite tests as logic is touched (pure modules below are good candidates).
+Testing expectations: add `node --test` unit tests (seeded fuzz where useful) for pure logic
+modules as they are touched, and keep the browser smoke test green. `js/adapters/firebase.js`
+is a stub (optional adapter, not needed for the plan below).
 
 ## Architecture (public/)
 - `index.html`, `css/style.css`, `js/app.js`. Routing by hash (`#page-<id>`), so no server
