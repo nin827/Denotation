@@ -11,11 +11,11 @@ registerBlockType("flow", flowBody);
 const starter = () => ({
   layout: "flow", dir: "down", rotate: 0, turn: "cw", spacing: "normal",
   nodes: [
-    { id: "start", text: "Start", shape: "pill", hue: 150 },
+    { id: "start", text: "Start", shape: "pill", hue: 150, bg: 150 },
     { id: "ready", text: "Ready?", shape: "diamond" },
     { id: "wait", text: "Wait", shape: "rounded" },
     { id: "go", text: "Do the thing", shape: "rect" },
-    { id: "done", text: "Done", shape: "pill", hue: 240 }
+    { id: "done", text: "Done", shape: "pill", hue: 240, bg: 240 }
   ],
   edges: [
     { from: "start", to: "ready" },

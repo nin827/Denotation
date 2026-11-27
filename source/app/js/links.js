@@ -162,6 +162,23 @@ export function makeTitleResolver(pages) {
   return (title) => byTitle.get(normTitle(title)) ?? [];
 }
 /**
+ * `[[Page title#box-id]]` (no page has that whole title): a markdown link `[Title › id](#page-<pageId>~<id>)` to a flowchart
+ * box, when exactly one page has that title and one of its flow blocks has a node with that id. Else null.
+ */
+function boxLink(title, resolveTitle) {
+  const at = title.lastIndexOf("#");
+  const anchor = title.slice(at + 1).trim();
+  if (!/^[\p{L}\p{N}_]{1,32}$/u.test(anchor)) return null;
+  const pages = asList(resolveTitle?.(title.slice(0, at).trim())).filter((c) => isObj(c) && isTokenId(c.id));
+  if (pages.length !== 1 || !Array.isArray(pages[0].blocks)) return null;
+  let found = false;
+  eachBlock(pages[0].blocks, (b) => {
+    if (b.type === "flow" && Array.isArray(b.nodes) && b.nodes.some((n) => n?.id === anchor)) found = true;
+  });
+  const name = String(pages[0].title ?? "").replace(/[[\]\\\r\n]+/g, " ").trim() || title.slice(0, at).trim();
+  return found ? `[${name} › ${anchor}](#page-${pages[0].id}~${anchor})` : null;
+}
+/**
  * Convert typed `[[Title]]`, `x[[Title]]`, `![[Title]]`, `![[Title][Heading]]`, `![[Title](blockId,...)]` into stored
  * tokens. `resolveTitle(title)` returns candidate pages ({ id, title, blocks? } or an array of them, or null);
  * embeds need `blocks` to resolve the heading text / check block ids.
@@ -189,6 +206,14 @@ export function parseWikiSyntax(text, resolveTitle, opts = {}) {
       const pick = opts.choose?.({ ...entry, what, title: w.title, options, ...extra });
       return options.some((o) => o.id === pick) ? pick : (res.ambiguous.push({ ...entry, what, title: w.title, ...extra, options }), null);
     };
+    if (!cands.length && w.form === "link" && w.title.includes("#")) {
+      const md = boxLink(w.title, resolveTitle);
+      if (md) {
+        out += md;
+        res.replaced++;
+        continue;
+      }
+    }
     if (cands.length > 1) {
       const pick = ambiguous("page", cands.map((c) => ({ id: c.id, title: c.title ?? "" })), w.heading != null ? { heading: w.heading } : {});
       cands = pick ? cands.filter((c) => c.id === pick).slice(0, 1) : [];
@@ -289,7 +314,7 @@ export function toWikiSyntax(text, pageInfo, resolveTitle = null) {
 }
 
 // ---------- link extraction (graph feed) ----------
-const PAGE_HREF = /^#page-([A-Za-z0-9_-]{1,64})$/;
+const PAGE_HREF = /^#page-([A-Za-z0-9_-]{1,64})(?:~[\p{L}\p{N}_]{1,32})?$/u; // ~<flow node id>: a link to a box counts as a link to its page
 /**
  * Every page reference in one page, per page (cheap to call on save): [{ from, to, hidden, kind, blockId, via }].
  * kind "link" | "embed"; hidden is true only for `{{xlink:}}`; via is "link" | "xlink" | "embed" | "chip" | "md".

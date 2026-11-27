@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fuzz, XSS, UNICODE, MARKUP } from "./fixtures/fuzz.js";
 import {
-  LIMITS, SHAPES, LAYOUTS, DIRS, SPACINGS, TURNS, FLOW_HUES, cleanFlow, parseFlow, serializeFlow, layoutFlow, wrapLines, shapeGeometry, nextNodeId
+  LIMITS, SHAPES, LAYOUTS, DIRS, SPACINGS, TURNS, FLOW_HUES, cleanFlow, parseFlow, serializeFlow, layoutFlow, wrapLines, shapeGeometry, nextNodeId, flattenD, polyHitsBoxes, nudgeLabels
 } from "../../source/app/js/flow/layout.js";
 
 const hostileText = (r) => r.pick([r.nasty(3), r.text(60), "", "   ", "x".repeat(r.int(150, 400)), ...XSS.slice(0, 6), ...UNICODE, ...MARKUP.slice(0, 12), "A -> B", "[diamond] x", "\n\nx\ty"]);
@@ -239,4 +239,116 @@ test("markdown: a flow block exports as a fenced flow block and imports back unc
   const back = markdownToBlocks(md);
   assert.equal(back[0].type, "flow");
   assert.equal(blocksToMarkdown(back), md);
+});
+
+test("fill (bg) is separate from the colour (hue) and round trips through quick syntax", () => {
+  const f = cleanFlow({ nodes: [
+    { id: "a", text: "A", hue: 240, bg: 90 }, { id: "b", text: "B", bg: "grey" }, { id: "c", text: "C", hue: "grey", bg: 0, shape: "pill" }, { id: "d", text: "D", hue: 30 }
+  ] });
+  const text = serializeFlow(f);
+  assert.match(text, /a \[blue bg=yellow\]: A/);
+  assert.match(text, /b \[bg=grey\]: B/);
+  const back = parseFlow(text);
+  assert.deepEqual(back.errors, []);
+  assert.deepEqual(cleanFlow({ nodes: back.nodes, edges: back.edges }).nodes, f.nodes);
+  const lay = layoutFlow(f);
+  assert.deepEqual(lay.nodes.map((n) => [n.hue, n.bg]), [[240, 90], [undefined, "grey"], ["grey", 0], [30, undefined]]);
+  assert.equal(parseFlow("x [bg=blue red]").nodes[0].bg, 240);
+  assert.equal(parseFlow("x [bg=blue red]").nodes[0].hue, 30);
+});
+
+const rectsOf = (lay) => lay.nodes.map((n) => ({ cx: n.cx, cy: n.cy, w: n.w, h: n.h }));
+const overlaps = (a, b) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 0;
+const labelRects = (lay) => lay.edges.filter((e) => e.label).map((e) => ({ x0: e.mid.x - e.lw / 2, y0: e.mid.y - e.lh / 2, x1: e.mid.x + e.lw / 2, y1: e.mid.y + e.lh / 2 }));
+const countOverlaps = (lay) => {
+  const labs = labelRects(lay);
+  const boxes = lay.nodes.map((n) => ({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + n.h }));
+  let k = 0;
+  labs.forEach((l, i) => {
+    for (const b of boxes) if (overlaps(l, b)) k++;
+    for (let j = i + 1; j < labs.length; j++) if (overlaps(l, labs[j])) k++;
+  });
+  return k;
+};
+
+test("edge labels are nudged off boxes and other labels", async () => {
+  // a label starting on top of a node box slides along its edge
+  const boxes = [{ cx: 0, cy: 0, w: 100, h: 40 }, { cx: 300, cy: 0, w: 100, h: 40 }, { cx: 150, cy: 0, w: 60, h: 30 }];
+  const poly = [{ x: 50, y: 0 }, { x: 250, y: 0 }];
+  const [m] = nudgeLabels(boxes, [{ mid: { x: 150, y: 0 }, lw: 40, lh: 20, poly }]);
+  const r = { x0: m.x - 20, y0: m.y - 10, x1: m.x + 20, y1: m.y + 10 };
+  assert.ok(!boxes.some((b) => overlaps(r, { x0: b.cx - b.w / 2, y0: b.cy - b.h / 2, x1: b.cx + b.w / 2, y1: b.cy + b.h / 2 })), "off every box");
+  assert.ok(Math.abs(m.y) < 1e-6 && m.x !== 150, "moved along the edge, not sideways");
+  // two labels wanting the same spot end up apart
+  const two = nudgeLabels([], [{ mid: { x: 50, y: 0 }, lw: 40, lh: 20, poly }, { mid: { x: 50, y: 0 }, lw: 40, lh: 20, poly }]);
+  assert.ok(Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y) >= 20);
+  // nothing to do: labels stay put, and unlabeled edges are left alone
+  assert.deepEqual(nudgeLabels([], [{ mid: { x: 5, y: 5 }, lw: 0, lh: 0, poly }]), [{ x: 5, y: 5 }]);
+  // random sparse graphs: no label overlaps a box or another label, and the nudge never makes things worse
+  let worst = 0;
+  await fuzz("flow-nudge", 150, (rr) => {
+    const n = rr.int(2, 9);
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}`, text: rr.pick(["Start", "Ok?", "Do it"]), shape: rr.pick(["rect", "rounded", "diamond", "pill"]) }));
+    const edges = [];
+    for (let i = 0, m2 = rr.int(1, n); i < m2; i++) {
+      const a = rr.int(0, n - 1);
+      let b = rr.int(0, n - 1);
+      if (a === b) b = (b + 1) % n;
+      edges.push({ from: `n${a}`, to: `n${b}`, label: rr.pick(["yes", "no", "maybe later"]) });
+    }
+    const f = { layout: rr.pick(LAYOUTS), dir: rr.pick(DIRS), spacing: "roomy", nodes, edges };
+    const lay = layoutFlow(f);
+    checkLayout(lay, f, "nudge");
+    worst += countOverlaps(lay);
+    assert.ok(labelRects(lay).every((l) => l.x0 >= 0 && l.y0 >= 0 && l.x1 <= lay.width && l.y1 <= lay.height), "labels inside the canvas");
+  });
+  assert.ok(worst <= 3, `${worst} label overlaps left over in 150 sparse graphs`);
+});
+
+test("grid layout routes edges around boxes (no segment through a non-endpoint box)", async () => {
+  const segs = (d) => flattenD(d);
+  await fuzz("flow-grid-route", 250, (rr) => {
+    const n = rr.int(3, 30);
+    const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}`, text: rr.pick(["A", "Some longer text", "x", "A fairly long label that needs wrapping across lines"]), shape: rr.pick(SHAPES) }));
+    const edges = Array.from({ length: rr.int(1, n * 2) }, () => {
+      const a = rr.int(0, n - 1);
+      const b = rr.int(0, n - 1);
+      return { from: `n${a}`, to: `n${b === a ? (b + 1) % n : b}`, ...(rr.chance(0.3) ? { label: "go" } : {}) };
+    });
+    const f = { layout: "grid", dir: rr.pick(DIRS), spacing: rr.pick(SPACINGS), nodes, edges };
+    const lay = layoutFlow(f);
+    checkLayout(lay, f, "grid");
+    for (const e of lay.edges) {
+      const others = rectsOf({ nodes: lay.nodes.filter((x) => x.id !== e.from && x.id !== e.to) });
+      assert.ok(!polyHitsBoxes(segs(e.d), others, 0), `edge ${e.from}->${e.to} crosses a box`);
+    }
+  });
+  // a hand-made case: the diagonal corner to corner of a 3x3 grid would cut through the middle box
+  const f = { layout: "grid", nodes: Array.from({ length: 9 }, (_, i) => ({ id: `n${i}`, text: "box" })), edges: [{ from: "n0", to: "n8" }, { from: "n0", to: "n2" }, { from: "n3", to: "n5" }] };
+  const lay = layoutFlow(f);
+  for (const e of lay.edges) {
+    const pts = flattenD(e.d);
+    assert.ok(pts.length >= 2);
+    assert.ok(!polyHitsBoxes(pts, rectsOf({ nodes: lay.nodes.filter((x) => x.id !== e.from && x.id !== e.to) })), `${e.from}->${e.to}`);
+  }
+  const skip = lay.edges.find((e) => e.from === "n0" && e.to === "n2");
+  assert.ok(flattenD(skip.d).length > 2, "the long hop is bent around the middle box");
+  assert.match(skip.d, /^M[-\d. ]+(L[-\d. ]+)+$/, "routed edges are plain orthogonal polylines");
+});
+
+test("[[Page#box]] becomes a link to a flowchart box; box links count as page links", async () => {
+  const { parseWikiSyntax, makeTitleResolver, extractLinks } = await import("../../source/app/js/links.js");
+  const pages = [
+    { id: "p1", title: "Plan", blocks: [{ id: "f1", type: "flow", nodes: [{ id: "start", text: "Start", shape: "rect" }, { id: "end", text: "End", shape: "rect" }], edges: [] }] },
+    { id: "p2", title: "Plan#odd", blocks: [] }, { id: "p3", title: "Other", blocks: [{ id: "x", type: "p", text: "no flow" }] }
+  ];
+  const R = makeTitleResolver(pages);
+  assert.equal(parseWikiSyntax("go [[Plan#start]] now", R).text, "go [Plan › start](#page-p1~start) now");
+  assert.equal(parseWikiSyntax("[[plan#end]]", R).text, "[Plan › end](#page-p1~end)");
+  assert.equal(parseWikiSyntax("[[Plan#nope]]", R).text, "[[Plan#nope]]", "unknown box stays as typed");
+  assert.equal(parseWikiSyntax("[[Other#start]]", R).text, "[[Other#start]]", "page without a flow block");
+  assert.equal(parseWikiSyntax("[[Plan#odd]]", R).text, "{{link:p2}}", "a page whose title has a # still wins");
+  assert.equal(parseWikiSyntax("x[[Plan#start]]", R).text, "x[[Plan#start]]", "only the plain form");
+  const links = extractLinks({ id: "p3", blocks: [{ id: "q", type: "p", text: "[Plan › start](#page-p1~start)" }] });
+  assert.deepEqual(links.map((l) => l.to), ["p1"]);
 });

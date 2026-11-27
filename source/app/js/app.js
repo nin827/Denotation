@@ -33,6 +33,7 @@ import "./ui/plugins/images.js";
 import "./ui/plugins/terms.js";
 import "./ui/plugins/flowchart.js";
 import "./ui/plugins/math.js";
+import { focusFlowBox } from "./ui/flowBlock.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");
@@ -57,8 +58,8 @@ const layout = createLayout({ appEl, getLocked: () => prefs.sidebarLocked, onCha
 } });
 const hashFor = (id) => `#page-${id}`;
 const parseHash = () => {
-  const m = location.hash.match(/^#(page|row)-([A-Za-z0-9-]+)$/);
-  if (m) return { kind: m[1], id: m[2] };
+  const m = location.hash.match(/^#(page|row)-([A-Za-z0-9-]+)(?:~([\p{L}\p{N}_]{1,32}))?$/u);
+  if (m) return { kind: m[1], id: m[2], box: m[1] === "page" ? m[3] ?? null : null }; // `#page-<id>~<flow node id>` jumps to a flowchart box
   const g = location.hash.match(/^#graph(?:-([A-Za-z0-9-]+))?$/);
   if (g) return { kind: "graph", id: g[1] ?? null };
   return location.hash === "#trash" ? { kind: "trash" } : location.hash === "#archive" ? { kind: "archive" } : null;
@@ -304,7 +305,15 @@ async function route() {
     await renderDatabase(body, ws, fresh, { onOpenRow: (id) => env.openRow(id), onOpenPage: (id) => env.open(id), frozen });
   } else {
     renderDocPage(mainEl, env, fresh);
+    if (target?.box) showBox(target.box, fresh.id);
   }
+}
+/** Scroll to and highlight a flowchart box once the page body is drawn (a few tries: blocks may render a frame late). */
+function showBox(nodeId, pageId, tries = 0) {
+  if (currentId !== pageId) return;
+  if (focusFlowBox(mainEl, nodeId)) return;
+  if (tries < 10) setTimeout(() => showBox(nodeId, pageId, tries + 1), 80);
+  else toast("That box is no longer in the flowchart");
 }
 async function refresh() {
   if (!ws) return;

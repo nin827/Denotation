@@ -6,7 +6,8 @@ Added: inline math and math blocks (KaTeX, vendored for offline use) with an edi
 and Markdown `$` / `$$` export and import.
 
 Added: Flowchart block (`/flowchart`) with automatic layouts (flow, cycle, tree, row, grid), 8 shapes, colours, a
-quick text syntax, an edit dialog and Markdown export/import.
+quick text syntax, an edit dialog and Markdown export/import; box Fill colour, labels kept off boxes, grid connections
+routed around boxes, and links to a single box.
 
 Fixes from the fuzz tests:
 - Security: url properties drop `javascript:` links hidden with tabs or control characters; imported term colours

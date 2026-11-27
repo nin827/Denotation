@@ -199,7 +199,7 @@ async function run(browser, { phone = false } = {}) {
     await page.locator('.flow-node[data-node="A"]').click();
     await page.waitForSelector(".menu .menu-item");
     const texts = await page.locator(".menu .menu-item").allTextContents();
-    if (!["Rename", "Shape", "Colour", "Connect to", "Move earlier", "Delete node"].every((t) => texts.some((x) => x.includes(t)))) throw new Error(texts.join("|"));
+    if (!["Rename", "Shape", "Outline and text colour", "Fill", "Copy link to box", "Connect to", "Move earlier", "Delete node"].every((t) => texts.some((x) => x.includes(t)))) throw new Error(texts.join("|"));
     await pick("Rename");
     await page.locator('.modal input[aria-label="Node text"]').fill("Second name");
     await page.keyboard.press("Enter");
@@ -212,6 +212,60 @@ async function run(browser, { phone = false } = {}) {
     await page.waitForSelector(".menu .menu-item");
     await page.keyboard.press("Escape");
     return true;
+  });
+  await check("node menu: Fill sets bg separately from the colour, and round trips", async () => {
+    await page.locator('.flow-node[data-node="A"]').click();
+    await page.waitForSelector(".menu .menu-item");
+    await pick("Fill");
+    await page.locator(".menu .menu-item", { hasText: "Yellow" }).last().click();
+    await page.waitForSelector(".flow-node[data-node=\"A\"].has-bg");
+    const st = await page.evaluate(() => {
+      const g = document.querySelector('.flow-node[data-node="A"]');
+      const sh = g.querySelector(".flow-shape");
+      return { fill: getComputedStyle(sh).fill, stroke: getComputedStyle(sh).stroke, hue: g.classList.contains("has-hue") };
+    });
+    if (!st.hue || !/ 90\)$/.test(st.fill) || !/ 240\)$/.test(st.stroke)) throw new Error(JSON.stringify(st));
+    await blockMenu();
+    await pick("Edit flowchart");
+    await page.waitForSelector(".flow-edit");
+    const ta = await page.locator(".flow-ta").inputValue();
+    const sel = await page.locator('select[aria-label="Fill of node A"]').inputValue();
+    await page.locator(".modal-actions button", { hasText: "Cancel" }).click();
+    return /A \[[^\]]*bg=yellow[^\]]*\]/.test(ta) && sel === "90";
+  });
+  await check("fill stays readable in light, neutral and dark", async () => {
+    const lum = (rgb) => { const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    for (const mode of ["light", "neutral", "dark"]) {
+      await page.evaluate((m) => { document.documentElement.dataset.mode = m; }, mode);
+      const cols = await page.evaluate(() => {
+        const c = document.createElement("canvas").getContext("2d");
+        const px = (css) => { c.clearRect(0, 0, 1, 1); c.fillStyle = "#000"; c.fillStyle = css; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data.slice(0, 3)]; };
+        const g = document.querySelector('.flow-node[data-node="A"]');
+        return { fill: px(getComputedStyle(g.querySelector(".flow-shape")).fill), text: px(getComputedStyle(g.querySelector("text")).fill) };
+      });
+      const [a, b] = [lum(cols.fill), lum(cols.text)].sort((x, y) => y - x);
+      if ((a + 0.05) / (b + 0.05) < 4.5) throw new Error(`${mode}: contrast ${((a + 0.05) / (b + 0.05)).toFixed(1)}`);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.mode = "neutral"; });
+    return true;
+  });
+  await check("Copy link to box, then the link jumps to and highlights the box", async () => {
+    const id = await page.evaluate(() => location.hash.match(/^#page-([A-Za-z0-9_-]+)/)[1]);
+    await page.evaluate(() => { window.__copied = ""; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
+    await page.locator('.flow-node[data-node="A"]').click();
+    await page.waitForSelector(".menu .menu-item");
+    await pick("Copy link to box");
+    const text = await page.evaluate(() => window.__copied);
+    if (!text.endsWith(`(#page-${id}~A)`)) throw new Error(text);
+    await page.evaluate(() => { location.hash = ""; });
+    await page.waitForTimeout(300);
+    await page.evaluate((h) => { location.hash = h; }, `#page-${id}~A`);
+    await page.waitForSelector('.flow-node[data-node="A"].flow-hit');
+    await page.waitForTimeout(900);
+    await shot("box-link");
+    const ok = await page.evaluate(() => { const r = document.querySelector('.flow-node[data-node="A"]').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; });
+    await page.waitForFunction(() => !document.querySelector(".flow-hit"), null, { timeout: 5000 });
+    return ok;
   });
   await check("no horizontal page scroll", async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1 && document.querySelector("#main").scrollWidth <= document.querySelector("#main").clientWidth + 1));
   await check("chart fits the content width", async () => page.evaluate(() => {

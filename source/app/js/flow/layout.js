@@ -375,6 +375,176 @@ const smooth = (pts, vertical) => {
   return { d, mid: { x: (pts[m].x + pts[m + 1].x) / 2, y: (pts[m].y + pts[m + 1].y) / 2 }, box: pts };
 };
 
+// ---------------------------------------------------------------- polylines, grid routes, label nudging
+/** Points along a route's path data (absolute M, L, Q and C only, as the routes write them). Curves are sampled. */
+export function flattenD(d) {
+  const nums = String(d).match(/[MLQC]|-?\d+(?:\.\d+)?/g) ?? [];
+  const pts = [];
+  let cmd = "M";
+  let i = 0;
+  const take = (n) => {
+    const v = nums.slice(i, i + n).map(Number);
+    i += n;
+    return v;
+  };
+  while (i < nums.length) {
+    if (/[MLQC]/.test(nums[i])) cmd = nums[i++];
+    if (cmd === "M" || cmd === "L") {
+      const [x, y] = take(2);
+      pts.push({ x, y });
+    } else if (cmd === "Q" || cmd === "C") {
+      const k = cmd === "Q" ? 2 : 3;
+      const v = take(k * 2);
+      const P = [pts[pts.length - 1], ...Array.from({ length: k }, (_, j) => ({ x: v[2 * j], y: v[2 * j + 1] }))];
+      for (let t = 1; t <= 12; t++) {
+        const u = t / 12;
+        const q = P.map((p) => ({ ...p }));
+        for (let r = q.length - 1; r > 0; r--) for (let j = 0; j < r; j++) q[j] = { x: q[j].x + (q[j + 1].x - q[j].x) * u, y: q[j].y + (q[j + 1].y - q[j].y) * u };
+        pts.push(q[0]);
+      }
+    } else i++;
+  }
+  return pts.filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+}
+const polyLen = (pts) => pts.slice(1).reduce((a, p, i) => a + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+/** The point `t` (0..1) of the way along a polyline, with the unit direction there. */
+function along(pts, t) {
+  const total = polyLen(pts);
+  if (!total) return { x: pts[0].x, y: pts[0].y, dx: 1, dy: 0 };
+  let want = total * Math.max(0, Math.min(1, t));
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (seg && want <= seg + 1e-9) {
+      const u = want / seg;
+      return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * u, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * u, dx: (pts[i].x - pts[i - 1].x) / seg, dy: (pts[i].y - pts[i - 1].y) / seg };
+    }
+    want -= seg;
+  }
+  const a = pts[pts.length - 2] ?? pts[0];
+  const b = pts[pts.length - 1];
+  const seg = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: b.x, y: b.y, dx: (b.x - a.x) / seg, dy: (b.y - a.y) / seg };
+}
+/** Does the segment p-q touch the rectangle r ({ x0, y0, x1, y1 }) grown by `m` px? (Liang-Barsky) */
+export function segHitsRect(p, q, r, m = 0) {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  for (const [pp, qq] of [[-dx, p.x - (r.x0 - m)], [dx, r.x1 + m - p.x], [-dy, p.y - (r.y0 - m)], [dy, r.y1 + m - p.y]]) {
+    if (pp === 0) {
+      if (qq < 0) return false;
+    } else {
+      const u = qq / pp;
+      if (pp < 0) t0 = Math.max(t0, u);
+      else t1 = Math.min(t1, u);
+      if (t0 > t1) return false;
+    }
+  }
+  return true;
+}
+const rectOf = (b) => ({ x0: b.cx - b.w / 2, y0: b.cy - b.h / 2, x1: b.cx + b.w / 2, y1: b.cy + b.h / 2 });
+/** True when a polyline passes through any of the boxes ({ cx, cy, w, h }; a margin of m px counts as touching). */
+export function polyHitsBoxes(pts, boxes, m = 0) {
+  const rs = boxes.map(rectOf);
+  for (let i = 1; i < pts.length; i++) for (const r of rs) if (segHitsRect(pts[i - 1], pts[i], r, m)) return true;
+  return false;
+}
+const dropCollinear = (pts) => {
+  const out = [];
+  const same = (a, b) => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
+  for (const p of pts) {
+    if (out.length && same(out[out.length - 1], p)) continue;
+    while (out.length >= 2) {
+      const a = out[out.length - 1];
+      const b = out[out.length - 2];
+      if ((Math.abs(b.x - a.x) < 1e-6 && Math.abs(a.x - p.x) < 1e-6) || (Math.abs(b.y - a.y) < 1e-6 && Math.abs(a.y - p.y) < 1e-6)) out.pop();
+      else break;
+    }
+    out.push(p);
+  }
+  return out;
+};
+/**
+ * Orthogonal route between two boxes of a grid layout that only runs along the gaps between cells (those lines are
+ * free of boxes) and leaves / enters each box from a side. Cell pitch is cw x ch around the box centres (col * cw, row * ch).
+ * Picks the cheapest of the H-V-H-V-H and V-H-V-H-V variants; `off` shifts the gap lines so parallel edges don't merge.
+ */
+function gridRoute(A, B, cw, ch, cols, rows, off) {
+  const sh = Math.max(-8, Math.min(8, off / 3));
+  const colOf = (b) => Math.round(b.cx / cw);
+  const rowOf = (b) => Math.round(b.cy / ch);
+  const [ca, ra, cb, rb] = [colOf(A), rowOf(A), colOf(B), rowOf(B)];
+  const best = { cost: Infinity, pts: null };
+  const tryPts = (pts) => {
+    const q = dropCollinear(pts);
+    const cost = polyLen(q) + 24 * (q.length - 2);
+    if (cost < best.cost) {
+      best.cost = cost;
+      best.pts = q;
+    }
+  };
+  const xs = (c) => [(c - 0.5) * cw + sh, (c + 0.5) * cw + sh];
+  const ys = (r) => [(r - 0.5) * ch + sh, (r + 0.5) * ch + sh];
+  // H-V-H-V-H: out of A sideways, along a vertical gap, across a horizontal gap, along a vertical gap, into B sideways
+  for (const xa of xs(ca)) for (const xb of xs(cb)) for (let k = -1; k < rows; k++) {
+    const y1 = (k + 0.5) * ch + sh;
+    tryPts([clip(A, xa, A.cy), { x: xa, y: A.cy }, { x: xa, y: y1 }, { x: xb, y: y1 }, { x: xb, y: B.cy }, clip(B, xb, B.cy)]);
+  }
+  // V-H-V-H-V
+  for (const ya of ys(ra)) for (const yb of ys(rb)) for (let k = -1; k < cols; k++) {
+    const x1 = (k + 0.5) * cw + sh;
+    tryPts([clip(A, A.cx, ya), { x: A.cx, y: ya }, { x: x1, y: ya }, { x: x1, y: yb }, { x: B.cx, y: yb }, clip(B, B.cx, yb)]);
+  }
+  const pts = best.pts;
+  const m = along(pts, 0.5);
+  return { d: pathOf(pts), mid: { x: m.x, y: m.y }, box: pts, poly: pts };
+}
+
+/**
+ * Move edge labels off node boxes and each other. `boxes` are { cx, cy, w, h }; each label is
+ * { mid, lw, lh, poly } (poly = the edge as a polyline). A label first slides along its edge away from the middle, then
+ * sideways, until its box touches no node box and no label placed before it; with no free spot it stays where it
+ * overlaps least. Returns new mids (same order). Pure.
+ */
+export function nudgeLabels(boxes, labels, gap = 2) {
+  const obstacles = boxes.map(rectOf);
+  const placed = [];
+  const hits = (r) => {
+    let area = 0;
+    for (const o of [...obstacles, ...placed]) {
+      const w = Math.min(r.x1, o.x1 + gap) - Math.max(r.x0, o.x0 - gap);
+      const h = Math.min(r.y1, o.y1 + gap) - Math.max(r.y0, o.y0 - gap);
+      if (w > 0 && h > 0) area += w * h;
+    }
+    return area;
+  };
+  const rectAt = (x, y, l) => ({ x0: x - l.lw / 2, y0: y - l.lh / 2, x1: x + l.lw / 2, y1: y + l.lh / 2 });
+  const T = [0.5];
+  for (let k = 1; k <= 24; k++) T.push(0.5 - k * 0.02, 0.5 + k * 0.02);
+  return labels.map((l) => {
+    if (!l.lw || !l.poly?.length) return l.mid;
+    let bestPos = l.mid;
+    let bestArea = Infinity;
+    const step = l.lh / 2 + 4;
+    search: for (const side of [0, 1, -1, 2, -2, 3, -3].map((k) => k * step)) {
+      for (const t of T) {
+        const a = along(l.poly, t);
+        const x = a.x - a.dy * side;
+        const y = a.y + a.dx * side;
+        const area = hits(rectAt(x, y, l));
+        if (area < bestArea - 1e-9) {
+          bestArea = area;
+          bestPos = { x, y };
+        }
+        if (area === 0) break search;
+      }
+    }
+    placed.push(rectAt(bestPos.x, bestPos.y, l));
+    return bestPos;
+  });
+}
+
 // ---------------------------------------------------------------- layouts
 /** Layered layout: longest-path ranks (back edges of cycles ignored), dummy nodes for long edges, barycentre ordering. */
 function layoutLayered(f, boxes, sp) {
@@ -652,7 +822,7 @@ function layoutGrid(f, boxes, sp) {
     }
     return { x: col * cw, y: row * ch };
   });
-  return { place, grid: true };
+  return { place, grid: true, cw, ch, cols: C, rows: R };
 }
 
 // ---------------------------------------------------------------- main
@@ -708,11 +878,19 @@ export function layoutFlow(input) {
         // the quadratic control point reaches 2x the apex offset
         r = chord(A, B, { x: (A.cx + B.cx) / 2 + (-dy / len) * bulge * 2, y: (A.cy + B.cy) / 2 + (dx / len) * bulge * 2 });
       }
-    } else if (!r) r = bentChord(A, B, off || (L.grid && Math.abs(u - v) > 1 ? 14 : 0));
+    } else if (!r && L.grid) {
+      r = bentChord(A, B, off);
+      const others = boxes.filter((_, i) => i !== u && i !== v);
+      if (polyHitsBoxes(flattenD(r.d), others, 1)) r = gridRoute(A, B, L.cw, L.ch, L.cols, L.rows, off);
+    } else if (!r) r = bentChord(A, B, off);
     const lines = e.label ? wrapLines(e.label, 120, 12 / FONT) : [];
     const lw = lines.length ? Math.ceil(Math.max(...lines.map((l) => widthOf(l, 12 / FONT)))) + 12 : 0;
     const lh = lines.length * 15 + 6;
-    return { from: e.from, to: e.to, d: r.d, mid: r.mid, box: r.box, label: e.label ?? "", labelLines: lines, lw, lh, dashed: e.style === "dashed", arrow: e.arrow ?? "end" };
+    return { from: e.from, to: e.to, d: r.d, mid: r.mid, box: r.box, poly: r.poly ?? flattenD(r.d), label: e.label ?? "", labelLines: lines, lw, lh, dashed: e.style === "dashed", arrow: e.arrow ?? "end" };
+  });
+  const moved = nudgeLabels(boxes, edges.map((e) => ({ mid: e.mid, lw: e.lw, lh: e.lh, poly: e.poly })));
+  edges.forEach((e, i) => {
+    e.mid = moved[i];
   });
   // normalise to a 0,0 origin with padding
   const PAD = 16;

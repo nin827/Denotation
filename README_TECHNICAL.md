@@ -37,6 +37,7 @@ label?, style?, arrow?}] }`. `js/flow/layout.js` is pure (Node-tested): `cleanFl
 ordering; ring; tree; row; grid), `shapeGeometry`, `measureNode`. `ui/flowBlock.js` renders inline SVG with
 `createElementNS` and `textContent` only; settings go through `setBlockMenu`. Registered by `ui/plugins/flowchart.js`.
 Markdown: a fenced `flow` block, first line `# layout: …, dir: …, rotate: …, turn: …, spacing: …`, then the quick syntax.
+`hue` colours outline and text only; `bg` is the fill. After routing, `nudgeLabels` moves labels off boxes; in grid layout an edge that would cross a box is rerouted orthogonally along the cell gaps (`gridRoute`). Box anchors: `#page-<pageId>~<nodeId>` (`parseHash` returns `box`; `focusFlowBox` highlights it); stored as a Markdown link, counted as a page link by `PAGE_HREF` in `links.js`.
 Tests: `work/test/flow-layout.test.js`, `work/test/e2e/flowchart.cjs`.
 
 ### Hardening (from the fuzz tests)

@@ -7,14 +7,16 @@
 .flow-shape { fill: var(--bg-soft); stroke: var(--border-ctl); stroke-width: 1.5; }
 .flow-node text { fill: var(--text); font-size: 14px; font-family: inherit; pointer-events: none; }
 .flow-node { outline: none; }
-.flow-node.has-hue .flow-shape { fill: oklch(var(--blk-tint) var(--fh)); stroke: oklch(var(--blk-fg) var(--fh)); }
+.flow-node.has-hue .flow-shape { stroke: oklch(var(--blk-fg) var(--fh)); }
 .flow-node.has-hue text { fill: oklch(var(--blk-fg) var(--fh)); }
-.flow-node.is-grey .flow-shape { fill: var(--blk-grey); stroke: var(--muted); }
+.flow-node.is-grey .flow-shape { stroke: var(--muted); }
+/* the fill is its own setting (bg); the text keeps the outline colour, or the normal text colour, on the same tint the blocks use */
 .flow-node.has-bg .flow-shape { fill: oklch(var(--blk-tint) var(--fb)); }
 .flow-node.bg-grey .flow-shape { fill: var(--blk-grey); }
 .flow-node[role="button"] { cursor: pointer; }
 .flow-node[role="button"]:hover .flow-shape { stroke-width: 2.5; }
-.flow-node:focus-visible .flow-shape { stroke: var(--accent); stroke-width: 3.5; }
+.flow-node:focus-visible .flow-shape, .flow-node.flow-hit .flow-shape { stroke: var(--accent); stroke-width: 3.5; }
+.flow-node.flow-hit .flow-shape { paint-order: stroke; filter: drop-shadow(0 0 4px var(--accent)); }
 .flow-edge path { fill: none; stroke: var(--muted); stroke-width: 1.6; }
 .flow-edge.is-dashed path { stroke-dasharray: 6 4; }
 .flow-head { fill: var(--muted); }
@@ -44,4 +46,8 @@
   .fe-row button.icon { min-width: 44px; min-height: 44px; }
   .fe-add { min-height: 44px; }
 }
-@media (prefers-reduced-motion: no-preference) { .flow-shape { transition: stroke-width .1s; } }
+@media (prefers-reduced-motion: no-preference) {
+  .flow-shape { transition: stroke-width .1s; }
+  .flow-node.flow-hit .flow-shape { animation: flow-pulse .7s ease-in-out 3; }
+}
+@keyframes flow-pulse { 50% { stroke-width: 6; } }

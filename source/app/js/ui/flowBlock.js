@@ -7,6 +7,7 @@ import { setBlockMenu } from "./blockExtras.js";
 import { openModal } from "./modal.js";
 import { openMenu } from "./popover.js";
 import { bindContextMenu } from "./contextMenu.js";
+import { toast } from "./dialogs.js";
 import {
   SHAPES, FLOW_HUES, cleanFlow, parseFlow, serializeFlow, layoutFlow, shapeGeometry, nextNodeId
 } from "../flow/layout.js";
@@ -85,12 +86,18 @@ export function flowBody(b, inst, a) {
       { header: true, label: short(n.text || n.id) },
       { label: "Rename…", icon: ico("pencil"), onSelect: () => renameNode(id) },
       { label: "Shape", icon: ico("shapes"), hint: SHAPE_LABELS[n.shape], items: SHAPES.map((s) => ({ label: SHAPE_LABELS[s], hint: s === n.shape ? "✓ current" : null, onSelect: () => mutate((g) => { g.nodes.find((x) => x.id === id).shape = s; }) })) },
-      { label: "Colour", icon: ico("palette"), hint: n.hue === undefined ? "None" : hueName(n.hue), items: colours.map((c) => ({ label: c.label, swatch: c.v === undefined ? null : swatch(c.v), hint: c.v === n.hue ? "✓ current" : null, onSelect: () => mutate((g) => {
+      { label: "Outline and text colour", icon: ico("palette"), hint: n.hue === undefined ? "None" : hueName(n.hue), items: colours.map((c) => ({ label: c.label, swatch: c.v === undefined ? null : swatch(c.v), hint: c.v === n.hue ? "✓ current" : null, onSelect: () => mutate((g) => {
         const t = g.nodes.find((x) => x.id === id);
         if (c.v === undefined) delete t.hue;
         else t.hue = c.v;
       }) })) },
+      { label: "Fill", icon: ico("paint-bucket"), hint: n.bg === undefined ? "None" : hueName(n.bg), items: colours.map((c) => ({ label: c.label, swatch: c.v === undefined ? null : swatch(c.v), hint: c.v === n.bg ? "✓ current" : null, onSelect: () => mutate((g) => {
+        const t = g.nodes.find((x) => x.id === id);
+        if (c.v === undefined) delete t.bg;
+        else t.bg = c.v;
+      }) })) },
       { label: "Connect to…", icon: ico("link"), items: f.nodes.map((t) => ({ label: short(t.text || t.id), hint: t.id === id ? "itself" : null, onSelect: () => mutate((g) => { g.edges.push({ from: id, to: t.id }); }) })) },
+      { label: "Copy link to box", icon: ico("link"), onSelect: () => copyBoxLink(id) },
       { separator: true },
       { label: "Move earlier", icon: ico("arrow-up"), disabled: i === 0, onSelect: () => mutate((g) => { [g.nodes[i - 1], g.nodes[i]] = [g.nodes[i], g.nodes[i - 1]]; }) },
       { label: "Move later", icon: ico("arrow-down"), disabled: i === f.nodes.length - 1, onSelect: () => mutate((g) => { [g.nodes[i + 1], g.nodes[i]] = [g.nodes[i], g.nodes[i + 1]]; }) },
@@ -98,6 +105,21 @@ export function flowBody(b, inst, a) {
       { label: "Delete node", icon: ico("trash"), danger: true, onSelect: () => mutate((g) => { g.nodes = g.nodes.filter((x) => x.id !== id); }) }
     ];
   };
+  /** `[Page › text](#page-<id>~<node id>)`: opens the page and highlights the box (see focusFlowBox). */
+  async function copyBoxLink(id) {
+    const n = b.nodes.find((x) => x.id === id);
+    const c = inst.ctx;
+    if (!n || !c?.pageId) return;
+    const clean = (t) => String(t ?? "").replace(/[\[\]\\\r\n]+/g, " ").trim();
+    const title = clean(c.pageInfo?.(c.pageId)?.title) || "Untitled";
+    const text = `[${title} › ${clean(n.text || n.id) || n.id}](#page-${c.pageId}~${n.id})`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Link to box copied");
+    } catch {
+      toast(text);
+    }
+  }
   function renameNode(id) {
     const n = b.nodes.find((x) => x.id === id);
     if (!n) return;
@@ -205,9 +227,14 @@ export function flowBody(b, inst, a) {
           h("span", { class: "fe-id", title: "Id used in the quick syntax" }, n.id),
           text,
           sel(`Shape of node ${n.id}`, SHAPES.map((s) => [s, SHAPE_LABELS[s]]), n.shape, (v) => { n.shape = v; refreshText(); }),
-          sel(`Colour of node ${n.id}`, [["", "No colour"], ["grey", "Grey"], ...FLOW_HUES.map(([v, name]) => [v, name])], n.hue ?? "", (v) => {
+          sel(`Outline and text colour of node ${n.id}`, [["", "No colour"], ["grey", "Grey"], ...FLOW_HUES.map(([v, name]) => [v, name])], n.hue ?? "", (v) => {
             if (v === "") delete n.hue;
             else n.hue = v === "grey" ? "grey" : Number(v);
+            refreshText();
+          }),
+          sel(`Fill of node ${n.id}`, [["", "No fill"], ["grey", "Grey fill"], ...FLOW_HUES.map(([v, name]) => [v, `${name} fill`])], n.bg ?? "", (v) => {
+            if (v === "") delete n.bg;
+            else n.bg = v === "grey" ? "grey" : Number(v);
             refreshText();
           }),
           h("span", { class: "fe-btns" },
@@ -259,7 +286,7 @@ export function flowBody(b, inst, a) {
       drawLists();
     });
     const help = h("details", { class: "flow-help" }, h("summary", {}, "Quick syntax"),
-      h("pre", {}, "A -> B: yes         arrow with a label\nA -- B              no arrowhead\nA <-> B             both ends\nA -.-> B            dashed\nA [diamond] Is it ok?\nA [pill blue]: Start   shape, colour, text\nShapes: rect rounded pill diamond circle parallelogram cylinder document"));
+      h("pre", {}, "A -> B: yes         arrow with a label\nA -- B              no arrowhead\nA <-> B             both ends\nA -.-> B            dashed\nA [diamond] Is it ok?\nA [pill blue]: Start   shape, outline colour, text\nA [bg=yellow]          fill (a colour name or grey)\nShapes: rect rounded pill diamond circle parallelogram cylinder document"));
     refreshText();
     drawLists();
     const body = h("div", { class: "flow-edit" },
@@ -278,4 +305,17 @@ export function flowBody(b, inst, a) {
 
   render();
   return wrap;
+}
+
+/** Jump to a box: scroll the flow block holding node `nodeId` (inside `root`) into view and highlight that box. Returns false when no such box. */
+export function focusFlowBox(root, nodeId) {
+  const id = String(nodeId ?? "");
+  const el = id ? [...root.querySelectorAll(".flow-node[data-node]")].find((n) => n.getAttribute("data-node") === id) : null;
+  if (!el) return false;
+  const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  el.scrollIntoView({ block: "center", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
+  if (el.hasAttribute("tabindex")) el.focus({ preventScroll: true });
+  el.classList.add("flow-hit");
+  setTimeout(() => el.classList.remove("flow-hit"), 2600);
+  return true;
 }
