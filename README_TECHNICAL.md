@@ -20,6 +20,15 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
 
 `npm` is only used as a script runner. There are no dependencies to install.
 
+### Math
+
+Inline `{{math:<latex>}}` (≤ 400 characters; the token is capped at `MATH_TOKEN_MAX` 1400 in `inline.js` because
+escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/math/latex.js` is pure (token escape,
+`$…$` → chip, `$$` blocks). `js/math/katex.js` lazy-loads `vendor/katex/` (KaTeX 0.19.1, MIT, ESM build renamed
+`katex.esm.js` so the precache picks it up; woff2 fonts only) and links its CSS on first use. Options: `trust:false`,
+`strict:"ignore"`, `maxSize:20`, `maxExpand:200`; output is built by KaTeX DOM calls, never `innerHTML`. UI in
+`ui/mathUi.js`, registered by `ui/plugins/math.js`. Tests: `work/test/math.test.js`, `work/test/e2e/math.cjs`.
+
 ### Flowchart block
 
 Stored as `{ type: "flow", layout, dir, rotate, turn, spacing, nodes: [{id, text, shape, hue?, bg?}], edges: [{from, to,

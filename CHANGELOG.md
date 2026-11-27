@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+Added: inline math and math blocks (KaTeX, vendored for offline use) with an editor (live preview, symbol palette)
+and Markdown `$` / `$$` export and import.
+
 Added: Flowchart block (`/flowchart`) with automatic layouts (flow, cycle, tree, row, grid), 8 shapes, colours, a
 quick text syntax, an edit dialog and Markdown export/import.
 

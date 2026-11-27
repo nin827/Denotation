@@ -31,7 +31,8 @@ const BLOCK_TYPES = [
   "preview",
   "dbview",
   "graph",
-  "flow"
+  "flow",
+  "math"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
@@ -449,6 +450,7 @@ export function normalizeBlocks(blocks) {
       }
       if (!BLOCK_TYPES.includes(b.type)) b.type = "p";
       if (TEXTY.has(b.type) || b.type === "code") b.text = typeof b.text === "string" ? b.text : "";
+      if (b.type === "math") b.text = typeof b.text === "string" ? b.text.slice(0, 4000) : "";
       if (b.type === "pivot") {
         for (const k of ["source", "rowBy", "colBy", "value"]) if (typeof b[k] !== "string") b[k] = null;
         if (typeof b.agg !== "string") b.agg = "count";

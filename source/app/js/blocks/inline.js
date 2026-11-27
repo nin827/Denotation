@@ -18,11 +18,12 @@ export function detectShortcut(text) {
 // status ({{status:<id>}}) and formula ({{= expression}}: the text up to }} is one argument; only \\ and \} need escaping).
 // Page links and embeds (stored by id, see js/links.js): {{link:<pageId>}}, {{xlink:<pageId>}} (hidden link: no graph edge),
 // {{embed:<pageId>|h|<headingBlockId>}} (a heading section) and {{embed:<pageId>|b|<blockId>,<blockId>,...}} (chosen blocks).
-export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed", "img", "term"];
+export const TOKEN_KINDS = ["value", "date", "preset", "const", "page", "check", "status", "formula", "link", "xlink", "embed", "img", "term", "math"];
 export const EMBED_MAX_BLOCKS = 12;
 export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_MAX = 600;
+const MATH_TOKEN_MAX = 1400; // {{math:<latex>}}: up to 400 characters of LaTeX, every one escaped
 const IMG_TOKEN_MAX = 300400; // {{img:…}} may carry a data URL; checkToken caps its src at 300000 characters
 export const isTokenId = (s) => typeof s === "string" && ID_RE.test(s);
 export function isIsoDate(s) {
@@ -80,6 +81,10 @@ function checkToken(kind, args) {
     if (ids.length > EMBED_MAX_BLOCKS || !ids.every(isTokenId) || new Set(ids).size !== ids.length) return null;
     return { t: "inline", kind, args: [args[0], "b", ids.join(",")] };
   }
+  if (kind === "math") {
+    const l = args.length === 1 ? String(args[0]).trim() : "";
+    return l && l.length <= 400 && !/[\r\n]/.test(l) ? { t: "inline", kind, args: [l] } : null;
+  }
   if (kind === "formula") {
     const e = args.length === 1 ? String(args[0]).trim() : "";
     return e && e.length <= FORMULA_MAX && !/[\r\n]/.test(e) ? { t: "inline", kind, args: [e] } : null;
@@ -89,7 +94,7 @@ function checkToken(kind, args) {
 /** Read a token starting at s[i] ("{{"). Returns { end, node } or null. */
 export function readToken(s, i) {
   if (s[i] !== "{" || s[i + 1] !== "{") return null;
-  const limit = Math.min(s.length, i + (s.startsWith("{{img:", i) ? IMG_TOKEN_MAX : TOKEN_MAX));
+  const limit = Math.min(s.length, i + (s.startsWith("{{img:", i) ? IMG_TOKEN_MAX : s.startsWith("{{math:", i) ? MATH_TOKEN_MAX : TOKEN_MAX));
   let j = i + 2;
   const parts = [""];
   let kind = null;
@@ -125,7 +130,7 @@ export function readToken(s, i) {
       j++;
       continue;
     }
-    if (c === "|" && kind !== null && kind !== "formula") {
+    if (c === "|" && kind !== null && kind !== "formula" && kind !== "math") {
       parts.push("");
       j++;
       continue;
@@ -194,6 +199,7 @@ export function tokenFallback(n) {
     case "link": case "xlink": return "Page";
     case "embed": return "Embed";
     case "term": return "Term";
+    case "math": return `$${n.args[0]}$`;
     case "img": return n.args[3] || "Image";
     default: return n.args[1];
   }

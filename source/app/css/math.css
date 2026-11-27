@@ -1,0 +1,40 @@
+/* math: the inline chip, the display block and the editor (ui/mathUi.js). KaTeX's own sheet is vendor/katex/katex.min.css;
+   both are linked on first use by js/math/katex.js. */
+.ichip.ichip-math { padding: 0 3px; border-color: transparent; background: transparent; border-radius: var(--r-xs); font-size: 1em; line-height: inherit; vertical-align: baseline; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.ichip.ichip-math:hover:not(:disabled), .ichip.ichip-math:focus-visible { background: var(--bg-hover); border-color: var(--border); }
+.ichip-math .katex { font-size: 1.08em; }
+.ichip-math .ichip-err { border: 0; padding: 0; background: transparent; font-size: .92em; }
+.math-loading { color: var(--muted); font-family: var(--mono); font-size: .85em; }
+
+.math-block { margin: 4px 0; min-width: 0; }
+.math-block-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-8); width: 100%; border: 1px solid transparent; background: transparent; color: inherit; font: inherit; padding: 6px 4px; border-radius: var(--radius); cursor: pointer; overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.math-block-btn:hover:not(:disabled), .math-block-btn:focus-visible { background: var(--bg-hover); border-color: var(--border); }
+.math-block-btn:disabled { cursor: default; opacity: 1; }
+.math-block-btn.is-empty { justify-content: flex-start; color: var(--muted); font-size: var(--fs-md); }
+.math-block-btn .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.math-block-btn .ichip-err { margin: 0 auto; }
+.math-display .katex-display { margin: 0; }
+
+/* editor */
+.modal:has(.math-ed) { width: min(640px, 100%); }
+.math-ta { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 16px; resize: vertical; min-height: 4.5em; }
+.math-preview { min-height: 3.2em; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; }
+.math-preview.is-display { justify-content: center; }
+.math-preview .katex-display { margin: 0; }
+.math-empty { color: var(--muted); font-size: var(--fs-md); font-style: italic; }
+.math-error { display: flex; gap: var(--sp-4); align-items: flex-start; color: var(--danger); font-size: var(--fs-md); margin-top: 6px; min-height: 1.2em; overflow-wrap: anywhere; }
+.math-error .icon-svg { width: 1em; height: 1em; flex: none; display: inline-flex; margin-top: .15em; }
+.math-pal-wrap { margin-top: 10px; }
+.math-pal-wrap > summary { cursor: pointer; font-size: var(--fs-md); color: var(--muted); }
+.math-palette { display: grid; gap: var(--sp-8); margin-top: 8px; max-height: 32vh; overflow-y: auto; }
+.math-pal-group { display: grid; gap: var(--sp-4); }
+.math-pal-title { font-size: var(--fs-sm); color: var(--muted); }
+.math-pal-items { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.math-pal-btn { min-width: 36px; min-height: 32px; padding: 2px 8px; font-size: 15px; }
+
+/* phones: the editor is a sheet from the bottom */
+@media (max-width: 599px) {
+  .modal-overlay:has(.math-ed) { place-items: end center; padding: 0; }
+  .modal:has(.math-ed) { width: 100%; max-height: 92%; border-radius: var(--r-lg) var(--r-lg) 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .math-pal-btn { min-height: 40px; min-width: 40px; }
+}

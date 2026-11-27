@@ -1,6 +1,7 @@
 import { previewLine } from "../preview.js";
 import { replaceTokens, tokenFallback } from "./inline.js";
 import { cleanFlow, parseFlow, serializeFlow } from "../flow/layout.js";
+import { blockToMarkdown as mathBlockToMarkdown, parseMathBlock, convertDollars } from "../math/latex.js";
 import { numbering, hasChildren, newBlock, normalizeBlocks, flattenBlocks, MAX_DEPTH } from "./model.js";
 
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
@@ -71,6 +72,9 @@ ${b.text}
         text = `\`\`\`flow\n# ${FLOW_KEYS.map((k) => `${k}: ${f[k]}`).join(", ")}\n${serializeFlow(f)}\n\`\`\``;
         break;
       }
+      case "math":
+        text = mathBlockToMarkdown(b.text);
+        break;
       case "divider":
         text = "---";
         break;
@@ -159,6 +163,12 @@ export function markdownToBlocks(md) {
     const line = lines[i];
     let m;
     if (!line.trim()) continue;
+    const mb = parseMathBlock(lines, i);
+    if (mb) {
+      push(newBlock("math", { text: mb.text }));
+      i = mb.end;
+      continue;
+    }
     if (m = /^```(\w*)\s*$/.exec(line.trim())) {
       const body = [];
       while (++i < lines.length && !/^```\s*$/.test(lines[i].trim())) body.push(lines[i]);
@@ -208,5 +218,5 @@ export function markdownToBlocks(md) {
     }
     push(newBlock("p", { text: unescapeMarker(line.trim()) }));
   }
-  return normalizeBlocks(root);
+  return normalizeBlocks(convertDollars(root));
 }
