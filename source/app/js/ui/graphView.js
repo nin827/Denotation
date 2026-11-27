@@ -2,6 +2,7 @@
 // the `graph` block, "Graph appearance…" per page and the per-repository style rules editor.
 // Data comes from the workspace link index (ws.links, kept current on save) plus page / row records; opening a graph
 // never re-reads page content. Positions are cached per graph key (memory, plus a small bounded localStorage copy).
+import { setBlockMenu } from "./blockExtras.js";
 import { h } from "./dom.js";
 import { ico, iconNode } from "../icons/index.js";
 import { openModal } from "./modal.js";
@@ -331,18 +332,8 @@ export function graphBlockBody(b, inst, a) {
     Object.assign(cfg, patch);
     a.save();
   };
-  const repos = liveRepos(pages());
-  const depthSel = h("select", { "aria-label": "Depth", disabled: ctx.locked, hidden: scope() !== "local", onChange: (e) => {
-    set({ depth: Number(e.target.value) });
-    g.setLocal(local());
-  } }, [1, 2, 3].map((d) => h("option", { value: String(d), selected: d === depth() }, `${d} step${d === 1 ? "" : "s"}`)));
-  const scopeSel = h("select", { "aria-label": "Graph of", disabled: ctx.locked, onChange: (e) => {
-    set({ scope: e.target.value });
-    depthSel.hidden = scope() !== "local";
-    g.setLocal(local());
-    g.setFilter(filter());
-  } }, h("option", { value: "local" }, "This page (local)"), h("option", { value: "workspace" }, "Whole workspace"), repos.map((r) => h("option", { value: r.id }, r.title || "Untitled")));
-  scopeSel.value = scope();
+  const repos = () => liveRepos(pages());
+  let mode = cfg.mode === "list" ? "list" : "canvas";
   const open = (id, node) => {
     Promise.resolve(ctx.flush?.()).finally(() => {
       if (node?.kind === "row") location.hash = `#row-${id}`;
@@ -352,18 +343,50 @@ export function graphBlockBody(b, inst, a) {
   const el = h(
     "div",
     { class: "graph-block", role: "group", "aria-label": "Graph" },
-    h("div", { class: "graph-block-tools" }, h("span", { class: "graph-block-label" }, ico("waypoints")), scopeSel, depthSel, modeToggle(cfg.mode === "list" ? "list" : "canvas", (m) => {
-      if (!ctx.locked) set({ mode: m });
-      g.setMode(m);
-    }), countEl),
-    stage
+    stage,
+    countEl
   );
   const g = mountGraph(stage, { ws, pages, open }, {
     key: `block:${b.id}`,
     filter,
     local,
-    mode: cfg.mode === "list" ? "list" : "canvas",
+    mode,
     onCount: (t) => (countEl.textContent = t)
+  });
+  // scope, depth and the canvas / list view are in the block menu (the \u2261 handle, right-click or long-press); only the count stays on the block
+  const mark = (on) => (on ? "\u2713 current" : null);
+  setBlockMenu(b, () => {
+    const scopeName = scope() === "local" ? "This page" : scope() === "workspace" ? "Whole workspace" : repos().find((r) => r.id === scope())?.title || "Repository";
+    const view = { label: "View", icon: ico(mode === "list" ? "list" : "waypoints"), hint: mode === "list" ? "List" : "Graph", viewOnly: true, items: [["canvas", "Graph", "waypoints"], ["list", "List", "list"]].map(([m, label, icon]) => ({
+      label,
+      icon: ico(icon),
+      hint: mark(mode === m),
+      onSelect: () => {
+        mode = m;
+        if (!ctx.locked) set({ mode: m });
+        g.setMode(m);
+      }
+    })) };
+    if (ctx.locked) return [view];
+    const items = [{ header: true, label: "Graph" }, { label: "Graph of", icon: ico("waypoints"), hint: scopeName, items: [["local", "This page (local)"], ["workspace", "Whole workspace"], ...repos().map((r) => [r.id, r.title || "Untitled"])].map(([v, label]) => ({
+      label,
+      hint: mark(scope() === v),
+      onSelect: () => {
+        set({ scope: v });
+        g.setLocal(local());
+        g.setFilter(filter());
+      }
+    })) }];
+    if (scope() === "local") items.push({ label: "Depth", icon: ico("git-fork"), hint: `${depth()} step${depth() === 1 ? "" : "s"}`, items: [1, 2, 3].map((d) => ({
+      label: `${d} step${d === 1 ? "" : "s"}`,
+      hint: mark(depth() === d),
+      onSelect: () => {
+        set({ depth: d });
+        g.setLocal(local());
+      }
+    })) });
+    items.push(view);
+    return items;
   });
   return el;
 }

@@ -33,6 +33,7 @@ import { listChipPresets } from "../preview.js";
 import { renderInline } from "./inlineView.js";
 import { specialBody, shrink } from "./blockTypes.js";
 import { openBlockMenu } from "./blockMenu.js";
+import { setBlockMenu } from "./blockExtras.js";
 import { pickEmoji } from "./emoji.js";
 import { openInlinePicker, inlineResolver, blockTexts, chipAction } from "./inlineChips.js";
 import { calloutLook, applyPreset, setLook, resetToPreset, hasOverride, DEFAULT_ICON } from "../blocks/callout.js";
@@ -85,6 +86,15 @@ export function createBlockEditor(container, ctx) {
   const root = h("div", { class: "blocks" });
   const inst = { container, ctx, root, redraw, focusBlock, save, api: null };
   let slash = null;
+  // The "selected line": the block with the caret, or the one last tapped or clicked. Only it shows its \u2261 handle (besides a
+  // hovered one with a mouse), so a page is not covered in handles on a phone.
+  let selId = null;
+  function setSel(id) {
+    if (selId === id) return;
+    if (selId) root.querySelector(`.blk-wrap[data-id="${selId}"] > .blk-row`)?.classList.remove("sel");
+    selId = id;
+    if (id) root.querySelector(`.blk-wrap[data-id="${id}"] > .blk-row`)?.classList.add("sel");
+  }
   function save() {
     ctx.persist(container);
     ctx.changed();
@@ -126,7 +136,7 @@ export function createBlockEditor(container, ctx) {
   function blockEl(b, parent, nums) {
     const wrap = h("div", { class: "blk-wrap", "data-id": b.id });
     const col = colorOf(b);
-    const row = h("div", { class: `blk-row t-${b.type}${col.cls}` });
+    const row = h("div", { class: `blk-row t-${b.type}${col.cls}${b.id === selId ? " sel" : ""}` });
     applyHues(row, col);
     if (!ctx.locked) {
       const handle = h("div", {
@@ -344,30 +354,38 @@ export function createBlockEditor(container, ctx) {
   function codeBox(b, main, ta) {
     const langs = ["plain", "js", "ts", "python", "json", "html", "css", "bash", "sql", "java", "c", "go", "rust", "markdown"];
     if (b.lang && !langs.includes(b.lang)) langs.push(b.lang);
-    const select = h("select", {
-      class: "code-lang",
-      "aria-label": "Language",
-      disabled: ctx.locked,
-      value: b.lang || "plain",
-      onChange: (e) => {
-        b.lang = e.target.value;
-        save();
+    // language and copy are in the block menu (the \u2261 handle, right-click or long-press); the corner only names the language
+    const badge = h("span", { class: "code-badge" });
+    const paint = () => {
+      const lang = b.lang && b.lang !== "plain" ? b.lang : "";
+      badge.textContent = lang;
+      badge.hidden = !lang;
+      ta.setAttribute("aria-label", lang ? `Code, ${lang}` : "Block text");
+    };
+    paint();
+    const copyCode = async () => {
+      try {
+        await navigator.clipboard.writeText(b.text);
+        toast("Copied");
+      } catch {
+        ta.select();
+        toast("Press Ctrl/Cmd+C to copy", "info");
       }
-    }, langs.map((l) => h("option", { value: l }, l)));
-    const copy = h("button", {
-      class: "icon code-copy",
-      type: "button",
-      onClick: async () => {
-        try {
-          await navigator.clipboard.writeText(b.text);
-          toast("Copied");
-        } catch {
-          ta.select();
-          toast("Press Ctrl/Cmd+C to copy", "info");
+    };
+    setBlockMenu(b, () => [
+      { header: true, label: "Code" },
+      ctx.locked ? null : { label: "Language", icon: ico("code"), hint: b.lang || "plain", items: langs.map((l) => ({
+        label: l,
+        hint: (b.lang || "plain") === l ? "\u2713 current" : null,
+        onSelect: () => {
+          b.lang = l;
+          save();
+          paint();
         }
-      }
-    }, "Copy");
-    return h("div", { class: "code-box" }, h("div", { class: "code-tools" }, select, copy), main);
+      })) },
+      { label: "Copy code", icon: ico("copy"), viewOnly: true, onSelect: copyCode }
+    ].filter(Boolean));
+    return h("div", { class: "code-box" }, badge, main);
   }
   function onInput(e, b, ta) {
     if (b.type !== "code" && !e.isComposing && ta.value.includes("[[") && (e.data?.includes("]") || /^insertFrom(Paste|Drop)/.test(e.inputType ?? ""))) convertTyped(b, ta);
@@ -970,19 +988,45 @@ export function createBlockEditor(container, ctx) {
     save();
     redraw();
   }
+  wireSelection();
   wireBlockContextMenu();
+  /** The row of this editor that holds `t` (a block inside a synced block belongs to the synced block's own editor). */
+  function ownRow(t) {
+    let row = t?.closest?.(".blk-row");
+    while (row && row.closest(".blocks") !== root) row = row.parentElement?.closest(".blk-row") ?? null;
+    return row;
+  }
+  function blockOfRow(row) {
+    const id = row?.closest(".blk-wrap")?.dataset.id;
+    return id ? find(container.blocks, id)?.block ?? null : null;
+  }
+  /** Track the selected line: focus or a press inside a block selects it; a press outside the editor (and its menus) clears it. */
+  function wireSelection() {
+    const pick = (e) => setSel(e.target.closest?.(".blocks") === root ? blockOfRow(ownRow(e.target))?.id ?? null : null);
+    root.addEventListener("focusin", pick);
+    root.addEventListener("pointerdown", pick, true);
+    root.addEventListener("focusout", (e) => {
+      const to = e.relatedTarget;
+      if (to && !root.contains(to) && !to.closest?.(".menu, .color-pop, .modal-overlay")) setSel(null);
+    });
+    const outside = (e) => {
+      if (!root.isConnected) return document.removeEventListener("pointerdown", outside, true);
+      if (selId && !root.contains(e.target) && !e.target.closest?.(".menu, .color-pop, .modal-overlay, .toast")) setSel(null);
+    };
+    document.addEventListener("pointerdown", outside, true);
+  }
   /**
-   * Right-click, long-press and Shift+F10 / ContextMenu key open the block handle's menu.
-   * Local on purpose: ui/contextMenu.js (bindContextMenu) can replace this later, keeping the same native-menu rules.
+   * Right-click, long-press and Shift+F10 / ContextMenu key open the block menu, the same one as the handle's, wherever the
+   * block is pressed (the handle is only visible on the selected line). Local on purpose: ui/contextMenu.js
+   * (bindContextMenu) can replace this later, keeping the same native-menu rules.
+   * The browser's own menu stays on text being edited, links inside text and selected text. Table cells, a bookmark card and
+   * a code block that did not already have focus are not text being edited: they open the block menu.
    */
   function wireBlockContextMenu() {
     const NATIVE = "input,textarea,select,[contenteditable],a[href]";
     const LONG_MS = 520;
-    const rowOf = (t) => t?.closest?.(".blk-row");
-    const blockOf = (row) => {
-      const id = row?.closest(".blk-wrap")?.dataset.id;
-      return id ? find(container.blocks, id)?.block ?? null : null;
-    };
+    const rowOf = ownRow;
+    const blockOf = blockOfRow;
     const selected = () => {
       try {
         return !!window.getSelection?.()?.toString().trim();
@@ -990,14 +1034,28 @@ export function createBlockEditor(container, ctx) {
         return false;
       }
     };
-    const open = (row, anchor) => {
+    const inputSelected = (t) => {
+      try {
+        return t.selectionStart !== t.selectionEnd && t.selectionStart !== null;
+      } catch {
+        return false;
+      }
+    };
+    // pressed while it did not have focus: a code block's textarea is always in edit mode, but not "being edited" until then
+    let idleAtDown = false;
+    const forced = (t) => !!t.closest?.(".tbl-cell, .bm-card, .page-link") || !!t.closest?.(".t-code") && t.matches?.("textarea.blk-ta") && idleAtDown;
+    const open = (row, anchor, target = null) => {
       const b = blockOf(row);
-      if (!b || ctx.locked) return false;
-      openBlockMenu(anchor, b, inst, actions);
-      return true;
+      if (!b) return false;
+      return !!openBlockMenu(anchor, b, inst, actions, { target });
     };
     // native menu stays on text fields, edit mode, links and selected text (the handle always gets the block menu)
-    const native = (t, sel = selected()) => !t.closest(".gutter") && (!!t.closest(NATIVE) || !!t.closest(".blk-content.editing") || sel);
+    const native = (t, touch) => {
+      if (t.closest(".gutter")) return false;
+      // a long-press selects a word by itself; that selection is not a reason to keep the native menu
+      if (forced(t)) return !touch && t.matches?.("input,textarea") && inputSelected(t);
+      return !!t.closest(NATIVE) || !!t.closest(".blk-content.editing") || !touch && selected();
+    };
     let press = null;
     let swallow = 0;
     const cancel = () => {
@@ -1009,9 +1067,9 @@ export function createBlockEditor(container, ctx) {
       const longTouch = press !== null; // the browser's own long-press menu beat our timer
       cancel();
       if (longTouch) swallow = Date.now() + 700;
+      if (e.target.closest?.(".blocks") !== root) return; // inside a synced block: its own editor decides
       const row = rowOf(e.target);
-      // a touch long-press selects a word by itself; that selection is not a reason to keep the native menu
-      if (!row || native(e.target, longTouch ? false : selected()) || !open(row, { x: e.clientX, y: e.clientY })) return;
+      if (!row || native(e.target, longTouch) || !open(row, { x: e.clientX, y: e.clientY }, e.target)) return;
       if (longTouch) window.getSelection?.()?.removeAllRanges();
       e.preventDefault();
       e.stopPropagation();
@@ -1019,34 +1077,41 @@ export function createBlockEditor(container, ctx) {
     root.addEventListener("keydown", (e) => {
       if (e.defaultPrevented || !(e.key === "ContextMenu" || e.key === "F10" && e.shiftKey)) return;
       const t = e.target;
-      if (t.closest?.("input,select,[contenteditable]") || t.closest?.("textarea:not(.blk-ta)")) return;
+      if (t.closest?.(".blocks") !== root) return;
+      const cell = !!t.closest?.(".tbl-cell");
+      if (!cell && (t.closest?.("input,select,[contenteditable]") || t.closest?.("textarea:not(.blk-ta)"))) return;
       const row = rowOf(t);
       if (!row) return;
       const r = row.getBoundingClientRect();
-      if (open(row, { x: r.left + 24, y: Math.min(r.bottom, r.top + 28) })) {
+      const anchor = cell ? t : { x: r.left + 24, y: Math.min(r.bottom, r.top + 28) };
+      if (open(row, anchor, cell ? t : null)) {
         e.preventDefault();
         e.stopPropagation();
       }
     });
     root.addEventListener("pointerdown", (e) => {
       cancel();
+      if (e.target.closest?.(".blocks") !== root) return;
+      idleAtDown = e.target !== document.activeElement;
       if (e.pointerType !== "touch" || !e.isPrimary) return;
       const row = rowOf(e.target);
-      if (!row || e.target.closest(NATIVE) || e.target.closest(".blk-content.editing")) return;
+      const t = e.target;
+      if (!row || !forced(t) && (t.closest(NATIVE) || t.closest(".blk-content.editing"))) return;
+      if (forced(t) && t.closest(".gutter")) return;
       const start = { x: e.clientX, y: e.clientY };
       press = {
         start,
         timer: setTimeout(() => {
           press = null;
           swallow = Date.now() + 700;
-          if (open(row, start)) {
+          if (open(row, start, t)) {
             window.getSelection?.()?.removeAllRanges();
             // cancelling touchend stops the emulated mousedown/click that would close the menu again
             document.addEventListener("touchend", (ev) => ev.cancelable && ev.preventDefault(), { once: true, capture: true });
           }
         }, LONG_MS)
       };
-    });
+    }, true);
     root.addEventListener("pointermove", (e) => {
       if (press && Math.hypot(e.clientX - press.start.x, e.clientY - press.start.y) > 8) cancel();
     });

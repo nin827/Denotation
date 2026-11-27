@@ -407,7 +407,7 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await noOverflow("slash menu");
     await page.keyboard.press("Escape");
     // the handle menu offers Move up/down (the tap alternative to dragging)
-    await page.locator(".gutter").first().tap({ force: true });
+    await page.locator(".blk-row.sel > .gutter").tap(); // only the selected line shows its handle
     await page.waitForSelector(".menu-item");
     if (!(await page.locator(".menu-item", { hasText: "Move down" }).count())) errs.push("phone: handle menu has no Move down");
     await page.keyboard.press("Escape");
@@ -437,6 +437,140 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     failed ||= !ok;
     console.log(`${ok ? "ok  " : "FAIL"} phone 390x844 touch${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
     await phone.close();
+  }
+  {
+    // Block menu: the handle shows only on the selected line, sits left of the text, and every block opens the menu by right-click / long-press
+    const seed = async (page) => page.evaluate(async () => {
+      const { createStore } = await import("./js/store.js");
+      const { createWorkspace } = await import("./js/workspace.js");
+      const { config } = await import("./js/config.js");
+      const { newBlock } = await import("./js/blocks/model.js");
+      const ws = createWorkspace(await createStore(config));
+      const repo = (await ws.listPages()).find((p) => p.type === "repo");
+      const db = await ws.createPage({ type: "database", title: "Pivot source", parentId: repo.id });
+      const doc = await ws.createPage({ title: "Block menu doc", parentId: repo.id });
+      const c = document.createElement("canvas");
+      c.width = 200;
+      c.height = 100;
+      c.getContext("2d").fillRect(0, 0, 200, 100);
+      const t = newBlock("table", { rows: 2, cols: 2 });
+      t.cells = [["Item", "Qty"], ["Pear", "2"]];
+      const piv = newBlock("pivot");
+      piv.source = db.id;
+      const code = newBlock("code", { text: "let a = 1;" });
+      code.lang = "js";
+      doc.blocks = [newBlock("p", { text: "First paragraph" }), newBlock("p", { text: "Second paragraph" }), t, newBlock("divider"), newBlock("image", { src: c.toDataURL("image/png"), caption: "Pic" }), code, piv, newBlock("bookmark", { url: "https://example.com/", title: "Example" }), newBlock("p", { text: "Last" })];
+      await ws.savePage(doc);
+      return doc.id;
+    });
+    const menuTexts = (page) => page.locator(".menu-item .menu-label").allTextContents();
+    // --- phone: touch
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const page = await phone.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    await page.goto(`http://127.0.0.1:${PORT}${targets[0]}`);
+    await page.waitForSelector(".side-item", { state: "attached" });
+    const docId = await seed(page);
+    await page.reload();
+    await page.waitForSelector(".side-item", { state: "attached" });
+    await page.evaluate((i) => { location.hash = `#page-${i}`; }, docId);
+    await page.waitForSelector(".tbl");
+    await page.waitForFunction(() => document.getElementById("side-scrim").hidden);
+    const shown = () => page.evaluate(() => [...document.querySelectorAll(".gutter")].filter((g) => {
+      const cs = getComputedStyle(g);
+      return parseFloat(cs.opacity) > 0.5 && cs.pointerEvents !== "none";
+    }).length);
+    if ((await shown()) !== 0) errs.push("block menu: handles are visible before any block is selected on a touch device");
+    await page.locator(".blk-row.t-p .rendered").first().tap();
+    await page.waitForTimeout(250);
+    if ((await shown()) !== 1) errs.push(`block menu: ${await shown()} handles visible for one selected line (want 1)`);
+    const geo = await page.evaluate(() => {
+      const g = document.querySelector(".blk-row.sel > .gutter").getBoundingClientRect();
+      const ta = document.querySelector(".blk-row.sel .blk-ta").getBoundingClientRect();
+      const main = document.getElementById("main");
+      const cs = getComputedStyle(main);
+      const r = document.querySelector(".blk-row.sel").getBoundingClientRect();
+      return { gl: g.left, gr: g.right, gw: g.width, gh: g.height, tl: ta.left, tr: r.right, padL: parseFloat(cs.paddingLeft), padR: parseFloat(cs.paddingRight), vw: innerWidth, sw: document.documentElement.scrollWidth };
+    });
+    if (geo.gl < 0 || geo.gr > geo.tl - 4) errs.push(`block menu: handle ${geo.gl}..${geo.gr} must be on screen and left of the text at ${geo.tl}`);
+    if (geo.gw < 32 || geo.gh < 32) errs.push(`block menu: handle target is ${geo.gw}x${geo.gh} (< 32)`);
+    if (geo.sw > geo.vw) errs.push(`block menu: horizontal overflow ${geo.sw}/${geo.vw}`);
+    // the text sits one 28px lane in from the page margin on both sides, so left and right margins match
+    if (Math.abs(geo.tl - (geo.padL + 28)) > 1.5 || Math.abs(geo.vw - geo.tr - (geo.padR + 28)) > 1.5) errs.push(`block menu: text edges moved (left ${geo.tl} vs ${geo.padL + 28}, right margin ${geo.vw - geo.tr} vs ${geo.padR + 28})`);
+    // long-press on a table cell opens the block menu with the table settings
+    const cdp = await phone.newCDPSession(page);
+    const longPress = async (loc) => {
+      await loc.scrollIntoViewIfNeeded();
+      const b = await loc.boundingBox();
+      const pt = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [pt] });
+      await page.waitForTimeout(750);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(200);
+    };
+    await longPress(page.locator(".tbl tr").nth(1).locator("input").first());
+    if (!(await menuTexts(page)).some((t) => /^Header row/.test(t))) errs.push("block menu: long-press on a table cell did not open the table menu");
+    await page.keyboard.press("Escape");
+    await longPress(page.locator(".img-wrap .img").first());
+    if (!(await menuTexts(page)).some((t) => /^Image size/.test(t))) errs.push("block menu: long-press on an image did not open the image menu");
+    await page.keyboard.press("Escape");
+    for (const sel of ['.tbl-controls', '.img-tools', '.code-tools', '.pivot-controls', '.rp-gear', '.vb-menu']) {
+      if (await page.locator(sel).count()) errs.push(`block menu: ${sel} is still in the page flow`);
+    }
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} block menu, phone touch${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await phone.close();
+    // --- desktop: right-click on every kind of block, keyboard, hover
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    const d = await ctx.newPage();
+    const derrs = [];
+    d.on("pageerror", (e) => derrs.push(e.message));
+    d.on("console", (m) => m.type() === "error" && derrs.push(m.text()));
+    await d.goto(`http://127.0.0.1:${PORT}${targets[0]}`);
+    await d.waitForSelector(".side-item", { state: "attached" });
+    const id2 = await seed(d);
+    await d.reload();
+    await d.waitForSelector(".side-item", { state: "attached" });
+    await d.evaluate((i) => { location.hash = `#page-${i}`; }, id2);
+    await d.waitForSelector(".tbl");
+    const expects = [
+      ['.blk-row.t-p .rendered >> nth=1', /^Turn into/, "paragraph"],
+      ['.tbl tr >> nth=1 >> input >> nth=1', /^Header row/, "table cell"],
+      ['.divider', /^Duplicate/, "divider"],
+      ['.img-wrap .img', /^Image size/, "image"],
+      ['.code-box .blk-ta', /^Language/, "code block"],
+      ['.pivot', /^Database/, "pivot"],
+      ['.bm-card', /^Edit link/, "bookmark"]
+    ];
+    for (const [sel, re, what] of expects) {
+      await d.locator(sel).click({ button: "right" });
+      await d.waitForSelector(".menu").catch(() => {});
+      if (!(await menuTexts(d)).some((t) => re.test(t))) derrs.push(`block menu: right-click on ${what} did not open its block menu`);
+      await d.keyboard.press("Escape");
+    }
+    // right-click on the focused paragraph keeps the browser's own menu (spell check, paste)
+    await d.locator(".blk-row.t-p .rendered").first().click();
+    await d.locator(".blk-row.t-p .blk-ta").first().click({ button: "right" });
+    if (await d.locator(".menu").count()) derrs.push("block menu: right-click inside the text being edited should keep the browser menu");
+    await d.keyboard.press("Escape");
+    // Shift+F10 in a table cell, then add a row from the menu
+    await d.locator(".tbl tr").nth(1).locator("input").first().focus();
+    await d.keyboard.press("Shift+F10");
+    await d.locator(".menu-item", { hasText: /^Row 2/ }).click();
+    await d.locator(".menu-item", { hasText: /^Add row below/ }).click();
+    await d.waitForFunction(() => document.querySelectorAll(".tbl tr").length === 3);
+    // the handle of a hovered block opens the same menu
+    await d.locator(".blk-row.t-p").first().hover();
+    await d.locator(".blk-row.t-p").first().locator(".gutter").click();
+    if (!(await menuTexts(d)).some((t) => /^Turn into/.test(t))) derrs.push("block menu: the handle did not open the block menu");
+    await d.keyboard.press("Escape");
+    const dok = derrs.length === 0;
+    failed ||= !dok;
+    console.log(`${dok ? "ok  " : "FAIL"} block menu, desktop${derrs.length ? "\n  " + derrs.join("\n  ") : ""}`);
+    await ctx.close();
   }
   {
     // Database view block + data sources: mark a database, embed a view in a doc, edit a row there, table source chip

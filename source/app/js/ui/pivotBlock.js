@@ -1,4 +1,6 @@
 import { h } from "./dom.js";
+import { ico } from "../icons/index.js";
+import { setBlockMenu } from "./blockExtras.js";
 import {
   cleanPivot,
   pivotFields,
@@ -13,23 +15,44 @@ export function pivotBody(b, inst, a) {
   const locked = ctx.locked;
   const box = h("div", { class: "pivot" });
   const note = (text) => h("div", { class: "hint" }, text);
-  const databases = ctx.livePages().filter((p) => p.type === "database");
-  const option = (value, label, cur) => h("option", { value, selected: value === (cur ?? "") }, label);
-  const field = (label, cur, options, onPick) => h(
-    "label",
-    { class: "pivot-field" },
-    label,
-    h("select", { value: cur ?? "", disabled: locked, onChange: (e) => onPick(e.target.value || null) }, options)
-  );
+  const databasesNow = () => ctx.livePages().filter((p) => p.type === "database");
+  let view = { data: null, cfg: null }; // what the last draw used; the block menu offers its fields
   const set = (patch) => {
     Object.assign(b, patch);
     a.save();
     render();
   };
+  /** One setting as a submenu of choices; the current one is marked with a check and the word "current". */
+  const choice = (label, icon, cur, options, onPick) => {
+    const shown = options.find((o) => o.value === (cur ?? ""));
+    return { label, icon: ico(icon), hint: shown?.label ?? null, items: options.map((o) => ({
+      label: o.label,
+      hint: o.value === (cur ?? "") ? "\u2713 current" : null,
+      onSelect: () => onPick(o.value || null)
+    })) };
+  };
+  // the settings that used to sit in a bar above the table now live in the block menu
+  setBlockMenu(b, () => {
+    if (locked) return [];
+    const { data, cfg } = view;
+    const items = [
+      { header: true, label: "Pivot table" },
+      choice("Database", "database", b.source, [{ value: "", label: "Choose\u2026" }, ...databasesNow().map((p) => ({ value: p.id, label: p.title || "Untitled" }))], (v) => set({ source: v, rowBy: null, colBy: null, agg: "count", value: null }))
+    ];
+    if (!cfg) return items;
+    const fields = pivotFields(data.columns);
+    items.push(
+      choice("Rows", "rows-3", cfg.rowBy, [{ value: "", label: "Choose\u2026" }, ...fields.map((c) => ({ value: c.id, label: c.name }))], (v) => set({ rowBy: v })),
+      choice("Columns", "columns-3", cfg.colBy, [{ value: "", label: "None" }, ...fields.filter((c) => c.id !== cfg.rowBy).map((c) => ({ value: c.id, label: c.name }))], (v) => set({ colBy: v })),
+      choice("Value", "sigma", cfg.value, [{ value: "", label: "Count of rows" }, ...pivotValueFields(data.columns).map((c) => ({ value: c.id, label: c.name }))], (v) => set({ value: v, agg: v ? cfg.agg === "count" ? "sum" : cfg.agg : "count" }))
+    );
+    if (cfg.value) items.push(choice("Calculate", "calculator", cfg.agg, PIVOT_AGGS.filter((x) => x.id !== "count").map((x) => ({ value: x.id, label: x.label })), (v) => set({ agg: v || "sum" })));
+    return items;
+  });
   async function render() {
     const src = b.source ? await ctx.ws.getPage(b.source) : null;
     const data = src?.sourceId ? await ctx.ws.getPage(src.sourceId) : src;
-    const usable = data && data.type === "database" && databases.some((p) => p.id === b.source);
+    const usable = data && data.type === "database" && databasesNow().some((p) => p.id === b.source);
     const cfg = usable ? cleanPivot({ rowBy: b.rowBy, colBy: b.colBy, agg: b.agg, value: b.value }, data.columns) : null;
     if (cfg) {
       b.rowBy = cfg.rowBy;
@@ -37,24 +60,11 @@ export function pivotBody(b, inst, a) {
       b.agg = cfg.agg;
       b.value = cfg.value;
     }
-    const controls = h(
-      "div",
-      { class: "pivot-controls" },
-      field(
-        "Database",
-        b.source,
-        [option("", "Choose\u2026", b.source), ...databases.map((p) => option(p.id, p.title || "Untitled", b.source))],
-        (v) => set({ source: v, rowBy: null, colBy: null, agg: "count", value: null })
-      ),
-      cfg ? field("Rows", cfg.rowBy, [option("", "Choose\u2026", cfg.rowBy), ...pivotFields(data.columns).map((c) => option(c.id, c.name, cfg.rowBy))], (v) => set({ rowBy: v })) : null,
-      cfg ? field("Columns", cfg.colBy, [option("", "None", cfg.colBy), ...pivotFields(data.columns).filter((c) => c.id !== cfg.rowBy).map((c) => option(c.id, c.name, cfg.colBy))], (v) => set({ colBy: v })) : null,
-      cfg ? field("Value", cfg.value, [option("", "Count of rows", cfg.value), ...pivotValueFields(data.columns).map((c) => option(c.id, c.name, cfg.value))], (v) => set({ value: v, agg: v ? cfg.agg === "count" ? "sum" : cfg.agg : "count" })) : null,
-      cfg && cfg.value ? field("Calculate", cfg.agg, PIVOT_AGGS.filter((x) => x.id !== "count").map((x) => option(x.id, x.label, cfg.agg)), (v) => set({ agg: v || "sum" })) : null
-    );
+    view = { data: usable ? data : null, cfg };
     let body;
-    if (!b.source) body = note("Choose a database to summarize.");
+    if (!b.source) body = note(locked ? "No database chosen." : "Choose a database to summarize: open the block menu (the \u2261 handle, or right-click) and pick Database.");
     else if (!usable) body = note("That database is missing or in the trash.");
-    else if (!cfg.rowBy) body = note("Choose a field for the rows.");
+    else if (!cfg.rowBy) body = note(locked ? "No field chosen for the rows." : "Choose a field for the rows in the block menu (the \u2261 handle, or right-click).");
     else {
       const rows = await ctx.ws.listRows(data.id);
       const t = pivotTable(data.columns, rows, cfg);
@@ -85,7 +95,7 @@ export function pivotBody(b, inst, a) {
         ))
       ));
     }
-    box.replaceChildren(...[locked && b.source ? null : controls, body].filter(Boolean));
+    box.replaceChildren(body);
   }
   let timer = null;
   const stop = ctx.ws.onDataChange?.(() => {

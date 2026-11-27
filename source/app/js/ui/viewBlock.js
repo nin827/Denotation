@@ -7,10 +7,9 @@
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { renderDatabase } from "./dbView.js";
-import { openMenu } from "./popover.js";
 import { openModal } from "./modal.js";
 import { toast } from "./dialogs.js";
-import { bindContextMenu } from "./contextMenu.js";
+import { setBlockMenu } from "./blockExtras.js";
 import { sourceList, sourceLabel, findTableSource, isTableSourceId } from "../sources.js";
 import { newView, ensureViews, typeInfo } from "../dbviews.js";
 import { newId } from "../ids.js";
@@ -176,7 +175,7 @@ export function viewBlockBody(b, inst, a) {
     const items = [];
     if (!locked) items.push({ label: "Change source…", icon: ico("replace"), onSelect: chooseSource });
     if (res?.state === "ok") {
-      items.push({ label: res.host.virtual ? "Open the page with the table" : "Open source", icon: ico("arrow-up-right"), onSelect: () => ctx.openPage(res.host.virtual ? res.host.pageId : res.host.id) });
+      items.push({ label: res.host.virtual ? "Open the page with the table" : "Open source", icon: ico("arrow-up-right"), viewOnly: true, onSelect: () => ctx.openPage(res.host.virtual ? res.host.pageId : res.host.id) });
     }
     if (!locked && res?.state === "ok" && !res.host.virtual && state?.mode === "custom" && b.view) {
       items.push({ label: "Convert custom view to a source view…", icon: ico("copy"), onSelect: () => convertToSourceView(state.link) });
@@ -215,11 +214,13 @@ export function viewBlockBody(b, inst, a) {
       if (host.virtual || b.view || !locked) tabs.push(tab("Custom", state.mode === "custom", () => goCustom(state.views.find((v) => v.id === state.viewId)), "sliders-horizontal"));
       parts.push(h("div", { class: "vb-tabs", role: "toolbar", "aria-label": "Views" }, tabs));
     }
-    const items = menuItems();
-    parts.push(items.length ? h("button", { type: "button", class: "icon vb-menu", title: "Database view options", "aria-label": "Database view options", "aria-haspopup": "menu", onClick: (e) => openMenu(e.currentTarget, menuItems(), { width: 270 }) }, ico("ellipsis")) : null);
     head.replaceChildren(...parts.filter(Boolean));
   }
-  bindContextMenu(head, () => menuItems(), { width: 270 });
+  // source, open and customise are in the block menu (the \u2261 handle, right-click or long-press anywhere on the block)
+  setBlockMenu(b, () => {
+    const items = menuItems();
+    return items.length ? [{ header: true, label: "Database view" }, ...items] : [];
+  });
 
   // ----- content -----
   const message = (text, { choose = false } = {}) => h(

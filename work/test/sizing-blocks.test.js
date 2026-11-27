@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { newBlock, normalizeBlocks, tableResize } from "../../source/app/js/blocks/model.js";
+import { newBlock, normalizeBlocks, tableResize, tableInsertRow, tableDeleteRow, tableInsertCol, tableDeleteCol, TABLE_LIMITS } from "../../source/app/js/blocks/model.js";
 import { blocksToMarkdown, markdownToBlocks } from "../../source/app/js/blocks/markdown.js";
 
 test("legacy table header flag becomes headerRow", () => {
@@ -37,6 +37,32 @@ test("tableResize keeps the size lists aligned", () => {
   tableResize(t, 1, 1);
   assert.deepEqual(t.colWidths, ["100px"]);
   assert.equal("rowHeights" in t, false);
+});
+test("table insert and delete keep cells, sizes and the data-source key aligned", () => {
+  const t = newBlock("table", { rows: 2, cols: 3 });
+  t.cells = [["a", "b", "c"], ["d", "e", "f"]];
+  t.colWidths = ["100px", null, "20em"];
+  t.rowHeights = [null, "40px"];
+  t.sourceKey = 2;
+  assert.equal(tableInsertCol(t, 1), true);
+  assert.deepEqual(t.cells[0], ["a", "", "b", "c"]);
+  assert.deepEqual(t.colWidths, ["100px", null, null, "20em"]);
+  assert.equal(t.sourceKey, 3);
+  assert.equal(tableInsertRow(t, 0), true);
+  assert.deepEqual(t.cells[0], ["", "", "", ""]);
+  assert.deepEqual(t.rowHeights, [null, null, "40px"]);
+  assert.equal(tableDeleteCol(t, 3), true);
+  assert.equal("sourceKey" in t, false);
+  assert.deepEqual(t.colWidths, ["100px", null, null]);
+  assert.equal(tableDeleteRow(t, 2), true);
+  assert.equal("rowHeights" in t, false);
+  assert.equal(t.cells.length, 2);
+  const one = newBlock("table", { rows: 1, cols: 1 });
+  assert.equal(tableDeleteRow(one, 0), false);
+  assert.equal(tableDeleteCol(one, 0), false);
+  const big = newBlock("table", { rows: TABLE_LIMITS.maxRows, cols: TABLE_LIMITS.maxCols });
+  assert.equal(tableInsertRow(big, 0), false);
+  assert.equal(tableInsertCol(big, 0), false);
 });
 test("image sizes: sizes and constant references survive, junk is dropped", () => {
   const out = normalizeBlocks([

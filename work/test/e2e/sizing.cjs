@@ -69,15 +69,27 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
     check((await page.locator(".tbl th[scope=col]").count()) === 3 || (await page.locator(".tbl th[scope=col]").count()) === 0, "table: header cells");
     const shot = (n) => SHOTS && page.screenshot({ path: path.join(SHOTS, `${name}-${n}.png`) });
     // header row on via the checkbox
-    await page.locator(".tbl-check", { hasText: "Header row" }).locator("input").evaluate((el) => { if (!el.checked) el.click(); });
+    // (the table's settings are in the block menu: Shift+F10 in a cell, right-click or long-press)
+    const cellMenu = async (r, c) => {
+      await page.locator(".tbl tr").nth(r).locator("input").nth(c).focus();
+      await page.keyboard.press("Shift+F10");
+      await page.waitForSelector(".menu");
+    };
+    check((await page.locator(".tbl-controls, .tbl-menu-btn").count()) === 0, "table: no control bar or per-cell buttons in the page");
+    if ((await page.locator(".tbl th[scope=col]").count()) === 0) {
+      await cellMenu(0, 0);
+      await page.locator(".menu-item", { hasText: /^Header row/ }).click();
+    }
     await page.waitForSelector(".tbl th[scope=col]");
     check((await page.locator(".tbl th[scope=col]").count()) === 3, "table: 3 column header cells");
-    await page.locator(".tbl-check", { hasText: "Header column" }).locator("input").click();
+    await cellMenu(1, 0);
+    await page.locator(".menu-item", { hasText: /^Header column/ }).click();
     await page.waitForSelector(".tbl th[scope=row]");
     check((await page.locator(".tbl th[scope=row]").count()) === 2, "table: 2 row header cells");
     // column width through the cell menu (keyboard: Shift+F10)
     await page.locator(".tbl tr").nth(1).locator("input").nth(1).focus();
     await page.keyboard.press("Shift+F10");
+    await page.locator(".menu-item", { hasText: /^Column \d/ }).click();
     await page.locator(".menu-item", { hasText: /^Column width/ }).click();
     await page.fill(".size-input", "180");
     await page.locator(".modal-actions button.primary").click();
@@ -87,6 +99,7 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
     // row height in em
     await page.locator(".tbl tr").nth(1).locator("input").nth(1).focus();
     await page.keyboard.press("Shift+F10");
+    await page.locator(".menu-item", { hasText: /^Row \d/ }).click();
     await page.locator(".menu-item", { hasText: /^Row height/ }).click();
     await page.fill(".size-input", "3em");
     await page.locator(".modal-actions button.primary").click();
@@ -97,6 +110,7 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
     // bad value is refused with a message and nothing changes
     await page.locator(".tbl tr").nth(1).locator("input").nth(1).focus();
     await page.keyboard.press("Shift+F10");
+    await page.locator(".menu-item", { hasText: /^Column \d/ }).click();
     await page.locator(".menu-item", { hasText: /^Column width/ }).click();
     await page.fill(".size-input", "50%");
     await page.locator(".modal-actions button.primary").click();
@@ -132,8 +146,13 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
     check(Math.abs(iw - expectW) < 2 && Math.abs(ih - expectW / 2) < 2, `image: constant width gave ${iw}x${ih}`);
     check((await page.locator(".img-size-note").filter({ hasText: "not a size" }).count()) === 1, "image: bad constant should explain itself");
     // size dialog by number, height keeps ratio when only width
-    await page.locator(".img-wrap").first().hover();
-    await page.locator(".img-size-btn").first().click();
+    check((await page.locator(".img-tools").count()) === 0, "image: no tool bar in the page");
+    const imgMenu = async () => {
+      await page.locator(".img-wrap .img").first().click({ button: "right" });
+      await page.waitForSelector(".menu");
+    };
+    await imgMenu();
+    await page.locator(".menu-item", { hasText: /^Image size/ }).click();
     const inputs = page.locator(".size-input");
     await inputs.nth(0).fill("120");
     await page.locator(".modal-actions button.primary").click();
@@ -141,7 +160,8 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
     const iw2 = await page.locator(".img-wrap .img").first().evaluate((el) => el.getBoundingClientRect().width);
     check(Math.abs(iw2 - 120) < 2, `image: width 120 gave ${iw2}`);
     // set by constant name through the dialog
-    await page.locator(".img-size-btn").first().click();
+    await imgMenu();
+    await page.locator(".menu-item", { hasText: /^Image size/ }).click();
     await page.locator(".size-input").nth(0).fill("bigEm");
     await page.locator(".modal-actions button.primary").click();
     await page.waitForSelector(".modal", { state: "detached" });
@@ -162,7 +182,9 @@ const URL = `http://127.0.0.1:${PORT}/source/app/index.html`;
       constantsChanged();
     });
     // alignment
-    await page.locator(".img-align", { hasText: "Right" }).first().click();
+    await imgMenu();
+    await page.locator(".menu-item", { hasText: /^Align/ }).click();
+    await page.locator(".menu-item", { hasText: /^Right/ }).click();
     await page.waitForSelector('.img-wrap[data-align="right"]');
     const box = await page.locator('.img-wrap[data-align="right"] .img-box').boundingBox();
     const wrapBox = await page.locator('.img-wrap[data-align="right"]').boundingBox();

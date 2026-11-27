@@ -15,3 +15,5 @@ First marked version. Highlights:
 - Terms with categories and branches; table and image sizing; inline images.
 - Install app in the workspace ⋯ menu (browser dialog or how-to); the repository root forwards to the app, so
   GitHub Pages works from a branch or from the Actions workflow.
+- Block settings (table, image, code, pivot, record preview, view, graph, bookmark) live in the right-click /
+  long-press block menu; the ≡ handle shows only on the selected line and sits out in the margin; equal text margins.

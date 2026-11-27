@@ -2,6 +2,7 @@
 import { h } from "./dom.js";
 import { CLOSE_EVENT } from "./popover.js";
 import { ico } from "../icons/index.js";
+import { setBlockMenu } from "./blockExtras.js";
 import { confirmDialog, toast } from "./dialogs.js";
 import { formulaCell } from "./cellEditors.js";
 import { summarize } from "../schema.js";
@@ -251,18 +252,14 @@ export function recordPreviewBody(b, inst, a) {
       locked ? null : input,
       suggest
     );
-    const gear = locked ? null : h("button", {
-      class: "icon rp-gear",
-      "aria-label": "Record preview settings",
-      "aria-haspopup": "dialog",
-      "aria-expanded": pop ? "true" : "false",
-      title: "Settings",
-      onClick: () => pop ? closePop() : openSettings()
-    }, ico("settings"));
-    head.replaceChildren(...[chips, gear].filter(Boolean));
+    head.replaceChildren(chips);
   }
 
-  // ----- settings popover -----
+  // ----- settings popover (opened from the block menu: right-click, long-press or the \u2261 handle) -----
+  setBlockMenu(b, () => locked ? [] : [
+    { header: true, label: "Record preview" },
+    { label: "Preview settings\u2026", icon: ico("settings"), hint: cur.data ? null : "choose a database", onSelect: () => openSettings() }
+  ]);
   const state = { editPreset: false, naming: null, nameError: "" };
   function closePop() {
     pop?.close();
@@ -274,7 +271,7 @@ export function recordPreviewBody(b, inst, a) {
     state.naming = null;
     state.nameError = "";
     const place = () => {
-      const r = (head.querySelector(".rp-gear") ?? box).getBoundingClientRect();
+      const r = box.getBoundingClientRect();
       const vw = document.documentElement.clientWidth;
       const vh = document.documentElement.clientHeight;
       const w = Math.min(360, vw - 16);
@@ -299,7 +296,7 @@ export function recordPreviewBody(b, inst, a) {
       }
     };
     const onDown = (e) => {
-      if (panel.contains(e.target) || e.target.closest?.(".modal-overlay") || head.querySelector(".rp-gear")?.contains(e.target)) return;
+      if (panel.contains(e.target) || e.target.closest?.(".modal-overlay, .menu")) return;
       pop?.close(false);
     };
     const onRouteChange = () => pop?.close(false);
@@ -313,7 +310,7 @@ export function recordPreviewBody(b, inst, a) {
       window.removeEventListener("scroll", place, true);
       panel.remove();
       drawHead();
-      if (refocus === true) head.querySelector(".rp-gear")?.focus();
+      if (refocus === true) head.querySelector(".rp-key-input")?.focus();
     };
     pop = { close, redraw: () => draw() };
     document.body.append(panel);

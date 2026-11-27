@@ -2,6 +2,7 @@ import { tocEntries } from "../blocks/model.js";
 import { h } from "./dom.js";
 import { iconNode, ico, pageIcon } from "../icons/index.js";
 import { toast } from "./dialogs.js";
+import { setBlockMenu } from "./blockExtras.js";
 import { pivotBody } from "./pivotBlock.js";
 import { recordPreviewBody } from "./recordPreview.js";
 import { viewBlockBody } from "./viewBlock.js";
@@ -51,6 +52,16 @@ function bookmarkBody(b, inst, a) {
   const locked = inst.ctx.locked;
   const ok = /^https?:\/\//i.test(b.url);
   if (ok) {
+    // editing the link is in the block menu, not a button next to the card
+    setBlockMenu(b, () => [
+      { header: true, label: "Bookmark" },
+      { label: "Open link", icon: ico("external-link"), viewOnly: true, onSelect: () => window.open(b.url, "_blank", "noopener,noreferrer") },
+      locked ? null : { label: "Edit link\u2026", icon: ico("pencil"), onSelect: () => {
+        b.url = "";
+        a.save();
+        a.redraw();
+      } }
+    ].filter(Boolean));
     return h(
       "div",
       { class: "bookmark" },
@@ -59,12 +70,7 @@ function bookmarkBody(b, inst, a) {
         { class: "bm-card", href: b.url, target: "_blank", rel: "noopener noreferrer" },
         h("div", { class: "bm-title" }, b.title || b.url),
         h("div", { class: "bm-url" }, b.url)
-      ),
-      locked ? null : h("button", { class: "icon", onClick: () => {
-        b.url = "";
-        a.save();
-        a.redraw();
-      } }, "Edit")
+      )
     );
   }
   const url = h("input", { type: "url", placeholder: "https://\u2026", value: b.url, readonly: locked });

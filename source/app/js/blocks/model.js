@@ -306,6 +306,46 @@ export function tableResize(b, rows, cols) {
     else delete b[key];
   }
 }
+/** Insert an empty row before index `at` (0..rows); the row height list and cells stay aligned. False at the row limit. */
+export function tableInsertRow(b, at) {
+  if (b.cells.length >= TABLE_LIMITS.maxRows) return false;
+  const i = Math.min(b.cells.length, Math.max(0, Math.round(Number(at) || 0)));
+  b.cells.splice(i, 0, Array(b.cells[0].length).fill(""));
+  if (Array.isArray(b.rowHeights)) b.rowHeights.splice(i, 0, null);
+  cleanTable(b);
+  return true;
+}
+/** Delete row `r`; the last remaining row cannot be deleted (returns false). */
+export function tableDeleteRow(b, r) {
+  if (b.cells.length <= 1 || !b.cells[r]) return false;
+  b.cells.splice(r, 1);
+  if (Array.isArray(b.rowHeights)) b.rowHeights.splice(r, 1);
+  cleanTable(b);
+  return true;
+}
+/** Insert an empty column before index `at` (0..cols); widths and a data source's key column move with their columns. */
+export function tableInsertCol(b, at) {
+  const n = b.cells[0].length;
+  if (n >= TABLE_LIMITS.maxCols) return false;
+  const i = Math.min(n, Math.max(0, Math.round(Number(at) || 0)));
+  for (const row of b.cells) row.splice(i, 0, "");
+  if (Array.isArray(b.colWidths)) b.colWidths.splice(i, 0, null);
+  if (Number.isInteger(b.sourceKey) && b.sourceKey >= i) b.sourceKey += 1;
+  cleanTable(b);
+  return true;
+}
+/** Delete column `c`; the last remaining column cannot be deleted (returns false). */
+export function tableDeleteCol(b, c) {
+  if (b.cells[0].length <= 1 || c < 0 || c >= b.cells[0].length) return false;
+  for (const row of b.cells) row.splice(c, 1);
+  if (Array.isArray(b.colWidths)) b.colWidths.splice(c, 1);
+  if (Number.isInteger(b.sourceKey)) {
+    if (b.sourceKey === c) delete b.sourceKey;
+    else if (b.sourceKey > c) b.sourceKey -= 1;
+  }
+  cleanTable(b);
+  return true;
+}
 /** Table sizing and header flags: `header` (legacy) becomes `headerRow`; `colWidths` / `rowHeights` align to the grid. */
 export function cleanTable(b) {
   b.headerRow = !!(b.headerRow ?? b.header);

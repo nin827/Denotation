@@ -6,6 +6,7 @@ import { toast } from "./dialogs.js";
 import { shrink, safeSrc } from "./imageUtil.js";
 import { resolveSize, normSize, SIZE_RANGES } from "../sizes.js";
 import { constantsFor, onConstantsChange, openSizeDialog, dragHandle } from "./sizing.js";
+import { setBlockMenu } from "./blockExtras.js";
 
 const ALIGN_LABEL = { left: "Left", center: "Centre", right: "Right" };
 const ALIGN_ICON = { left: "text-align-start", center: "text-align-center", right: "text-align-end" };
@@ -147,19 +148,22 @@ export function imageBody(b, inst, a) {
     }
   });
   const align = alignOf(b);
-  const tools = b.src && !locked ? h(
-    "div",
-    { class: "img-tools", role: "toolbar", "aria-label": "Image options" },
-    h("button", { class: "icon img-replace", onClick: () => picker.click() }, "Replace"),
-    h("button", { class: "icon img-size-btn", title: "Width and height", onClick: () => openImageSizeDialog(b, inst, a) }, ico("ruler"), " Size"),
-    h("span", { class: "img-aligns", role: "group", "aria-label": "Alignment" }, IMAGE_ALIGNS.map((k) => h("button", {
-      class: `icon img-align${k === align ? " on" : ""}`,
-      "aria-pressed": String(k === align),
-      title: `Align ${ALIGN_LABEL[k].toLowerCase()}`,
-      onClick: () => setImageAlign(b, k, a)
-    }, ico(ALIGN_ICON[k]), h("span", { class: "img-align-label" }, ` ${ALIGN_LABEL[k]}`))))
-  ) : null;
-  const wrap = h("div", { class: "img-wrap", "data-align": align }, tools, box, note, b.src || !locked ? caption : null, picker);
+  // size, replace and alignment are in the block menu (right-click, long-press or the ≡ handle), not in a bar above the picture
+  setBlockMenu(b, () => {
+    if (!b.src || locked) return [];
+    const cur = alignOf(b);
+    return [
+      { header: true, label: "Image" },
+      { label: "Image size\u2026", icon: ico("ruler"), hint: [b.width, b.height].filter((v) => typeof v === "string").join(" \u00d7 ") || null, onSelect: () => openImageSizeDialog(b, inst, a) },
+      { label: "Replace image\u2026", icon: ico("replace"), onSelect: () => picker.click() },
+      { label: "Align", icon: ico(ALIGN_ICON[cur]), hint: ALIGN_LABEL[cur], items: IMAGE_ALIGNS.map((k) => ({
+        label: ALIGN_LABEL[k],
+        icon: ico(cur === k ? "check" : ALIGN_ICON[k]),
+        onSelect: () => setImageAlign(b, k, a)
+      })) }
+    ];
+  });
+  const wrap = h("div", { class: "img-wrap", "data-align": align }, box, note, b.src || !locked ? caption : null, picker);
   applySize();
   if (img) onConstantsChange(wrap, applySize);
   return wrap;

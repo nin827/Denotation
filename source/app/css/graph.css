@@ -65,7 +65,7 @@
 .graph-seg-btn { border: 0; border-radius: 0; display: inline-flex; align-items: center; gap: var(--sp-4); padding: 4px 10px; min-height: 32px; background: var(--bg); }
 .graph-seg-btn + .graph-seg-btn { border-left: 1px solid var(--border-ctl); }
 .graph-seg-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink, var(--text)); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
-.graph-seg-btn .icon-svg, .graph-tools .icon-svg, .graph-head h1 .icon-svg, .graph-panel-head .icon-svg, .graph-block-tools .icon-svg { width: 16px; height: 16px; display: inline-flex; }
+.graph-seg-btn .icon-svg, .graph-tools .icon-svg, .graph-head h1 .icon-svg, .graph-panel-head .icon-svg { width: 16px; height: 16px; display: inline-flex; }
 .graph-check { display: inline-flex; align-items: center; gap: var(--sp-6); min-height: 32px; }
 .graph-list-box { background: var(--bg); }
 .graph-list { font-size: var(--fs-ui); }
@@ -113,12 +113,11 @@
 }
 
 /* ---------- graph block ---------- */
-.graph-block { display: grid; gap: var(--sp-6); width: 100%; margin: 4px 0; }
-.graph-block-tools { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
-.graph-block-tools select { min-height: 32px; }
-.graph-block-label { color: var(--muted); display: inline-flex; }
+.graph-block { display: grid; gap: var(--sp-6); width: 100%; margin: 4px 0; position: relative; }
+/* scope, depth and canvas / list are in the block menu; the count stays as a small label over the corner of the graph */
+.graph-block > .graph-count { position: absolute; top: var(--sp-6); left: var(--sp-8); font-size: var(--fs-sm); background: color-mix(in srgb, var(--bg) 85%, transparent); padding: 0 var(--sp-6); border-radius: var(--r-xs); pointer-events: none; }
 .graph-block-stage { height: 340px; }
-@media (max-width: 700px) { .graph-block-stage { height: 280px; } .graph-block-tools select { font-size: 16px; } }
+@media (max-width: 700px) { .graph-block-stage { height: 280px; } }
 
 /* ---------- appearance + rules dialogs ---------- */
 .graph-appearance, .graph-rules-box { display: grid; gap: var(--sp-12); }

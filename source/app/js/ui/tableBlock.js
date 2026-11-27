@@ -1,12 +1,15 @@
 // The /table block: an editable grid with header row / column, per-column widths and per-row heights.
+// Its settings (headers, rows and columns, sizes) are in the block menu: right-click or long-press a cell, Shift+F10 in a cell, or the ≡ handle.
 // Stored: cells, headerRow, headerCol, colWidths: [size|null], rowHeights: [size|null] (size = "320px" / "20em" / "12rem").
-import { TABLE_LIMITS, tableResize } from "../blocks/model.js";
+import { TABLE_LIMITS, tableResize, tableInsertRow, tableDeleteRow, tableInsertCol, tableDeleteCol } from "../blocks/model.js";
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
-import { openMenu } from "./popover.js";
+import { openModal } from "./modal.js";
+import { setBlockMenu } from "./blockExtras.js";
 import { isTableSource, sourceNameOf } from "../sources.js";
 import { resolveSize, normSize, SIZE_RANGES } from "../sizes.js";
 import { openSizeDialog, dragHandle } from "./sizing.js";
+import { toast } from "./dialogs.js";
 
 const AUTO_COL_PX = 110; // what an automatic column counts for in a table that has sized columns
 const PRESET_NOTE = "Use px, em or rem. A bare number means px. Leave empty for automatic.";
@@ -57,7 +60,6 @@ export function tableBody(b, inst, a) {
       if (css) tr.style.setProperty("--rh", css);
       else tr.style.removeProperty("--rh");
     });
-    resetBtn?.toggleAttribute("hidden", !(b.colWidths || b.rowHeights));
   }
   const askWidth = (c) => openSizeDialog({
     title: `Width of column ${c + 1}`,
@@ -80,29 +82,81 @@ export function tableBody(b, inst, a) {
     a.save();
     a.redraw();
   };
-  const cellMenu = (r, c) => [
-    { header: true, label: `Column ${c + 1}` },
-    { label: "Column width…", icon: ico("move-horizontal"), hint: b.colWidths?.[c] ?? "auto", onSelect: () => askWidth(c) },
-    { label: "Reset column width", icon: ico("rotate-ccw"), disabled: !b.colWidths?.[c], onSelect: () => setCol(c, null) },
-    { header: true, label: `Row ${r + 1}` },
-    { label: "Row height…", icon: ico("move-vertical"), hint: b.rowHeights?.[r] ?? "auto", onSelect: () => askHeight(r) },
-    { label: "Reset row height", icon: ico("rotate-ccw"), disabled: !b.rowHeights?.[r], onSelect: () => setRow(r, null) },
-    { header: true, label: "Headers" },
-    { label: "Header row", icon: ico(b.headerRow ? "square-check" : "square"), disabled: isSource, onSelect: () => toggle("headerRow") },
-    { label: "Header column", icon: ico(b.headerCol ? "square-check" : "square"), onSelect: () => toggle("headerCol") }
-  ];
-  const menuBtn = (kind, r, c, label) => h("button", {
-    type: "button",
-    class: `tbl-menu-btn ${kind}`,
-    tabindex: -1,
-    title: label,
-    "aria-label": label,
-    "aria-haspopup": "menu",
-    onClick: (e) => {
-      e.stopPropagation();
-      openMenu(e.currentTarget, cellMenu(r, c), { width: 230 });
-    }
-  }, ico(kind === "col" ? "chevron-down" : "chevron-right"));
+  const sizesSet = () => !!(b.colWidths || b.rowHeights);
+  let last = null; // the cell that last had focus: what the menu acts on when it was opened from the handle
+  const askCount = (kind) => {
+    const isRows = kind === "rows";
+    const max = isRows ? TABLE_LIMITS.maxRows : TABLE_LIMITS.maxCols;
+    const input = h("input", { type: "number", min: 1, max, value: isRows ? b.cells.length : nCols(), "aria-label": isRows ? "Rows" : "Columns", style: "font-size:16px;width:100%" });
+    const modal = openModal({
+      title: isRows ? "Number of rows" : "Number of columns",
+      content: h("div", { class: "size-dialog" }, h("label", { class: "size-field" }, `${isRows ? "Rows" : "Columns"} (1 to ${max})`, input)),
+      actions: [{ label: "Cancel" }, { label: "Apply", class: "primary", run: () => {
+        const n = Math.min(max, Math.max(1, Math.round(Number(input.value) || 1)));
+        const fewer = isRows ? n < b.cells.length : n < nCols();
+        if (fewer) toast(`Removed the last ${isRows ? "rows" : "columns"}.`, "info");
+        tableResize(b, isRows ? n : b.cells.length, isRows ? nCols() : n);
+        a.save();
+        a.redraw();
+      } }]
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        input.closest(".modal-overlay")?.querySelector("button.primary")?.click();
+      }
+    });
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+    return modal;
+  };
+  const focusCell = (r, c) => requestAnimationFrame(() => inst.root.querySelector(`.blk-wrap[data-id="${b.id}"] .tbl-cell[data-r="${r}"][data-c="${c}"] input`)?.focus());
+  const applyEdit = (fn, r, c) => () => {
+    if (fn() === false) return;
+    a.save();
+    a.redraw();
+    focusCell(Math.min(r, b.cells.length - 1), Math.min(c, nCols() - 1));
+  };
+  /** Menu items; `target` is the right-clicked cell (or null: the cell that last had focus, else the last row and column). */
+  const menuItems = ({ target = null } = {}) => {
+    const el = target?.closest?.(".tbl-cell");
+    let r = el ? Number(el.dataset.r) : last ? last.r : b.cells.length - 1;
+    let c = el ? Number(el.dataset.c) : last ? last.c : nCols() - 1;
+    r = Math.min(Math.max(0, r), b.cells.length - 1);
+    c = Math.min(Math.max(0, c), nCols() - 1);
+    const rows = b.cells.length;
+    const cols = nCols();
+    return [
+      { header: true, label: "Table" },
+      { label: "Header row", icon: ico(headRow() ? "square-check" : "square"), hint: isSource ? "data source" : null, disabled: isSource, onSelect: () => toggle("headerRow") },
+      { label: "Header column", icon: ico(b.headerCol ? "square-check" : "square"), onSelect: () => toggle("headerCol") },
+      { label: `Row ${r + 1}`, icon: ico("rows-3"), items: [
+        { label: "Add row above", icon: ico("arrow-up"), disabled: rows >= TABLE_LIMITS.maxRows, onSelect: applyEdit(() => tableInsertRow(b, r), r, c) },
+        { label: "Add row below", icon: ico("arrow-down"), disabled: rows >= TABLE_LIMITS.maxRows, onSelect: applyEdit(() => tableInsertRow(b, r + 1), r + 1, c) },
+        { label: "Delete row", icon: ico("trash"), danger: true, disabled: rows <= 1, onSelect: applyEdit(() => tableDeleteRow(b, r), r, c) },
+        { label: "Row height\u2026", icon: ico("move-vertical"), hint: b.rowHeights?.[r] ?? "auto", onSelect: () => askHeight(r) },
+        { label: "Reset row height", icon: ico("rotate-ccw"), disabled: !b.rowHeights?.[r], onSelect: () => setRow(r, null) }
+      ] },
+      { label: `Column ${c + 1}`, icon: ico("columns-3"), items: [
+        { label: "Add column left", icon: ico("arrow-left"), disabled: cols >= TABLE_LIMITS.maxCols, onSelect: applyEdit(() => tableInsertCol(b, c), r, c) },
+        { label: "Add column right", icon: ico("arrow-right"), disabled: cols >= TABLE_LIMITS.maxCols, onSelect: applyEdit(() => tableInsertCol(b, c + 1), r, c + 1) },
+        { label: "Delete column", icon: ico("trash"), danger: true, disabled: cols <= 1, onSelect: applyEdit(() => tableDeleteCol(b, c), r, c) },
+        { label: "Column width\u2026", icon: ico("move-horizontal"), hint: b.colWidths?.[c] ?? "auto", onSelect: () => askWidth(c) },
+        { label: "Reset column width", icon: ico("rotate-ccw"), disabled: !b.colWidths?.[c], onSelect: () => setCol(c, null) }
+      ] },
+      { label: "Rows\u2026", icon: ico("rows-3"), hint: String(rows), onSelect: () => askCount("rows") },
+      { label: "Columns\u2026", icon: ico("columns-3"), hint: String(cols), onSelect: () => askCount("columns") },
+      sizesSet() ? { label: "Reset column widths and row heights", icon: ico("rotate-ccw"), onSelect: () => {
+        delete b.colWidths;
+        delete b.rowHeights;
+        a.save();
+        apply();
+      } } : null
+    ].filter(Boolean);
+  };
+  setBlockMenu(b, (opts) => locked ? [] : menuItems(opts));
   const colGrip = (c) => {
     const el = h("span", { class: "tbl-grip col", "aria-hidden": "true", title: "Drag to resize, double-click to reset" });
     el.addEventListener("dblclick", (e) => {
@@ -152,11 +206,10 @@ export function tableBody(b, inst, a) {
         if (e.key === "Enter" && !e.isComposing) {
           e.preventDefault();
           grid.querySelectorAll("tr")[r + 1]?.children[c]?.querySelector("input")?.focus();
-        } else if (!locked && (e.key === "ContextMenu" || e.key === "F10" && e.shiftKey)) {
-          e.preventDefault();
-          e.stopPropagation();
-          openMenu(input, cellMenu(r, c), { width: 230 });
         }
+      },
+      onFocus: () => {
+        last = { r, c };
       },
       onPaste: (e) => {
         const t = e.clipboardData?.getData("text/plain") ?? "";
@@ -176,11 +229,9 @@ export function tableBody(b, inst, a) {
     const edit = !locked;
     return h(
       isHead ? "th" : "td",
-      isHead ? { scope: colHead ? "col" : "row", class: "tbl-cell" } : { class: "tbl-cell" },
+      isHead ? { scope: colHead ? "col" : "row", class: "tbl-cell", "data-r": r, "data-c": c } : { class: "tbl-cell", "data-r": r, "data-c": c },
       input,
-      edit && r === 0 ? menuBtn("col", r, c, `Column ${c + 1} options`) : null,
       edit && r === 0 ? colGrip(c) : null,
-      edit && c === 0 ? menuBtn("row", r, c, `Row ${r + 1} options`) : null,
       edit && c === 0 ? rowGrip(r) : null
     );
   };
@@ -190,57 +241,7 @@ export function tableBody(b, inst, a) {
     return tr;
   }));
   const grid = h("table", { class: `tbl${locked ? "" : " tbl-edit"}` }, h("colgroup", {}, colEls), body);
-  const num = (label, value, max, onChange) => h(
-    "label",
-    { class: "tbl-num" },
-    label,
-    h("input", {
-      type: "number",
-      min: 1,
-      max,
-      value,
-      disabled: locked,
-      onChange: (e) => {
-        const n = Math.min(max, Math.max(1, Math.round(Number(e.target.value) || 1)));
-        e.target.value = n;
-        onChange(n);
-      }
-    })
-  );
-  const check = (label, key, disabled = false, title = null) => h(
-    "label",
-    { class: "tbl-check", title },
-    h("input", { type: "checkbox", checked: key === "headerRow" ? headRow() : b[key], disabled: locked || disabled, onChange: (e) => {
-      b[key] = e.target.checked;
-      a.save();
-      a.redraw();
-    } }),
-    label
-  );
-  const resetBtn = locked ? null : h("button", { type: "button", class: "tbl-reset", hidden: !(b.colWidths || b.rowHeights), title: "Back to automatic column widths and row heights", onClick: () => {
-    delete b.colWidths;
-    delete b.rowHeights;
-    a.save();
-    apply();
-  } }, ico("rotate-ccw"), " Reset sizes");
-  const controls = locked ? null : h(
-    "div",
-    { class: "tbl-controls" },
-    num("Rows", b.cells.length, TABLE_LIMITS.maxRows, (n) => {
-      tableResize(b, n, b.cells[0].length);
-      a.save();
-      a.redraw();
-    }),
-    num("Columns", b.cells[0].length, TABLE_LIMITS.maxCols, (n) => {
-      tableResize(b, b.cells.length, n);
-      a.save();
-      a.redraw();
-    }),
-    check("Header row", "headerRow", isSource, isSource ? "A data source always uses its first row as column names" : null),
-    check("Header column", "headerCol"),
-    resetBtn
-  );
   const tag = isSource ? h("div", { class: "tbl-source", title: "Used as a data source (first row = column names)" }, ico("database-zap"), h("span", {}, ` Data source: ${sourceNameOf(b)}`)) : null;
   apply();
-  return h("div", { class: "tbl-box" }, tag, h("div", { class: "tbl-wrap" }, grid), controls);
+  return h("div", { class: "tbl-box" }, tag, h("div", { class: "tbl-wrap" }, grid));
 }

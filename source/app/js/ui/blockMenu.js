@@ -10,7 +10,7 @@ import { newBlock } from "../blocks/model.js";
 import { calloutLook, hasOverride, applyPreset, resetToPreset } from "../blocks/callout.js";
 import { CALLOUT_PRESETS } from "../blocks/callout-presets.js";
 import { iconNode } from "../icons/index.js";
-import { openImageSizeDialog, setImageAlign, alignOf } from "./imageBlock.js";
+import { blockMenuExtras } from "./blockExtras.js";
 
 let pickerClose = null;
 /** Swatch grid (6 per row) for text colour and background; the chosen swatch shows a check, not just a fill. */
@@ -134,8 +134,16 @@ async function convertTable(b, inst, a) {
     toast(e.message, "error");
   }
 }
-export function openBlockMenu(anchor, b, inst, a) {
+/**
+ * The block menu: opened from the \u2261 handle, a right-click, a long-press or Shift+F10. `target` is the element that was
+ * right-clicked (a table cell, say) so the block can act on it. On a locked page only the view-only items show; null when none.
+ */
+export function openBlockMenu(anchor, b, inst, a, { target = null } = {}) {
   const { ctx } = inst;
+  if (ctx.locked) {
+    const view = blockMenuExtras(b, { target }).filter((i) => i.viewOnly);
+    return view.length ? openMenu(anchor, view, { width: 250 }) : null;
+  }
   const texty = isTexty(b);
   const items = [];
   if (texty || b.type === "code") {
@@ -179,30 +187,10 @@ export function openBlockMenu(anchor, b, inst, a) {
       })
     });
   }
-  if (b.type === "image" && b.src) {
-    const cur = alignOf(b);
-    items.push({ label: "Image size\u2026", icon: ico("ruler"), hint: [b.width, b.height].filter((v) => typeof v === "string").join(" \u00d7 ") || null, onSelect: () => openImageSizeDialog(b, inst, a) });
-    items.push({ label: "Align", icon: ico("text-align-center"), hint: cur, items: [["left", "Left"], ["center", "Centre"], ["right", "Right"]].map(([k, label]) => ({
-      label,
-      icon: ico(cur === k ? "check" : "minus"),
-      onSelect: () => setImageAlign(b, k, a)
-    })) });
-  }
+  // settings of the block itself (table, image, code, pivot, view, graph, ...): see blockExtras.js
+  items.push(...blockMenuExtras(b, { target }));
   if (b.type === "table") {
     const on = isTableSource(b);
-    const flip = (key) => () => {
-      b[key] = !b[key];
-      a.save();
-      a.redraw();
-    };
-    items.push({ label: "Header row", icon: ico(b.headerRow || on ? "square-check" : "square"), hint: on ? "data source" : null, disabled: on, onSelect: flip("headerRow") });
-    items.push({ label: "Header column", icon: ico(b.headerCol ? "square-check" : "square"), onSelect: flip("headerCol") });
-    if (b.colWidths || b.rowHeights) items.push({ label: "Reset column widths and row heights", icon: ico("rotate-ccw"), onSelect: () => {
-      delete b.colWidths;
-      delete b.rowHeights;
-      a.save();
-      a.redraw();
-    } });
     items.push({ label: "Use as data source", icon: ico(on ? "square-check" : "database-zap"), hint: on ? "on" : null, onSelect: () => {
       if (!on) return openTableSourceDialog(b, a);
       delete b.dataSource;

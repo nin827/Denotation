@@ -178,7 +178,7 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 #main.doc-wide > .doc-body, #main.doc-wide > .page-head, #main.doc-wide > .row-props { max-width: none; }
 #main.doc-small { font-size: 13.5px; }
 #main > .db-body { max-width: none; }
-.doc-body { padding-left: 28px; padding-bottom: 30vh; position: relative; }
+.doc-body { padding-inline: 28px; padding-bottom: 30vh; position: relative; }
 .doc-tail { min-height: 60px; cursor: text; }
 
 /* blocks */
@@ -202,11 +202,19 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 .rendered a.mention { background: var(--bg-soft); border-radius: var(--r-xs); padding: 0 3px; text-decoration: none; }
 .inline-code { font-family: var(--mono); font-size: .88em; background: var(--bg-hover); padding: 1px 5px; border-radius: var(--r-xs); color: var(--code-fg); }
 
-/* the ≡ handle lives in the left margin and only fades in: hovering never moves content */
+/* the ≡ handle lives in the left margin and only fades in: hovering never moves content. --h-left / --h-w place it: a page
+   (.doc-body) has a 28px lane left of the text plus the page margin, so its handle sits well out in the margin; narrower
+   containers (columns, synced blocks, the feedback editor) keep the handle inside their own lane. */
+:root { --h-left: -26px; --h-w: 22px; }
+.doc-body { --h-left: -44px; --h-w: 26px; }
+.synced { --h-left: -26px; --h-w: 22px; }
+.feedback-editor { --h-left: -26px; --h-w: 22px; }
+.col { --h-left: -26px; --h-w: 22px; }
 .gutter {
-  position: absolute; left: -26px; top: 3px; width: 22px; height: 22px; display: grid; place-items: center;
+  position: absolute; left: var(--h-left); top: 3px; width: var(--h-w); height: 22px; display: grid; place-items: center;
   border-radius: var(--r-xs); color: var(--muted); cursor: grab; transition: opacity .1s; z-index: 1;
 }
+@media (hover: hover) { .gutter::after { content: ""; position: absolute; inset: 0 -12px 0 0; } }   /* the pointer can cross the gap to the text without losing the hover */
 .gutter:hover { background: var(--bg-hover); color: var(--text); }
 .handle-icon { display: grid; }
 
@@ -233,9 +241,8 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 .code-box { position: relative; background: var(--bg-soft); border-radius: var(--radius); padding: 10px 12px; margin: 4px 0; }
 .code-box .blk-ta { font-family: var(--mono); font-size: var(--fs-md); white-space: pre; overflow-x: auto; overflow-wrap: normal; }
 .code-box .blk-main { display: block; }
-.code-tools { position: absolute; top: var(--sp-4); right: var(--sp-6); display: flex; gap: var(--sp-4); z-index: 1; }
-.code-lang { font-size: var(--fs-sm); padding: 0 4px; }
-.code-copy { font-size: var(--fs-sm); }
+.code-badge { position: absolute; top: var(--sp-4); right: var(--sp-8); z-index: 1; font-size: var(--fs-xs); color: var(--muted); font-family: var(--mono); pointer-events: none; user-select: none; }
+.code-badge[hidden] { display: none; }
 
 .tbl-box { margin: 6px 0; }
 .tbl-wrap { overflow-x: auto; max-width: 100%; }
@@ -244,10 +251,6 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 .tbl th { background: var(--bg-soft); }
 .tbl input.cell { width: 100%; border: 0; border-radius: 0; background: transparent; padding: 5px 8px; }
 .tbl input.cell.head { font-weight: 650; }
-.tbl-controls { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: var(--fs-sm); color: var(--muted); margin-top: var(--sp-4); min-height: 28px; }
-.tbl-num { display: flex; gap: var(--sp-6); align-items: center; }
-.tbl-num input { width: 62px; padding: 1px 4px; }
-.tbl-check { display: flex; gap: var(--sp-4); align-items: center; }
 
 .cols { display: flex; gap: var(--sp-16); align-items: flex-start; }
 .col { flex: 1 1 0; min-width: 0; padding-left: 26px; margin-left: -26px; }
@@ -601,9 +604,6 @@ button.icon.disabled { opacity: .35; cursor: not-allowed; }
 
 /* pivot table block */
 .pivot { margin: 6px 0; }
-.pivot-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 6px; }
-.pivot-field { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--muted); }
-.pivot-field select { font-size: 1rem; max-width: 200px; }
 .pivot-wrap { overflow-x: auto; max-width: 100%; }
 .pivot-table { border-collapse: collapse; min-width: 50%; }
 .pivot-table th, .pivot-table td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
@@ -619,12 +619,15 @@ button:disabled, select:disabled, input:disabled, textarea:disabled { opacity: .
 
 /* hover-reveal: secondary controls fade in on hover or keyboard focus of their owner. One pattern (opacity, never display or
    visibility, so they stay in the tab order and keep their space); without hover or on a coarse pointer they are always shown. */
-:where(.quick, .cover-btn, .tbl-controls, .code-tools, .cal-add, .card-tools, .list-item .icon, .post header .icon, .side-item .icon:not(.twist), .gutter) { opacity: 0; }   /* :where keeps this at zero specificity */
-.page-head:is(:hover, :focus-within) .quick, .cover:is(:hover, :focus-within) .cover-btn, .tbl-box:is(:hover, :focus-within) .tbl-controls,
-.code-box:is(:hover, :focus-within) .code-tools, .cal-day:is(:hover, :focus-within) .cal-add, .card:is(:hover, :focus-within) .card-tools,
+:where(.quick, .cover-btn, .cal-add, .card-tools, .list-item .icon, .post header .icon, .side-item .icon:not(.twist), .gutter) { opacity: 0; }   /* :where keeps this at zero specificity */
+.page-head:is(:hover, :focus-within) .quick, .cover:is(:hover, :focus-within) .cover-btn,
+.cal-day:is(:hover, :focus-within) .cal-add, .card:is(:hover, :focus-within) .card-tools,
 .list-item:is(:hover, :focus-within) .icon, .post:is(:hover, :focus-within) header .icon, .side-item:is(:hover, :focus-within) .icon,
-.blk-row:hover > .gutter, .gutter:is(:focus-visible, :active), :is(.quick, .cover-btn, .cal-add, .card-tools, .code-tools, .tbl-controls):focus-visible { opacity: 1; }
-@media (hover: none) { :is(.quick, .cover-btn, .tbl-controls, .code-tools, .cal-add, .card-tools, .list-item .icon, .post header .icon, .side-item .icon:not(.twist)) { opacity: 1; } .gutter { opacity: .6; } }
+/* the block handle shows for the selected line (see blockEditor.js, class .sel) and, with a mouse, for the hovered one; with
+   touch it is hidden (and not tappable) on every other block, so only the line being edited carries one */
+.blk-row.sel > .gutter, .gutter:is(:focus-visible, :active), :is(.quick, .cover-btn, .cal-add, .card-tools):focus-visible { opacity: 1; }
+@media (hover: hover) { .blk-row:hover > .gutter { opacity: 1; } }
+@media (hover: none) { :is(.quick, .cover-btn, .cal-add, .card-tools, .list-item .icon, .post header .icon, .side-item .icon:not(.twist)) { opacity: 1; } .gutter { pointer-events: none; } .blk-row.sel > .gutter, .gutter:focus-visible { pointer-events: auto; } }
 @media (pointer: coarse) { .card-tools, .list-item .icon, .post header .icon, .side-item .icon:not(.twist), .cal-add { opacity: 1; } }
 
 /* responsiveness: instant feedback, short and crisp (no easing theatre) */
@@ -727,18 +730,19 @@ body { overscroll-behavior-y: none; }
   .crumbs .sep { flex: none; }
   .page-bar { min-height: 40px; }
   .quick, .cover-btn, .page-head .quick-row button { min-height: 40px; font-size: var(--fs-ui); }
-  .gutter { left: -34px; top: 0; width: 34px; height: 36px; }
+  :root { --h-left: -34px; --h-w: 34px; }
+  .doc-body { --h-left: -48px; --h-w: 32px; }   /* out in the page margin: on a 360px phone it spans x = 0 to 32 and the text starts at about x = 50 */
+  .synced, .feedback-editor, .col { --h-left: -34px; --h-w: 34px; }
+  .gutter { top: 0; height: 36px; }
+  .gutter .icon-svg { width: 18px; height: 18px; }
   .caret { flex-basis: 32px; height: 36px; }
   .caret::after { inset: -2px -4px; }
   .marker.check { width: 22px; height: 22px; margin: 7px 6px 0; flex-basis: 22px; }
   .callout-icon { min-width: 40px; min-height: 40px; }
   input[type="range"] { min-height: 40px; }
-  .code-lang, .code-copy { min-height: 40px; font-size: var(--fs-ui); }
-  .tbl-controls { gap: 8px 12px; font-size: var(--fs-ui); }
-  .tbl-num input { width: 70px; }
   .tbl input.cell { min-height: 44px; }
   .db-table td input[type="text"], .db-table td input[type="number"], .db-table td input[type="date"], .db-table td select { min-height: 44px; }
-  .db-table td input[type="checkbox"], .tbl-check input, .opt-check input, .set-check input { width: 22px; height: 22px; min-height: 0; }
+  .db-table td input[type="checkbox"], .opt-check input, .set-check input { width: 22px; height: 22px; min-height: 0; }
   .cell-btn, .cell-wrap { min-height: 44px; }
   .formula-val { padding-block: 12px; }
   .db-table th { padding-block: 10px; }
@@ -914,7 +918,6 @@ th.d-hide .th-name, th.d-hide .type-tag { opacity: .55; }
 .vb-tab:hover:not(:disabled) { background: var(--bg-hover); }
 .vb-tab.on { background: var(--bg-hover); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .vb-tab:disabled:not(.on) { opacity: 0.5; cursor: default; }
-.vb-menu { margin-left: auto; }
 .vb-content { min-width: 0; }
 .vb-content .db-toolbar { margin: 6px 0; }
 .vb-content .db-wrap { max-height: min(70vh, 640px); overflow: auto; overscroll-behavior: contain; }

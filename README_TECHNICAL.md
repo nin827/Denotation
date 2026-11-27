@@ -284,6 +284,17 @@ and search also matches page property values. Details: `source/mcp/README.md`.
 - Sidebar rows have no inline buttons: right-click, long-press or Shift+F10 opens the page menu.
 - Context menus: `ui/contextMenu.js` `bindContextMenu(el, getItems)` (right-click, 520 ms long-press, Shift+F10 / Menu key;
   native menu kept on inputs, links and selected text). Database row menus are in `ui/dbMenus.js`, pure helpers in `dbMenuLogic.js`.
+- **Block menu** (`ui/blockMenu.js`, `ui/blockExtras.js`): `openBlockMenu(anchor, b, inst, a, {target})` builds the generic
+  items plus whatever the block registered with `setBlockMenu(b, ({target}) => items)` (a `WeakMap` keyed by the block,
+  re-registered on each redraw). `target` is the right-clicked element (e.g. a `.tbl-cell` with `data-r` / `data-c`). Items
+  flagged `viewOnly` also show on locked pages. Block settings go through `setBlockMenu`, never an in-flow bar.
+- **Selection and handle:** `blockEditor.js` keeps `selId` (set on `focusin` / `pointerdown`, cleared by a press outside);
+  the row gets `.sel`. `.gutter` shows for `.blk-row.sel` and, under `(hover:hover)`, on hover; geometry comes from
+  `--h-left` / `--h-w` per container. `.doc-body` has a 28px lane on both sides so text margins match.
+  `wireBlockContextMenu` handles contextmenu, Shift+F10 and a 520 ms long-press; `.tbl-cell`, `.bm-card`, `.page-link` and an
+  unfocused code textarea open the block menu even though they are inputs or links.
+- Pure table helpers in `blocks/model.js` (`tableInsertRow/DeleteRow/InsertCol/DeleteCol`) keep `colWidths`, `rowHeights`
+  and `sourceKey` aligned.
 - Escape all user, CSV, markdown and imported content before it reaches the DOM. No `eval` or `new Function` outside the sandboxed formula engine.
 
 ## 9. Theme

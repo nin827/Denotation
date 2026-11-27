@@ -79,7 +79,7 @@ On a wide screen the sidebar is **locked open** by default. Unlock it from **⋯
 Denotation works on phones and tablets too:
 - The sidebar slides in over the page: the button at the top left opens it, and tapping outside closes it. (Locking it open only applies on wide screens.)
 - **Long-press** a page in the sidebar for its menu (the same as right-click).
-- Tap a block's **≡ handle** for its options, including **Move up** and **Move down**.
+- Tap a block (or long-press it) and use its **≡ handle** for its options, including **Move up** and **Move down**.
 - On a board, each card has a **Move to…** button. In a sheet, tap a selected cell again to edit it.
 - Dialogs open as sheets from the bottom of the screen, above the keyboard.
 - On iPhone and iPad, **Share → Add to Home Screen** gives the best experience.
@@ -155,9 +155,9 @@ For a database, **⋯ → New row template** makes a template whose properties m
 
 ### Blocks
 
-A page is a stack of **blocks**: paragraphs, headings, lists and so on. Click anywhere in a block to write in it. Each block has a **handle** (three lines) on its left that appears when you hover. Hovering is not needed on touch screens.
+A page is a stack of **blocks**: paragraphs, headings, lists and so on. Click anywhere in a block to write in it. Each block has a **handle** (three lines) out in the left margin. It shows on the line you are editing or last tapped, and with a mouse also on the hovered block. Text keeps an equal margin on the left and right.
 
-- **Click the handle** for the block menu, or right-click the block (long-press on a touch screen, Shift+F10 / the Menu key while it's focused). While you're editing text, on links or on selected text, right-click still shows your browser's own menu.
+- **Click the handle** for the block menu, or right-click any block (long-press on a touch screen, Shift+F10 / the Menu key while it's focused), including tables, images, code, pivot tables and database views. Every block's settings live in this menu instead of a bar on the page. While you're editing text, on links or on selected text, right-click still shows your browser's own menu. On a locked page the menu offers only view options, such as Copy code and the graph's Graph/List switch.
 - **Drag the handle** to move the block, even into a column or another position in a list.
 
 The block menu has:
@@ -221,21 +221,21 @@ You can also **paste markdown** with several lines and it becomes proper blocks.
 
 **Quote.** A quoted passage. Colours work here too.
 
-**Code.** Monospaced text, with a language picker (plain, js, ts, python, json, html, css, bash, sql, java, c, go, rust, markdown) and a **Copy** button. Enter adds a new line inside it; **Ctrl/Cmd + Enter** leaves the block and starts a new paragraph below. Tab inserts two spaces.
+**Code.** Monospaced text, with **Language** (plain, js, ts, python, json, html, css, bash, sql, java, c, go, rust, markdown) and **Copy code** in the block menu. The language shows quietly in the top-right corner. Enter adds a new line inside it; **Ctrl/Cmd + Enter** leaves the block and starts a new paragraph below. Tab inserts two spaces.
 
 **Table.** A grid you type straight into. Controls under the table set the number of **Rows** (up to 100) and **Columns** (up to 12), and whether the first row and first column are headers. This is a simple text table; for data you want to sort, filter or calculate, use a [database](#4-databases).
 
-**Table headers and sizes.** Use **Header row** and **Header column** (block menu) to mark headers; they are bold with a heavier line. Drag the right edge of a top-row cell to change a column's width, or the bottom edge of a first-column cell to change a row's height (double-click to reset). To type an exact value, use the small arrow button on the cell, or press Shift+F10 inside a cell, and choose **Column width…** or **Row height…**. Sizes use px, em or rem; a bare number means px. **Reset sizes** puts everything back to automatic. A table used as a data source always reads its first row as column names.
+**Tables.** Right-click or long-press a cell (or press Shift+F10 in it, or use the handle) for the table menu: **Header row**, **Header column**, **Row N** (add above, add below, delete, height…, reset height), **Column N** (add left, add right, delete, width…, reset width), **Rows…** and **Columns…** for an exact size, **Reset sizes** and **Use as data source**. Row and column actions apply to the cell you opened the menu on. Headers are bold with a heavier line. Drag the right edge of a top-row cell to change a column's width, or the bottom edge of a first-column cell to change a row's height (double-click to reset). Sizes use px, em or rem; a bare number means px. A table used as a data source always reads its first row as column names.
 
 **Columns.** Two to six side-by-side columns. Each is a mini-page of its own: drag blocks into and between them with the handle. Change the count from the block's handle menu.
 
 **Image.** Choose **Upload image** (pictures are shrunk to fit), or paste a link with **Embed link**. Add a caption underneath. You can also paste an image straight in. If an image from another website won't load, upload the file instead.
 
-**Image size.** Hover an image to show **Size**, **Replace** and alignment (left, centre, right). Width and height take px, em or rem (a bare number is px) or the name of a repository constant, so changing that constant resizes every image that uses it. A constant must hold a number (px) or text like `20em`; otherwise the image shows at its natural size and a note says why. Width alone keeps the proportions; setting both stretches it. Drag the right edge, bottom edge or corner (corner keeps proportions) to resize by hand.
+**Image size.** The block menu has **Image size…**, **Replace image…** and **Align** (left, centre, right). Width and height take px, em or rem (a bare number is px) or the name of a repository constant, so changing that constant resizes every image that uses it. A constant must hold a number (px) or text like `20em`; otherwise the image shows at its natural size and a note says why. Width alone keeps the proportions; setting both stretches it. On the selected image, drag the right edge, bottom edge or corner (corner keeps proportions) to resize by hand.
 
 **Inline images.** Type `/Inline image` to place a small picture inside a line of text, with a link or an upload (shrunk to about 150 KB), alt text and an optional width/height. Markdown export writes images as `![alt](src)` without size.
 
-**Web bookmark.** A card showing a link: enter an address and an optional title, then **Save**. Clicking the card opens the link in a new tab.
+**Web bookmark.** A card showing a link: enter an address and an optional title, then **Save**. Clicking the card opens the link in a new tab; **Edit link…** is in the block menu.
 
 **Table of contents.** A list of all the headings on the page. Click one to jump to it. It updates itself as you add headings.
 
@@ -251,7 +251,7 @@ You can also **paste markdown** with several lines and it becomes proper blocks.
 
 ### Pivot tables
 
-Insert one with `/pivot`. Then, using the controls on the block:
+Insert one with `/pivot`. Then, from the block menu (right-click or long-press the block):
 
 1. **Database:** choose which database to summarise.
 2. **Rows:** choose a field to group by. (Select, checkbox, text, date, number, array and dictionary fields work.)
@@ -267,11 +267,11 @@ Show a few rows from a database right inside a page, looked up by their key.
 
 1. Type `/Record preview` (under Advanced) and pick a database.
 2. Type one or more **keys**, the values in the database's key column (the first column unless you change it). Press Enter or a comma after each. Matching ignores capitals and extra spaces.
-3. Use the **gear** to choose which columns show, their order, width, wrapping, alignment and labels, and whether rows show as a **table** or as **cards** (cards are the default for a single key).
+3. Use **Preview settings…** in the block menu to choose which columns show, their order, width, wrapping, alignment and labels, and whether rows show as a **table** or as **cards** (cards are the default for a single key).
 
 Missing keys say "No row with key …", and keys used by more than one row are marked. Click a row to open it.
 
-**Presets** keep record previews consistent. In the gear menu, **Save as preset…** stores the current display on the database itself. Other blocks can pick it under **Use preset**, and **Edit preset** changes every block that uses it, on every page. **Detach** gives one block its own copy. Deleting a preset leaves each block with a copy of it. Changing the **primary key column** changes it for the database everywhere.
+**Presets** keep record previews consistent. In Preview settings, **Save as preset…** stores the current display on the database itself. Other blocks can pick it under **Use preset**, and **Edit preset** changes every block that uses it, on every page. **Detach** gives one block its own copy. Deleting a preset leaves each block with a copy of it. Changing the **primary key column** changes it for the database everywhere.
 
 ### Inline chips: database values and dates
 

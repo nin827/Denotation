@@ -14,23 +14,8 @@
 .tbl-grip.col { top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; }
 .tbl-grip.row { left: 0; bottom: 0; height: 7px; width: 100%; cursor: row-resize; }
 .tbl-grip:hover, .tbl-grip.on { background: var(--accent); opacity: .55; }
-.tbl-menu-btn { position: absolute; z-index: 2; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--r-xs); background: var(--bg-soft); color: var(--muted); opacity: 0; }
-.tbl-menu-btn.col { top: 1px; right: 9px; }
-.tbl-menu-btn.row { left: 1px; bottom: 9px; }
-.tbl-menu-btn .icon-svg { width: var(--ico-sm); height: var(--ico-sm); }
-.tbl-cell:is(:hover, :focus-within) > .tbl-menu-btn, .tbl-menu-btn:focus-visible { opacity: 1; }
-/* room for the option buttons so they never cover the text */
-.tbl.tbl-edit td:first-child input.cell, .tbl.tbl-edit th:first-child input.cell { padding-left: 24px; }
-.tbl.tbl-edit tr:first-child input.cell { padding-right: 28px; }
-.tbl-reset { font-size: var(--fs-sm); display: inline-flex; align-items: center; gap: var(--sp-4); }
-.tbl-reset[hidden] { display: none; }
-.tbl-check input:disabled { cursor: not-allowed; }
+/* a table's settings (headers, rows, columns, sizes) are in the block menu: right-click or long-press a cell, Shift+F10 in a cell, or the handle */
 @media (hover: none) {
-  .tbl-menu-btn { opacity: 1; width: 28px; height: 28px; }
-  .tbl-menu-btn.col { right: 12px; }
-  .tbl-menu-btn.row { bottom: 12px; }
-  .tbl.tbl-edit td:first-child input.cell, .tbl.tbl-edit th:first-child input.cell { padding-left: 36px; }
-  .tbl.tbl-edit tr:first-child input.cell { padding-right: 42px; }
   .tbl-grip.col { width: 14px; }
   .tbl-grip.row { height: 14px; }
 }
@@ -50,28 +35,19 @@
 .img-wrap[data-align="right"] .caption { text-align: right; }
 .img-box > .img { max-width: 100%; }
 .img-box > .img.stretch { object-fit: fill; }
-.img-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-8); margin-top: var(--sp-4); font-size: var(--fs-sm); }
-.img-aligns { display: inline-flex; gap: var(--sp-2); }
-.img-tools .icon { display: inline-flex; align-items: center; gap: var(--sp-4); }
-.img-align.on { font-weight: 600; background: var(--accent-soft); color: var(--accent-ink); box-shadow: inset 0 -3px 0 var(--accent-ink); }
 .img-size-note { display: flex; gap: var(--sp-4); align-items: flex-start; margin-top: var(--sp-4); font-size: var(--fs-sm); color: var(--muted); }
 .img-size-note[hidden] { display: none; }
 .img-grip { position: absolute; touch-action: none; opacity: 0; background: var(--accent); border: 2px solid var(--bg); border-radius: var(--r-xs); box-shadow: 0 0 0 1px var(--border-ctl); }
 .img-grip.e { right: -5px; top: calc(50% - 14px); width: 10px; height: 28px; cursor: ew-resize; }
 .img-grip.s { bottom: -5px; left: calc(50% - 14px); width: 28px; height: 10px; cursor: ns-resize; }
 .img-grip.se { right: -6px; bottom: -6px; width: 14px; height: 14px; cursor: nwse-resize; }
-.img-box:is(:hover, :focus-within) > .img-grip, .img-grip.on { opacity: 1; }
-:where(.img-tools) { opacity: 0; }
-.img-wrap:is(:hover, :focus-within) .img-tools, .img-tools:focus-within { opacity: 1; }
+/* the resize grips show for the selected image (class .sel on its row, see blockEditor.js) and, with a mouse, on hover; size, replace and alignment are in the block menu */
+.blk-row.sel .img-box > .img-grip, .img-box:is(:focus-within) > .img-grip, .img-grip.on { opacity: 1; }
+@media (hover: hover) { .img-box:hover > .img-grip { opacity: 1; } }
 @media (hover: none) {
-  .img-tools { opacity: 1; }
-  .img-grip { opacity: 1; }
   .img-grip.e { width: 16px; right: -8px; }
   .img-grip.s { height: 16px; bottom: -8px; }
   .img-grip.se { width: 22px; height: 22px; right: -10px; bottom: -10px; }
-}
-@media (max-width: 600px) {
-  .img-align-label { display: none; }
 }
 
 /* ---- inline image chip ---- */
