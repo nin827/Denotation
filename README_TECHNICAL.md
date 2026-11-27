@@ -112,6 +112,11 @@ Details: `tools/mcp/README.md`.
 - **Record preview block** (`type: "preview"`): `{ dbId, keys, presetId, config, snapshot }`. Database pages may carry
   `primaryKey: <colId>` (default first column) and `previewPresets: [{ id, name, layout, columns }]`. Resolution:
   preset → snapshot (preset deleted) → own config → default.
+- **Inline tokens** live in a block's `text`: `{{value:<dbId>|<key>|<colId>}}` and `{{date:YYYY-MM-DD}}` (args escape
+  `\`, `|`, `}` with a backslash; invalid tokens stay literal). `blocks/inline.js` parses them to
+  `{t:"inline", kind, args}`; `preview.js` `resolveValue(db, rows, key, colId)` does the primary-key lookup;
+  `ui/inlineChips.js` renders chips and the picker. Markdown export takes `ctx.inline(node)` (fallback: ISO date / key).
+  Catalogue entries with `inline` insert tokens instead of blocks.
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
 ## 8. UI conventions

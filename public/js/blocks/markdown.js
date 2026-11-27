@@ -1,4 +1,5 @@
 import { previewLine } from "../preview.js";
+import { replaceTokens, tokenFallback } from "./inline.js";
 import { numbering, hasChildren, newBlock, normalizeBlocks } from "./model.js";
 
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
@@ -10,6 +11,7 @@ function renderTable(b) {
 }
 export function blocksToMarkdown(blocks, ctx = {}) {
   const nums = numbering(blocks);
+  const inl = (s) => replaceTokens(s ?? "", (n) => ctx.inline?.(n) ?? tokenFallback(n));
   const chunks = [];
   for (const b of blocks) {
     let text;
@@ -19,38 +21,38 @@ export function blocksToMarkdown(blocks, ctx = {}) {
 ${indentLines(kids, 2)}` : head;
     switch (b.type) {
       case "p":
-        text = withKids(b.text);
+        text = withKids(inl(b.text));
         break;
       case "h1":
       case "h2":
       case "h3":
       case "h4":
-        text = withKids(`${"#".repeat(Number(b.type[1]))} ${b.text}`);
+        text = withKids(`${"#".repeat(Number(b.type[1]))} ${inl(b.text)}`);
         break;
       case "bullet":
-        text = withKids(`- ${b.text}`);
+        text = withKids(`- ${inl(b.text)}`);
         list = true;
         break;
       case "numbered":
-        text = withKids(`${nums.get(b.id)}. ${b.text}`);
+        text = withKids(`${nums.get(b.id)}. ${inl(b.text)}`);
         list = true;
         break;
       case "todo":
-        text = withKids(`- [${b.checked ? "x" : " "}] ${b.text}`);
+        text = withKids(`- [${b.checked ? "x" : " "}] ${inl(b.text)}`);
         list = true;
         break;
       case "toggle":
-        text = `<details><summary>${b.text}</summary>
+        text = `<details><summary>${inl(b.text)}</summary>
 
 ${kids}
 
 </details>`;
         break;
       case "quote":
-        text = withKids(b.text.split("\n").map((l) => `> ${l}`).join("\n"));
+        text = withKids(inl(b.text).split("\n").map((l) => `> ${l}`).join("\n"));
         break;
       case "callout":
-        text = withKids(`> ${""} ${b.text}`.trim());
+        text = withKids(`> ${""} ${inl(b.text)}`.trim());
         break;
       case "code":
         text = `\`\`\`${b.lang && b.lang !== "plain" ? b.lang : ""}

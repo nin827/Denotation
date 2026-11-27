@@ -1,4 +1,4 @@
-import { detectShortcut, toggleMarker } from "../blocks/inline.js";
+import { detectShortcut, toggleMarker, scanTokens } from "../blocks/inline.js";
 import {
   isTexty,
   COLORS,
@@ -31,6 +31,7 @@ import { renderInline } from "./inlineView.js";
 import { specialBody, shrink } from "./blockTypes.js";
 import { openBlockMenu } from "./blockMenu.js";
 import { pickEmoji } from "./emoji.js";
+import { openInlinePicker, inlineResolver, blockTexts } from "./inlineChips.js";
 
 let drag = null;
 const clip = { mode: null, block: null };
@@ -163,12 +164,12 @@ export function createBlockEditor(container, ctx) {
         closeSlash();
         if (!isCode) {
           content.classList.remove("editing");
-          view.replaceChildren(...renderInline(b.text));
+          view.replaceChildren(...renderInline(b.text, ctx));
         }
       }
     });
     if (!isCode) {
-      view.replaceChildren(...renderInline(b.text));
+      view.replaceChildren(...renderInline(b.text, ctx));
       view.tabIndex = 0;
       view.addEventListener("focus", () => {
         content.classList.add("editing");
@@ -184,6 +185,14 @@ export function createBlockEditor(container, ctx) {
         ta.setSelectionRange(ta.value.length, ta.value.length);
       });
       view.addEventListener("click", (e) => {
+        const chip = e.target.closest("a.ichip");
+        if (chip) {
+          e.preventDefault();
+          Promise.resolve(ctx.flush?.()).finally(() => {
+            location.hash = chip.getAttribute("href");
+          });
+          return;
+        }
         const a = e.target.closest("a.mention");
         if (a) {
           e.preventDefault();
@@ -309,6 +318,10 @@ export function createBlockEditor(container, ctx) {
   function updateTrigger(b, ta) {
     const caret = ta.selectionStart;
     const before = ta.value.slice(0, caret);
+    if (b.type !== "code" && before.endsWith("{{")) {
+      closeSlash();
+      return openPicker(b, ta, "value", caret - 2, caret);
+    }
     let m = /(?:^|\s)\/([^\n/]{0,24})$/.exec(before);
     if (m && b.type !== "code") return openSlashMenu(b, ta, m, caret, "slash");
     m = /(?:^|\s)@([^\n@]{0,24})$/.exec(before);
@@ -335,12 +348,40 @@ export function createBlockEditor(container, ctx) {
       }));
     }
     const args = parseArgs(q);
-    return filterCatalog(q).map((entry) => ({
+    return filterCatalog(q).filter((e) => !(e.inline && b.type === "code")).map((entry) => entry.inline ? {
+      label: entry.label,
+      icon: ico(entry.icon),
+      hint: entry.group,
+      onSelect: () => openPicker(b, ta, entry.inline, start, caret)
+    } : ({
       label: labelFor(entry, args),
       icon: ico(entry.icon),
       hint: entry.group,
       onSelect: () => insertEntry(b, ta, entry, args, start, caret)
     }));
+  }
+  // Open the inline picker and put the chosen token in place of text[start, end).
+  function openPicker(b, ta, kind, start, end) {
+    const id = b.id;
+    const refocus = (pos) => {
+      const el = root.querySelector(`textarea[data-id="${id}"]`);
+      if (!el) return;
+      el.closest(".blk-content")?.classList.add("editing");
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      fit(el);
+    };
+    openInlinePicker(kind, ctx, {
+      onPick: (token) => {
+        const cur = b.text ?? "";
+        b.text = cur.slice(0, start) + token + cur.slice(end);
+        const el = root.querySelector(`textarea[data-id="${id}"]`);
+        if (el) el.value = b.text;
+        save();
+        refocus(start + token.length);
+      },
+      onCancel: () => refocus(Math.min(end, (b.text ?? "").length))
+    });
   }
   function openSlashMenu(b, ta, m, caret, kind) {
     const start = caret - m[0].replace(/^\s/, "").length;
@@ -468,6 +509,14 @@ export function createBlockEditor(container, ctx) {
     if (e.key === "Enter" && !e.shiftKey && !isCode) {
       e.preventDefault();
       return split(b, ta);
+    }
+    if ((e.key === "Backspace" || e.key === "Delete") && collapsed && !isCode && ta.value.includes("{{")) {
+      const pos = ta.selectionStart;
+      const t = scanTokens(ta.value).find((x) => e.key === "Backspace" ? x.end === pos : x.start === pos);
+      if (t) {
+        e.preventDefault();
+        return setText(b, ta, { text: ta.value.slice(0, t.start) + ta.value.slice(t.end), start: t.start, end: t.start });
+      }
     }
     if (e.key === "Backspace" && collapsed && ta.selectionStart === 0) return backspace(e, b, ta);
     if (e.key === "Delete" && collapsed && ta.selectionStart === ta.value.length && !isCode) {
@@ -638,7 +687,8 @@ export function createBlockEditor(container, ctx) {
       clip.mode = cut ? "cut" : "copy";
       clip.block = JSON.parse(JSON.stringify(b));
       try {
-        await navigator.clipboard.writeText(blocksToMarkdown([b], mdCtx));
+        const inline = await inlineResolver(ctx, blockTexts([b]));
+        await navigator.clipboard.writeText(blocksToMarkdown([b], { ...mdCtx, inline }));
       } catch {
       }
       if (cut) await actions.remove(b);

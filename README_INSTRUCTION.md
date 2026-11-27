@@ -246,6 +246,10 @@ Missing keys say "No row with key …", and keys used by more than one row are m
 
 **Presets** keep record previews consistent. In the gear menu, **Save as preset…** stores the current display on the database itself. Other blocks can pick it under **Use preset**, and **Edit preset** changes every block that uses it, on every page. **Detach** gives one block its own copy. Deleting a preset leaves each block with a copy of it. Changing the **primary key column** changes it for the database everywhere.
 
+### Inline chips: database values and dates
+
+In any text block, type `/` and choose **Database value** or **Date**, or type `{{`. For a value, pick a database, then the row's key (its primary key, the same one Record preview uses), then a column. The chip shows that cell's current value and updates when you edit the row; click it to open the row. If the database, row or column is gone, the chip says **Not found**. In edit mode you see the raw token, `{{value:<db>|<key>|<column>}}`; Backspace right after a token deletes it whole. Markdown export writes the current value as plain text; Denotation JSON keeps the token.
+
 ### Locking a page
 
 **Lock page** in the page options makes the whole page read-only: no handles, no typing. Unlock it the same way. Pages in the trash are read-only too.

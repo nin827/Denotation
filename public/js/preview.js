@@ -241,3 +241,35 @@ export function previewMarkdown(block, db, rows) {
 
 /** One-line fallback when rows are not available to the exporter. */
 export const previewLine = (title, keys) => `Record preview: ${title || "Untitled"} (keys: ${cleanKeys(keys).join(", ") || "none"})`;
+
+// ---------- inline value lookups ({{value:dbId|key|colId}}) ----------
+
+/**
+ * Look one value up. `db` is the data database page (or null), `rows` its rows.
+ * Returns { state: "ok" | "nodb" | "norow" | "nocol", text, col, row }.
+ * With several rows sharing the key the first one (creation order) wins.
+ */
+export function resolveValue(db, rows, key, colId) {
+  if (!db || db.type !== "database") return { state: "nodb", text: "", col: null, row: null };
+  const col = (db.columns ?? []).find((c) => c.id === colId) ?? null;
+  const m = matchKeys(db, rows, [key])[0];
+  const row = m?.rows[0] ?? null;
+  if (!row) return { state: "norow", text: "", col, row: null };
+  if (!col) return { state: "nocol", text: "", col: null, row };
+  return { state: "ok", text: displayText(col, row.values?.[col.id]), col, row };
+}
+
+/** Distinct primary-key values of a database's rows (as displayed), in row order. */
+export function keyList(db, rows) {
+  const col = primaryKeyCol(db);
+  const seen = new Set();
+  const out = [];
+  for (const r of rows ?? []) {
+    const k = rowKey(db, r, col);
+    const n = normKey(k);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(k);
+  }
+  return out;
+}

@@ -9,6 +9,7 @@ import { toast, confirmDialog } from "./dialogs.js";
 import { saveTextFile } from "./files.js";
 import { pickEmoji } from "./emoji.js";
 import { createBlockEditor } from "./blockEditor.js";
+import { inlineResolver, blockTexts } from "./inlineChips.js";
 
 const COVERS = {
   sunset: "linear-gradient(120deg,#f6d365,#fda085)",
@@ -124,9 +125,19 @@ function crumbTrail(env, page, row) {
   return chain;
 }
 const exportMarkdown = async (env, title, blocks) => {
+  const live = () => env.pages().filter((p) => p.type !== "sync" && !isTrashed(env.pages(), p));
+  const lookup = {
+    ws: env.ws,
+    livePages: live,
+    pageInfo: (id) => {
+      const p = env.pages().find((x) => x.id === id);
+      return p ? { id, state: isTrashed(env.pages(), p) ? "trashed" : "ok" } : { id, state: "missing" };
+    }
+  };
   const ctx = {
     pageTitle: (id) => env.pages().find((p) => p.id === id)?.title || "Untitled",
-    syncBlocks: () => []
+    syncBlocks: () => [],
+    inline: await inlineResolver(lookup, blockTexts(blocks))
   };
   const md = `# ${title || "Untitled"}
 
