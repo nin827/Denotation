@@ -15,7 +15,8 @@ import { createFolderAdapter, folderSupported } from "./adapters/folder.js";
 import { renderDatabase } from "./ui/dbView.js";
 import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./ui/pageView.js";
 import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
-import { openTicket } from "./ui/ticket.js";
+import { openFeedback } from "./ui/feedback.js";
+import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");
@@ -228,9 +229,10 @@ function drawSidebar() {
       layout.apply();
       drawSidebar();
     } }),
-    onTicket: () => openTicket({ onFile: async (t) => {
-      return ws.fileTicket(t);
-    }, onOpen: (id) => env.open(id) }),
+    onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),
+    onAiAccess: () => openAiAccess(env),
+    onPageAiAccess: (p) => openPageAiAccess(env, p),
+    vaultItems: () => vaultUi.menuItems(),
     onOpen: (id) => env.open(id),
     onRedraw: drawSidebar,
     onCreate: createPage,
@@ -322,18 +324,14 @@ async function trashPage(p) {
 }
 function buildFooter() {
   const where = `Storage: ${store.cache?.label ?? store.label ?? store.name}${user ? ` \xB7 ${user.name}` : ""}`;
-  const { lines, buttons } = vaultUi.footer({ where, user: user?.name });
+  const { lines, buttons, input } = vaultUi.footer({ where, user: user?.name });
   return h(
     "div",
     { class: "side-footer" },
     ...lines,
     store.note ? h("div", { class: "note" }, store.note) : null,
-    h(
-      "div",
-      { class: "row" },
-      ...buttons,
-      store.auth ? h("button", { onClick: () => store.auth.signOut() }, ico("log-out"), " Sign out") : null
-    )
+    store.auth ? h("div", { class: "row" }, ...buttons, h("button", { onClick: () => store.auth.signOut() }, ico("log-out"), " Sign out")) : null,
+    input
   );
 }
 async function seed() {

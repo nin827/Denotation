@@ -25,7 +25,10 @@ export function renderSidebar(el, {
   onSearch,
   onOpenTrash,
   onSettings,
-  onTicket,
+  onFeedback,
+  onAiAccess,
+  onPageAiAccess,
+  vaultItems,
   onToggleLock,
   onClose,
   footer
@@ -57,6 +60,10 @@ export function renderSidebar(el, {
         { label: "Rename", icon: ico("pencil"), onSelect: () => onRename(p) },
         p.type !== "repo" ? { label: p.favorite ? "Remove from favorites" : "Add to favorites", icon: ico("star"), onSelect: () => onFavorite(p) } : null,
         { label: "Duplicate", icon: ico("copy"), onSelect: () => onDuplicate(p) },
+        { label: "AI access…", icon: ico("bot"), onSelect: () => {
+          onClose();
+          onPageAiAccess(p);
+        } },
         { label: "Move to trash", icon: ico("trash"), danger: true, onSelect: () => onTrash(p) }
       ].filter(Boolean), { width: 230 });
     };
@@ -110,9 +117,21 @@ export function renderSidebar(el, {
     ];
   };
   const favorites = live.filter((p) => p.favorite && p.type !== "repo");
-  const labeled = (name, text) => [ico(name), h("span", {}, text)];
   const newMenu = (e) => openMenu(e.currentTarget, newItems({ pages: live, parentId: here?.id, onCreate, onImportCsv }), { width: 230 });
-  const tool = (cls, icon, text, title, onClick, on) => h("button", { class: `tool ${cls}${on ? " active" : ""}`, title, onClick }, ico(icon), h("span", {}, text));
+  // An overlay sidebar (phones) would cover the dialog a menu entry opens, so it steps aside first.
+  const stepAside = (items) => items.map((it) => it.items ? { ...it, items: stepAside(it.items) } : it.onSelect ? { ...it, onSelect: () => {
+    onClose();
+    return it.onSelect();
+  } } : it);
+  const workspaceMenu = (e) => openMenu(e.currentTarget, stepAside([
+    { label: "Settings", icon: ico("settings-2"), hint: "Appearance", onSelect: onSettings },
+    { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
+    { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
+    { separator: true },
+    ...vaultItems(),
+    { separator: true },
+    { label: "AI access…", icon: ico("bot"), onSelect: onAiAccess }
+  ]), { width: 240 });
   el.replaceChildren(
     h(
       "div",
@@ -121,15 +140,8 @@ export function renderSidebar(el, {
       h("button", { class: "act-new primary", title: "New page or database", "aria-haspopup": "menu", onClick: newMenu }, ico("plus"), h("span", {}, "New"), ico("chevron-down")),
       iconBtn("search", "Search (Ctrl/Cmd+K)", onSearch, "act-search"),
       iconBtn(locked ? "lock" : "lock-open", locked ? "Sidebar is locked open. Click to unlock." : "Lock sidebar open", onToggleLock, locked ? "on" : ""),
+      h("button", { class: "icon act-more", title: "Workspace menu", "aria-label": "Workspace menu", "aria-haspopup": "menu", onClick: workspaceMenu }, ico("ellipsis")),
       iconBtn("panel-left-close", locked ? "Unlock the sidebar to close it" : "Close sidebar", onClose, locked ? "disabled" : "")
-    ),
-    h(
-      "div",
-      { class: "side-tools" },
-      tool("act-search-row", "search", "Search", "Search (Ctrl/Cmd+K)", onSearch),
-      tool("act-settings", "settings-2", "Settings", "Appearance and settings", onSettings),
-      tool("act-ticket", "ticket", "Ticket", "File feedback or a request", onTicket),
-      tool("trash-link", "trash", "Trash", "Trash", onOpenTrash, view === "trash")
     ),
     h(
       "div",

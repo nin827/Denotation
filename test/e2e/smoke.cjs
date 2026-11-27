@@ -28,10 +28,31 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".qf-input");
     await page.keyboard.press("Escape");
+    // Workspace menu: Settings opens and closes
+    if (await page.locator(".side-tools").count()) errs.push("old tool row is still present");
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item", { hasText: "Settings" }).click();
+    await page.waitForSelector(".modal");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    // Feedback: write with the block editor, file it, find it in the Feedback database
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item", { hasText: "Feedback" }).click();
+    await page.locator(".feedback-kind", { hasText: "Feature request" }).click();
+    await page.fill(".feedback-title", "Smoke feedback");
+    await page.press(".feedback-title", "Enter");
+    await page.keyboard.type("# Heading");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Details from the smoke test");
+    await page.locator(".modal-actions button.primary").click();
+    await page.waitForSelector(".modal", { state: "detached" });
+    await page.waitForSelector(".side-item", { hasText: "Feedback" });
+    await page.waitForFunction(() => [...document.querySelectorAll(".db-body input")].some((i) => i.value === "Smoke feedback"), null, { timeout: 5000 }).catch(() => errs.push("filed feedback is not shown in the Feedback database"));
     // Export as ZIP (Markdown and JSON) and re-import both
     const zips = {};
     for (const [kind, label] of [["md", "ZIP \u2014 Markdown"], ["json", "ZIP \u2014 Denotation JSON"]]) {
-      await page.locator(".side-footer button", { hasText: "Export" }).click();
+      await page.locator(".act-more").click();
+      await page.locator(".menu-item", { hasText: /^Export/ }).click();
       const [dl] = await Promise.all([page.waitForEvent("download"), page.locator(".menu-item", { hasText: label }).click()]);
       zips[kind] = await dl.path();
       if (fs.readFileSync(zips[kind]).subarray(0, 2).toString() !== "PK") errs.push(`${kind} export is not a ZIP`);

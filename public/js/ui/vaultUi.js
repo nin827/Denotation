@@ -225,7 +225,7 @@ export function createVaultUi(ctx) {
   }
 
   // ---------- menus ----------
-  const exportMenu = (anchor) => openMenu(anchor, [
+  const exportItems = () => [
     { header: true, label: "Download" },
     { label: "JSON file", icon: ico("file-braces"), onSelect: exportJsonFile },
     { label: "ZIP — Markdown", icon: ico("file-archive"), onSelect: () => exportZip("markdown") },
@@ -237,16 +237,16 @@ export function createVaultUi(ctx) {
         { label: "To folder — Denotation JSON…", icon: ico("folder-output"), onSelect: () => exportFolder("json") }
       ]
       : [{ label: NO_FOLDERS, disabled: true }])
-  ], { width: 280 });
-  const importMenu = (anchor) => openMenu(anchor, [
+  ];
+  const importItems = () => [
     { label: "File… (.zip, .json, .md, .csv)", icon: ico("file-input"), onSelect: () => fileInput.click() },
     folderSupported()
       ? { label: "From folder… (Markdown or JSON)", icon: ico("folder-input"), onSelect: importFolder }
       : { label: NO_FOLDERS, disabled: true }
-  ], { width: 280 });
-  const folderMenu = (anchor) => {
+  ];
+  const folderItems = () => {
     const st = store.status();
-    const items = st.state === "off"
+    return st.state === "off"
       ? [{ label: "Connect folder…", icon: ico("folder-sync"), onSelect: connectFolder }]
       : [
         st.state === "synced" || st.state === "syncing"
@@ -255,10 +255,15 @@ export function createVaultUi(ctx) {
         { label: "Choose another folder…", icon: ico("folder-sync"), onSelect: connectFolder },
         { label: "Disconnect", icon: ico("unplug"), onSelect: disconnect }
       ];
-    openMenu(anchor, items, { width: 240 });
   };
+  /** Submenu entries for the sidebar's workspace (⋯) menu. */
+  const menuItems = () => [
+    { label: "Export", icon: ico("file-down"), items: exportItems() },
+    { label: "Import", icon: ico("upload"), items: importItems() },
+    live ? { label: "Folder", icon: ico("folder-sync"), items: folderItems() } : null
+  ].filter(Boolean);
 
-  /** Footer pieces: storage line, notes, buttons. */
+  /** Footer pieces: storage line, notes, and the hidden import file input. */
   function footer({ where, user }) {
     const st = live ? store.status() : { state: "off" };
     const lines = [];
@@ -275,13 +280,7 @@ export function createVaultUi(ctx) {
         h("button", { class: "folder-reconnect", onClick: reconnect }, ico("refresh-cw"), " Reconnect")
       ));
     }
-    const buttons = [
-      h("button", { onClick: (e) => exportMenu(e.currentTarget), "aria-haspopup": "menu" }, ico("file-down"), " Export"),
-      h("button", { onClick: (e) => importMenu(e.currentTarget), "aria-haspopup": "menu" }, ico("upload"), " Import"),
-      live ? h("button", { onClick: (e) => folderMenu(e.currentTarget), "aria-haspopup": "menu" }, ico("folder-sync"), " Folder") : null,
-      fileInput
-    ].filter(Boolean);
-    return { lines, buttons };
+    return { lines, buttons: [], input: fileInput };
   }
-  return { init, footer, exportJsonFile };
+  return { init, footer, menuItems, exportJsonFile };
 }

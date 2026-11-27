@@ -294,14 +294,15 @@ export function createWorkspace(store) {
     return repo;
   };
   const TICKET_KINDS = ["Feedback", "Request"];
-  const fileTicket = async ({ kind = "Feedback", title, details = "", images = [] }) => {
+  // Feedback is stored as rows of the page flagged `ticketDb` (the flag keeps its old name so earlier tickets still work).
+  const fileFeedback = async ({ kind = "Feedback", title, details = "", images = [], blocks = null }) => {
     if (!TICKET_KINDS.includes(kind)) throw new Error("Choose Feedback or Request.");
-    if (!String(title ?? "").trim()) throw new Error("Give the ticket a title.");
+    if (!String(title ?? "").trim()) throw new Error("Give the feedback a title.");
     const pages = await listPages();
     let db = pages.find((p) => p.ticketDb && !p.trashedAt);
     if (!db) {
       const repo = pages.find((p) => p.type === "repo" && !p.trashedAt) ?? await ensureRepository();
-      db = await createPage({ type: "database", title: "Tickets", parentId: repo?.id ?? null });
+      db = await createPage({ type: "database", title: "Feedback", parentId: repo?.id ?? null });
       const col = (name, type, config = {}) => ({ id: newId(), name, type, config: config });
       db.columns = [
         col("Title", "text"),
@@ -310,18 +311,25 @@ export function createWorkspace(store) {
         col("Details", "text")
       ];
       db.ticketDb = true;
-      db.icon = "icon:ticket";
-      db.views = [newView("table", db, "All tickets"), newView("board", db, "By status")];
+      db.icon = "icon:message-square-text";
+      db.views = [newView("table", db, "All feedback"), newView("board", db, "By status")];
       db.views[1].groupBy = db.columns[2].id;
+      await savePage(db);
+    }
+    else if (db.title === "Tickets") {
+      // Earlier versions called this database "Tickets": rename it, data and columns stay as they are.
+      db.title = "Feedback";
+      if (db.icon === "icon:ticket") db.icon = "icon:message-square-text";
+      for (const v of db.views ?? []) if (v.name === "All tickets") v.name = "All feedback";
       await savePage(db);
     }
     const [cTitle, cType, cStatus, cDetails] = db.columns;
     const md = String(details).replace(/!\[([^\]]*)\]\(attached:(\d+)\)/g, (m, alt, n) => images[Number(n) - 1] ? `![${alt}](${images[Number(n) - 1]})` : "");
-    const blocks = markdownToBlocks(md);
-    const summary = plainText(blocks).replace(/\s+/g, " ").trim().slice(0, 300);
+    const content = blocks ?? markdownToBlocks(md);
+    const summary = plainText(content).replace(/\s+/g, " ").trim().slice(0, 300);
     const row = await createRow(db, { [cTitle.id]: title.trim(), [cType.id]: kind, [cStatus.id]: "Open", [cDetails.id]: summary });
-    if (md.trim()) {
-      row.blocks = blocks;
+    if (blocks ? summary || content.some((b) => b.type !== "p") : md.trim()) {
+      row.blocks = content;
       await saveRow(row);
     }
     return { db, row };
@@ -350,7 +358,8 @@ export function createWorkspace(store) {
     createPage: createPage,
     deletePage,
     ensureRepository,
-    fileTicket,
+    fileFeedback,
+    fileTicket: fileFeedback,
     importCsv: importCsv,
     appendCsv,
     trashPage: trashPage,

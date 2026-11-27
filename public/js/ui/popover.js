@@ -25,6 +25,7 @@ export function openMenu(anchor, items, { onClose, empty = "No results", width: 
     place();
   }
   function rowFor(item) {
+    if (item.separator) return h("div", { class: "menu-sep", role: "separator" });
     if (item.header) return h("div", { class: "menu-header" }, item.label);
     const r = h(
       "div",
