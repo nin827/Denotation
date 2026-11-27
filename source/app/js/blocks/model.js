@@ -159,6 +159,7 @@ export function cloneBlock(b) {
 }
 export function walk(blocks, fn, depth = 0, parent = null) {
   for (const b of blocks) {
+    if (!b || typeof b !== "object") continue;
     fn(b, depth, parent, blocks);
     if (b.children?.length) walk(b.children, fn, depth + 1, b);
   }
@@ -166,6 +167,7 @@ export function walk(blocks, fn, depth = 0, parent = null) {
 export function find(blocks, id, parent = null) {
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
+    if (!b) continue;
     if (b.id === id) return { block: b, list: blocks, index: i, parent };
     if (b.children?.length) {
       const r = find(b.children, id, b);
@@ -271,7 +273,7 @@ export function numbering(list) {
   const m = new Map();
   let n = 0;
   for (const b of list) {
-    if (b.type === "numbered") {
+    if (b?.type === "numbered") {
       n += 1;
       m.set(b.id, n);
     } else n = 0;
@@ -419,13 +421,13 @@ export function normalizeBlocks(blocks) {
       }
       if (b.type === "table") {
         if (!Array.isArray(b.cells) || !b.cells.length || !Array.isArray(b.cells[0])) b.cells = [[""]];
-        const w = Math.max(...b.cells.map((r) => Array.isArray(r) ? r.length : 0), 1);
+        const w = b.cells.reduce((m, r) => Math.max(m, Array.isArray(r) ? r.length : 0), 1);
         b.cells = b.cells.map((r) => Array.from({ length: w }, (_, j) => String(r?.[j] ?? "")));
         cleanTable(b);
       }
       if (b.type === "image") cleanImage(b);
       if (b.type === "columns") {
-        b.children = (b.children || []).filter((c) => c?.type === "column");
+        b.children = (Array.isArray(b.children) ? b.children : []).filter((c) => c?.type === "column");
         while (b.children.length < COLUMN_LIMITS.min) b.children.push(newBlock("column", { children: [newBlock("p")] }));
       }
       if (b.children) {
@@ -433,7 +435,7 @@ export function normalizeBlocks(blocks) {
         else clean(b.children);
       }
       if (b.type === "column") {
-        b.children ?? (b.children = []);
+        if (!Array.isArray(b.children)) b.children = [];
         if (!b.children.length) b.children.push(newBlock("p"));
       }
     }

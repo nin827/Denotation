@@ -201,8 +201,9 @@ export function parseType(text) {
   try {
     out = { ok: true, spec: parser(src)() };
   } catch (e) {
-    if (!(e instanceof TypeError_)) throw e;
-    out = { ok: false, error: e.message };
+    if (e instanceof RangeError) out = { ok: false, error: "The type is nested too deeply" }; // stack overflow on e.g. 20000 "Array["
+    else if (!(e instanceof TypeError_)) throw e;
+    else out = { ok: false, error: e.message };
   }
   if (cache.size > 500) cache.clear();
   cache.set(src, out);

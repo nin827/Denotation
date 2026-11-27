@@ -83,11 +83,12 @@ const kindOf = (p) => (p.type === "database" ? "database" : p.type === "repo" ? 
 /** page.props ([{ name, type, value }]) -> { name: value } for style rules; a multi-select named Tags also fills tags. */
 export function propValues(props) {
   const out = {};
+  const set = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true }); // "__proto__" stays data
   let tags = null;
   for (const p of Array.isArray(props) ? props : []) {
     if (!p || typeof p.name !== "string") continue;
-    out[p.name] = p.value;
-    if (!tags && /^tags?$/i.test(p.name) && Array.isArray(p.value)) tags = p.value.map(String);
+    set(out, p.name, p.value);
+    if (!tags && /^tags?$/i.test(p.name) && Array.isArray(p.value)) tags = p.value.map(safeStr);
   }
   return { props: out, tags };
 }
@@ -166,7 +167,15 @@ export function repoRules(repos) {
 export const RULE_OPS = ["is", "isNot", "contains", "notContains", "empty", "notEmpty", "gt", "lt"];
 export const RULE_FIELDS = ["type", "title", "links", "tag"];
 export const RULES_MAX = 40;
-const str = (v, max) => String(v ?? "").trim().slice(0, max);
+const safeStr = (v) => {
+  try {
+    return String(v ?? "");
+  } catch {
+    return "";
+  }
+};
+const str = (v, max) => safeStr(v).trim().slice(0, max);
+const num = (v) => (typeof v === "number" || typeof v === "string" ? Number(v) : NaN);
 /** One condition, cleaned, or null. */
 function cleanWhen(c) {
   if (!c || typeof c !== "object") return null;
@@ -190,7 +199,7 @@ export function cleanGraphRules(list) {
     if (icon) rule.icon = icon;
     if (typeof r.color === "number" && isFinite(r.color)) rule.color = r.color;
     else if (str(r.color, 16)) rule.color = str(r.color, 16);
-    const size = Number(r.size);
+    const size = num(r.size);
     if (isFinite(size) && size > 0) rule.size = Math.max(0.25, Math.min(6, size));
     if (rule.icon || rule.color != null || rule.size) out.push(rule);
     if (out.length >= RULES_MAX) break;
@@ -205,7 +214,7 @@ export function cleanAppearance(g) {
   if (icon) out.icon = icon;
   if (typeof g.color === "number" && isFinite(g.color)) out.color = g.color;
   else if (str(g.color, 16)) out.color = str(g.color, 16);
-  const size = Number(g.size);
+  const size = num(g.size);
   if (isFinite(size) && size > 0 && size !== 1) out.size = Math.max(0.25, Math.min(6, size));
   return Object.keys(out).length ? out : null;
 }
@@ -218,6 +227,7 @@ export function cleanAppearance(g) {
 export function trimPositions(store, { maxKeys = 6, maxEntries = 3000 } = {}) {
   const keys = Object.keys(store || {}).filter((k) => store[k] && typeof store[k] === "object").sort((a, b) => (store[b].t || 0) - (store[a].t || 0)).slice(0, maxKeys);
   const out = {};
+  const set = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
   let left = maxEntries;
   for (const k of keys) {
     if (left <= 0) break;
@@ -225,10 +235,10 @@ export function trimPositions(store, { maxKeys = 6, maxEntries = 3000 } = {}) {
     for (const [id, xy] of Object.entries(store[k].p || {})) {
       if (left <= 0) break;
       if (!Array.isArray(xy) || !isFinite(xy[0]) || !isFinite(xy[1])) continue;
-      p[id] = [Math.round(xy[0]), Math.round(xy[1])];
+      set(p, id, [Math.round(xy[0]), Math.round(xy[1])]);
       left--;
     }
-    out[k] = { t: store[k].t || 0, p };
+    set(out, k, { t: store[k].t || 0, p });
   }
   return out;
 }

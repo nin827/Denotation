@@ -16,6 +16,7 @@ export function blocksToMarkdown(blocks, ctx = {}) {
   const inl = (s) => replaceTokens(s ?? "", (n) => n.kind === "img" ? `![${(n.args[3] || "").replace(/[\[\]]/g, "")}](${n.args[0].startsWith("data:") ? "embedded-image" : n.args[0]})` : ctx.inline?.(n) ?? tokenFallback(n));
   const chunks = [];
   for (const b of blocks) {
+    if (!b || typeof b !== "object") continue;
     let text;
     let list = false;
     const kids = hasChildren(b) && b.type !== "columns" ? blocksToMarkdown(b.children, ctx) : "";
@@ -23,7 +24,7 @@ export function blocksToMarkdown(blocks, ctx = {}) {
 ${indentLines(kids, 2)}` : head;
     switch (b.type) {
       case "p":
-        text = withKids(inl(b.text));
+        text = withKids(inl(String(b.text ?? "").split("\n").map(escapeMarker).join("\n")));
         break;
       case "h1":
       case "h2":
@@ -100,7 +101,20 @@ const splitRow = (line) => {
   const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/);
   return cells.map((c) => c.trim().replace(/\\\|/g, "|"));
 };
-const isTableSep = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line ?? "");
+// split on "|" and test each cell: the single big regex backtracked quadratically on long whitespace runs
+const isTableSep = (line) => {
+  let t = String(line ?? "").trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|")) t = t.slice(0, -1);
+  return t !== "" && t.split("|").every((c) => /^:?-{3,}:?$/.test(c.trim()));
+};
+// a line whose text would import as something other than a paragraph; exported with a leading backslash, removed again on import
+const startsBlock = (l) => /^(#{1,4}\s|(?:[-*+]|\d{1,3}\.)\s|>|```|(?:---+|\*\*\*+|___+)\s*$)/.test(l);
+const escapeMarker = (l) => {
+  const t = l.trim();
+  return startsBlock(t.replace(/^\\+/, "")) && t ? `\\${t}` : l;
+};
+const unescapeMarker = (t) => /^\\/.test(t) && startsBlock(t.replace(/^\\+/, "")) ? t.slice(1) : t;
 export function markdownToBlocks(md) {
   const lines = String(md).replace(/\r\n?/g, "\n").split("\n");
   const root = [];
@@ -126,7 +140,7 @@ export function markdownToBlocks(md) {
       push(newBlock("code", { text: body.join("\n"), lang: m[1] || "plain" }));
       continue;
     }
-    if (m = /^(#{1,4})\s+(.*)$/.exec(line)) {
+    if (m = /^(#{1,4})\s+([^\n]*)$/.exec(line)) {
       push(newBlock(`h${m[1].length}`, { text: m[2].trim() }));
       continue;
     }
@@ -138,7 +152,7 @@ export function markdownToBlocks(md) {
       const rows = [splitRow(line)];
       i += 1;
       while (i + 1 < lines.length && lines[i + 1].includes("|") && lines[i + 1].trim()) rows.push(splitRow(lines[++i]));
-      const width = Math.max(...rows.map((r) => r.length));
+      const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
       const t = newBlock("table", { rows: rows.length, cols: width });
       t.cells = rows.map((r) => Array.from({ length: width }, (_, j) => r[j] ?? ""));
       if (t.cells.length > 1 && t.cells[0].every((c) => !c)) {
@@ -154,7 +168,7 @@ export function markdownToBlocks(md) {
       push(newBlock("quote", { text: body.join("\n") }));
       continue;
     }
-    if (m = /^(\s*)(?:[-*+]|(\d{1,3})\.)\s+(.*)$/.exec(line)) {
+    if (m = /^(\s*)(?:[-*+]|(\d{1,3})\.)\s+([^\n]*)$/.exec(line)) {
       const indent = m[1].replace(/\t/g, "    ").length;
       const body = m[3];
       const todo = /^\[( |x|X)\]\s+(.*)$/.exec(body);
@@ -166,7 +180,7 @@ export function markdownToBlocks(md) {
       push(newBlock("image", { caption: m[1], src: m[2] }));
       continue;
     }
-    push(newBlock("p", { text: line.trim() }));
+    push(newBlock("p", { text: unescapeMarker(line.trim()) }));
   }
   return normalizeBlocks(root);
 }

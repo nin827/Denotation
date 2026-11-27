@@ -362,6 +362,9 @@ export function parseEmbed(token) {
   return ids.length >= 1 && ids.length <= EMBED_MAX_BLOCKS && ids.every(isTokenId) ? { pageId, mode, ids } : null;
 }
 /** Stable identity of an embedded unit (what is shown), used for loop detection and as a render-stack key. */
+/** Nested embeds deeper than this, or more than EMBED_MAX_EXPANSIONS in one export / render, are omitted (an embed fan-out is exponential). */
+export const EMBED_MAX_DEPTH = 5;
+export const EMBED_MAX_EXPANSIONS = 2000;
 export const embedKey = (e) => (e.mode === "h" ? `${e.pageId}|h|${e.id}` : `${e.pageId}|b|${e.ids.join(",")}`);
 const err = (code, message, extra = {}) => ({ code, message, ...extra });
 function resolveWith(get, e) {
@@ -518,6 +521,7 @@ const safeTitle = (t) => String(t ?? "").replace(/[[\]{}`\\\r\n]/g, "").trim() |
  */
 export function exportInline(pages, ctx = {}, opts = {}) {
   const get = pageGetter(pages);
+  let expansions = 0; // shared by every nested level: embeds that fan out (each page embedding the next twice) stay bounded
   const wiki = opts.style === "wiki" || typeof ctx.pageLink !== "function";
   const make = (stack) => (n) => {
     if (n.kind === "link" || n.kind === "xlink") {
@@ -536,6 +540,7 @@ export function exportInline(pages, ctx = {}, opts = {}) {
       }
       const key = embedKey(e);
       if (stack.includes(key)) return "(recursive embed omitted)";
+      if (stack.length >= EMBED_MAX_DEPTH || ++expansions > EMBED_MAX_EXPANSIONS) return "(embed omitted)";
       return blocksToMarkdown(r.blocks, { ...ctx, inline: make([...stack, key]) });
     }
     return ctx.inline?.(n) ?? null;

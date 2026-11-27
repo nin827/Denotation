@@ -20,12 +20,20 @@ export const COLORS = Object.freeze({
 
 export const SIZE = Object.freeze({ min: 4, max: 22, fixed: 6, perLink: 1.6 });
 
-const lc = (v) => String(v ?? "").toLowerCase();
+// String() throws on objects whose toString is not callable (JSON imports); such values read as empty
+const safeStr = (v) => {
+  try {
+    return String(v ?? "");
+  } catch {
+    return "";
+  }
+};
+const lc = (v) => safeStr(v).toLowerCase();
 const isEmpty = (v) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
 
 /** Reads the value a condition looks at. `ctx.degree` is the node's visible link count. */
 function fieldValue(node, c, ctx) {
-  if (c.prop != null) return node?.props?.[c.prop];
+  if (c.prop != null) return node?.props && Object.hasOwn(node.props, c.prop) ? node.props[c.prop] : undefined;
   switch (c.field) {
     case "type": return node?.kind || "page";
     case "repo": return node?.repo;
@@ -46,7 +54,7 @@ function cmp1(v, op, want) {
       if (isNaN(a) || isNaN(b)) return false;
       return op === "gt" ? a > b : op === "gte" ? a >= b : op === "lt" ? a < b : a <= b;
     }
-    case "in": return (Array.isArray(want) ? want : String(want ?? "").split(",")).some((w) => lc(w).trim() === lc(v));
+    case "in": return (Array.isArray(want) ? want : safeStr(want).split(",")).some((w) => lc(w).trim() === lc(v));
     default: return false;
   }
 }
@@ -87,7 +95,7 @@ export function normColor(v) {
 }
 
 const normSize = (v) => {
-  const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[x×]$/i, ""));
+  const n = typeof v === "number" ? v : parseFloat(safeStr(v).replace(/[x×]$/i, ""));
   return isFinite(n) && n > 0 ? Math.max(0.25, Math.min(6, n)) : null;
 };
 

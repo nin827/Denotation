@@ -225,6 +225,24 @@ function compare(a, b) {
   if (typeof a === "string") return a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
   return Number(a) - Number(b);
 }
+// * and ? wildcards by two-pointer matching (a RegExp with many * backtracks exponentially)
+function globMatch(p, s) {
+  let i = 0, j = 0, star = -1, mark = 0;
+  while (j < s.length) {
+    if (i < p.length && (p[i] === "?" || p[i] === s[j])) {
+      i++;
+      j++;
+    } else if (i < p.length && p[i] === "*") {
+      star = i++;
+      mark = j;
+    } else if (star >= 0) {
+      i = star + 1;
+      j = ++mark;
+    } else return false;
+  }
+  while (p[i] === "*") i++;
+  return i === p.length;
+}
 function criteria(c) {
   if (typeof c !== "string") return (v) => compare(v, c) === 0 && typeof v === typeof c;
   const m = /^(<=|>=|<>|=|<|>)?(.*)$/s.exec(c);
@@ -232,8 +250,8 @@ function criteria(c) {
   const raw = m[2];
   const val = raw.trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : raw;
   if (typeof val === "string" && /[*?]/.test(val) && op === "=") {
-    const re = new RegExp(`^${val.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "i");
-    return (v) => re.test(toStr(v));
+    const pat = val.toLowerCase();
+    return (v) => globMatch(pat, toStr(v).toLowerCase());
   }
   return (v) => {
     if (typeof val === "number" && typeof v !== "number") return op === "<>";
@@ -277,11 +295,11 @@ export const FUNCTIONS = {
   },
   MIN: (...a) => {
     const n = numsStrict(a);
-    return n.length ? Math.min(...n) : 0;
+    return n.length ? n.reduce((x, y) => Math.min(x, y), Infinity) : 0;
   },
   MAX: (...a) => {
     const n = numsStrict(a);
-    return n.length ? Math.max(...n) : 0;
+    return n.length ? n.reduce((x, y) => Math.max(x, y), -Infinity) : 0;
   },
   COUNT: (...a) => nums(a).length,
   COUNTA: (...a) => flat(a).filter((v) => !isBlank(v)).length,
@@ -407,7 +425,9 @@ export const FUNCTIONS = {
   REPT: (s, n) => {
     const k = toNum(n);
     if (k < 0 || k > 1e3) throw err("#VALUE!");
-    return toStr(s).repeat(k);
+    const str = toStr(s);
+    if (str.length * k > 1e6) throw err("#VALUE!", "result too long"); // nested REPT multiplies
+    return str.repeat(k);
   },
   EXACT: (a, b) => toStr(a) === toStr(b),
   VALUE: (s) => toNum(s),
@@ -498,7 +518,7 @@ function evalNode(n, ctx) {
     }
     case "key": {
       const o = evalNode(n.a, ctx);
-      if (o && typeof o === "object" && !Array.isArray(o) && n.key in o) return o[n.key];
+      if (o && typeof o === "object" && !Array.isArray(o) && Object.hasOwn(o, n.key)) return o[n.key];
       throw err("#REF!", n.key);
     }
     case "neg":

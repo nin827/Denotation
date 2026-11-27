@@ -9,6 +9,10 @@ Fixes from the fuzz tests:
   permissions apply at any depth and fail closed.
 - One corrupt record no longer stops the workspace loading; corrupt or oversized ZIP entries fail cleanly; key files
   with absurd iteration counts are refused; search tolerates malformed properties.
+- No more slow-downs on unmatched `*`, `_`, `**` or unterminated `{{img:`; emphasis inside inline tokens or code spans
+  no longer breaks them; paragraphs starting with `#`, `-`, `1.` or `>` survive a Markdown round trip; embeds that
+  fan out are capped (5 levels, 2000 expansions); odd imported blocks, graph rules and sizes no longer crash; formula
+  hardening (own-key access, wildcard matching, `REPT` cap, large `MIN`/`MAX`).
 
 First marked version. Highlights:
 - Pages, sub-pages, repositories, blocks, Markdown shortcuts, page properties, templates, callout presets,

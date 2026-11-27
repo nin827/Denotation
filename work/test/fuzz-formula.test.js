@@ -94,7 +94,7 @@ test("formulas cannot reach JavaScript: global names, prototype members and func
   for (const fn of ["TOSTRING", "VALUEOF", "HASOWNPROPERTY", "__PROTO__", "CONSTRUCTOR", "__DEFINEGETTER__", "ISPROTOTYPEOF"]) assert.equal(evalExpression(`${fn}()`).error, "#NAME?", fn);
 });
 
-test("key access on JSON values reads own keys only", { todo: "BUG (low): formula key access uses `n.key in o`, so [J].constructor / [J].__proto__ return inherited members (a function value lands in the cell)" }, () => {
+test("key access on JSON values reads own keys only", () => {
   const rows = [{ id: "r", values: { j: { a: 1 } } }];
   const cols = [{ id: "j", name: "J", type: "json", config: {} }];
   for (const k of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
@@ -103,7 +103,7 @@ test("key access on JSON values reads own keys only", { todo: "BUG (low): formul
   }
 });
 
-test("wildcard criteria are linear-time (no catastrophic regex backtracking)", { todo: "BUG: COUNTIF/SUMIF/AVERAGEIF compile '*' to '.*' in a RegExp; many stars against a long value backtrack exponentially (UI hang from one inline formula)" }, () => {
+test("wildcard criteria are linear-time (no catastrophic regex backtracking)", () => {
   const t0 = performance.now();
   evalExpression(`COUNTIF(REPT("a",${HEAVY ? 34 : 27}),"*a*a*a*a*a*a*a*a*a*a*a*b")`);
   const ms = performance.now() - t0;
@@ -122,7 +122,7 @@ test("wildcard criteria: timing grows with the value length (printed)", () => {
   assert.ok(rows.every(([, ms]) => ms < 5000));
 });
 
-test("nested REPT can't build huge strings cheaply", { todo: "BUG (low): REPT caps one call at 1000 copies but nesting multiplies (REPT(REPT(REPT(\"a\",1000),1000),500) = 500 MB string; UPPER/LEN on it allocate)" }, () => {
+test("nested REPT can't build huge strings cheaply", () => {
   const res = evalExpression('LEN(REPT(REPT(REPT("a",1000),1000),500))');
   assert.ok(!res.ok || res.value <= 1e6, `built a ${res.value}-character string`);
 });

@@ -204,7 +204,7 @@ test("sizes: parse/format/clamp round trip; every CSS value produced is a plain 
   });
 });
 
-test("parseSize: a huge number is not a size of Infinity (pinned)", { todo: "BUG (low): sizes.js round(n) overflows for n > ~1.8e306 (Number.MAX_VALUE from a number constant), so parseSize returns { n: Infinity } instead of null; clampSize hides it" }, () => {
+test("parseSize: a huge number is not a size of Infinity (pinned)", () => {
   const sz = parseSize(Number.MAX_VALUE);
   assert.ok(sz === null || Number.isFinite(sz.n));
 });

@@ -46,12 +46,12 @@ test("parseInline: long ordinary text and thousands of tokens scale linearly", a
   await guard("scanTokens n tokens", S([2000, 4000, 8000], [10000, 20000, 40000]), (n) => scanTokens(Array.from({ length: n }, (_, i) => `{{check:${i % 2}}} a`).join("")));
 });
 
-test("parseInline: unmatched emphasis markers stay linear", { todo: "BUG: parseInline is quadratic on unmatched '_' before word characters and runs of '**a ' (findClose rescans to the end for every opener): ~100 KB of '*a _b ' takes ~8 s, 16k nested '**a ' ~50 s" }, async () => {
+test("parseInline: unmatched emphasis markers stay linear", async () => {
   await guard("parseInline '*a _b ' repeated", [1500, 3000, 6000], (n) => parseInline("*a _b ".repeat(n)), { maxExp: 1.4, reps: 1, attempts: 1 });
   await guard("parseInline '**a ' nested", [500, 1000, 2000], (n) => parseInline("**a ".repeat(n) + "b" + " a**".repeat(n)), { maxExp: 1.4, reps: 1, attempts: 1 });
 });
 
-test("inline: unterminated {{img: openers stay linear", { todo: "BUG: blocks/inline.js readToken scans up to IMG_TOKEN_MAX (300 400 chars) for every '{{img:' that never closes, so scanTokens / parseInline are O(n^2) up to 300 KB: 120 KB of '{{img:https://a' takes ~6 s to scan and ~7 s to render (block text from an import, MCP write or paste freezes the tab)" }, async () => {
+test("inline: unterminated {{img: openers stay linear", async () => {
   await guard("scanTokens n unterminated '{{img:' openers", [700, 1400, 2800], (n) => scanTokens("{{img:https://a".repeat(n)), { maxExp: 1.4, reps: 1, attempts: 1 });
 });
 
@@ -68,12 +68,15 @@ test("markdown: a big page converts both ways linearly", async () => {
   await guard("normalizeBlocks n blocks", S([5000, 10000, 20000], [20000, 40000, 80000]), (n) => normalizeBlocks(page(n)));
 });
 
-test("markdown: a whitespace-heavy line after a '|' line doesn't backtrack quadratically", { todo: "BUG: isTableSep's /^\\s*\\|?\\s*:?-{3,}.../ backtracks O(n^2) on a long whitespace run (20k spaces ~175 ms; a 2 MB import ~minutes; MCP update_page 200 KB ~15 s)" }, async () => {
+test("markdown: a whitespace-heavy line after a '|' line doesn't backtrack quadratically", async () => {
   await guard("markdownToBlocks 'a|b' + n spaces + 'x'", [6000, 12000, 24000], (n) => markdownToBlocks(`a|b\n${" ".repeat(n)}x`), { maxExp: 1.4, reps: 1, attempts: 1 });
 });
 
-test("markdown: huge tables and deep nesting don't overflow the stack", { todo: "BUG: Math.max(...rows) in markdownToBlocks (tables > ~120k rows) and recursion in normalizeBlocks / blocksToMarkdown (> ~4000 levels) throw RangeError" }, () => {
+test("markdown: a huge table doesn't overflow the stack", () => {
   assert.doesNotThrow(() => markdownToBlocks("|a|b|\n|---|---|\n" + "|x|y|\n".repeat(200000)));
+});
+
+test("markdown: deeply nested blocks don't overflow the stack", { todo: "BUG: recursion in normalizeBlocks / blocksToMarkdown throws RangeError beyond ~4000 nesting levels (needs a depth cap; not fixed here)" }, () => {
   let b = { id: "x", type: "p", text: "" };
   for (let i = 0; i < 6000; i++) b = { id: `t${i}`, type: "toggle", text: "", children: [b] };
   assert.doesNotThrow(() => normalizeBlocks([b]));

@@ -97,11 +97,19 @@ export function readToken(s, i) {
     kind = "formula";
     j++;
   }
+  // {{img:…}} fails early once a part can no longer satisfy checkToken, so unterminated openers stay cheap
+  const imgBad = (c) => {
+    const k = parts.length - 1;
+    const v = parts[k];
+    if (k === 0) return v.startsWith("data:") ? !/[A-Za-z0-9+/=:;,]/.test(c) : v.length > 2048;
+    return k > 3 || v.length > (k === 3 ? 200 : 40);
+  };
   while (j < limit) {
     const c = s[j];
     if (c === "\n") return null;
     if (c === "\\" && j + 1 < limit) {
       parts[parts.length - 1] += s[j + 1];
+      if (kind === "img" && imgBad(s[j + 1])) return null;
       j += 2;
       continue;
     }
@@ -123,6 +131,7 @@ export function readToken(s, i) {
       continue;
     }
     parts[parts.length - 1] += c;
+    if (kind === "img" && imgBad(c)) return null;
     j++;
   }
   return null;
@@ -197,13 +206,33 @@ export function replaceNthToken(s, kind, index, token) {
 }
 const DELIMS = [["**", "b"], ["~~", "s"], ["*", "i"], ["_", "i"]];
 const isWord = (ch) => ch !== void 0 && /[A-Za-z0-9]/.test(ch);
-function findClose(s, d, from) {
+// memo[d] = smallest `from` known to have no closer: later scans for the same delimiter fail at once (keeps unmatched openers linear)
+function findClose(s, d, from, memo) {
+  if (from >= (memo[d] ?? Infinity)) return -1;
   for (let j = from; j <= s.length - d.length; j++) {
+    const c = s[j];
+    if ((c === "`" || c === "{") && s[j - 1] !== "\\") {
+      // tokens and code spans are opaque: emphasis markers inside them never close anything
+      if (c === "`") {
+        const e = s.indexOf("`", j + 1);
+        if (e > j + 1) {
+          j = e;
+          continue;
+        }
+      } else {
+        const t = readToken(s, j);
+        if (t) {
+          j = t.end - 1;
+          continue;
+        }
+      }
+    }
     if (!s.startsWith(d, j) || s[j - 1] === "\\") continue;
     if (d === "*" && (s[j + 1] === "*" || s[j - 1] === "*")) continue;
     if (d === "_" && isWord(s[j + d.length])) continue;
     return j;
   }
+  memo[d] = Math.min(memo[d] ?? Infinity, from);
   return -1;
 }
 const SPECIAL_CHARS = "\\`{[*_~"; // every character parseInline treats specially; anything else is plain text
@@ -211,6 +240,7 @@ const NEXT_SPECIAL = /[\\`{[*_~]/g; // lastIndex is set right before each exec, 
 const LINK_AT = /\[([^\]]+)\]\(([^)\s]+)\)/y;
 export function parseInline(s) {
   const out = [];
+  const memo = {};
   let buf = "";
   let i = 0;
   const flush = () => {
@@ -267,7 +297,7 @@ export function parseInline(s) {
     for (const [d, t] of DELIMS) {
       if (!s.startsWith(d, i)) continue;
       if (d === "_" && isWord(s[i - 1])) continue;
-      const j = findClose(s, d, i + d.length);
+      const j = findClose(s, d, i + d.length, memo);
       const inner = j > i + d.length ? s.slice(i + d.length, j) : "";
       if (inner && !/^\s/.test(inner) && !/\s$/.test(inner)) {
         flush();

@@ -126,7 +126,7 @@ test("markdown export of links / embeds never throws, terminates on loops and st
   });
 });
 
-test("embeds: a target page whose stored blocks hold null entries (pinned)", { todo: "BUG: links.js resolveWith uses blocks/model.js find(), which reads b.id / b.children of null entries; an imported or synced page with a null block (blocks are only normalised when opened in the editor) makes resolveEmbed / embedChain / embedCycleFrom / toWikiSyntax / markdown export throw, so the embed chip and the page export fail" }, () => {
+test("embeds: a target page whose stored blocks hold null entries (pinned)", () => {
   const pages = [{ id: "a", title: "A", blocks: [{ id: "e", type: "p", text: "{{embed:b|b|x}}" }] }, { id: "b", title: "B", blocks: [null, { id: "x", type: "p", text: "hi", children: [null] }] }];
   assert.doesNotThrow(() => embedChain(pages, "a"));
   assert.doesNotThrow(() => resolveEmbed(pages, "{{embed:b|b|x}}"));
@@ -134,7 +134,7 @@ test("embeds: a target page whose stored blocks hold null entries (pinned)", { t
   assert.doesNotThrow(() => toWikiSyntax("{{embed:b|b|x}}", pages, makeTitleResolver(pages)));
 });
 
-test("markdown export: embeds that fan out don't blow up exponentially", { todo: "BUG: links.js exportInline re-expands every embed occurrence (only a loop stack, no memo or budget): a chain of pages each embedding the next twice exports 2^depth copies (depth 16 = 330 KB; 3 embeds x 20 pages = hang). ui/linkChips.js embedChip renders the same tree into the DOM" }, async () => {
+test("markdown export: embeds that fan out don't blow up exponentially", async () => {
   const chain = (d, k) => Array.from({ length: d + 1 }, (_, i) => ({ id: `P${i}`, title: `P${i}`, blocks: [{ id: "b", type: "p", text: i < d ? Array(k).fill(`{{embed:P${i + 1}|b|b}}`).join(" ") : "leaf" }] }));
   const rows = [];
   for (const d of [8, 10, 12, 14]) {
@@ -266,20 +266,20 @@ test("graph rules / appearance / positions: hostile input is cleaned to bounded 
   assertNoPollution(before, "graph cleaning");
 });
 
-test("graph rules from a JSON import with a 'toString' key in a value don't crash cleaning or styling (pinned)", { todo: "BUG (low): cleanGraphRules / cleanAppearance call Number(size) and String(...) and graph/style.js normSize / lc call String() on raw values; a JSON value like {\"toString\":\"x\"} throws TypeError (repo.graphRules / page.graph are used uncleaned when imported, so the graph view fails)" }, () => {
+test("graph rules from a JSON import with a 'toString' key in a value don't crash cleaning or styling (pinned)", () => {
   const bad = JSON.parse('{"toString":"x","valueOf":1}');
   assert.doesNotThrow(() => cleanGraphRules([{ when: { field: "type", op: "is", value: "page" }, size: bad }]));
   assert.doesNotThrow(() => cleanAppearance({ size: bad, icon: bad }));
   assert.doesNotThrow(() => resolveStyle({ kind: "page" }, [{ when: { field: "type", op: "is", value: bad }, size: bad }]));
 });
 
-test("trimPositions: a graph or node key named __proto__ stays data (pinned)", { todo: "BUG (low): trimPositions writes out[k] / p[id] on plain objects, so a stored key '__proto__' replaces the result's prototype and the entry is lost (no global pollution)" }, () => {
+test("trimPositions: a graph or node key named __proto__ stays data (pinned)", () => {
   const t = trimPositions(JSON.parse('{"__proto__":{"t":5,"p":{"a":[1,2]}},"g":{"t":1,"p":{"__proto__":[3,4]}}}'));
   assert.equal(Object.getPrototypeOf(t), Object.prototype);
   assert.equal(Object.getPrototypeOf(t.g.p), Object.prototype);
 });
 
-test("graph rules on a property named like an Object member match only real properties (pinned)", { todo: "BUG (low): graph/style.js fieldValue reads node.props[c.prop] without an own-property check and graphNodes' propValues assigns props by name, so a rule on 'constructor' / 'toString' matches every node and a property named '__proto__' is swallowed" }, () => {
+test("graph rules on a property named like an Object member match only real properties (pinned)", () => {
   const [node] = graphNodes([{ id: "a", type: "doc", title: "A", props: [{ id: "x", name: "__proto__", type: "text", value: "v" }] }]);
   assert.equal(matches(node, { prop: "constructor", op: "notEmpty" }), false);
   assert.equal(matches(node, { prop: "toString", op: "contains", value: "native" }), false);

@@ -46,7 +46,7 @@ test("markdown: md -> blocks -> md is idempotent after one normalisation (random
   });
 });
 
-test("markdown: hostile text is idempotent after one normalisation too", { todo: "BUG (low): blocksToMarkdown doesn't escape block markers ('>', '#', '- ', '1. ') at the start of paragraph text and markdownToBlocks trims indentation, so md -> blocks -> md changes block types on the second pass" }, async () => {
+test("markdown: hostile text is idempotent after one normalisation too", async () => {
   await fuzz("md-idempotent-hostile", 800, (r) => {
     const md0 = Array.from({ length: r.int(1, 12) }, () => r.pick(["", "# ", "- ", "  - ", "1. ", "> ", "- [ ] ", "| ", "    "]) + (r.chance(0.5) ? r.pick(MARKUP) : r.nasty(2))).join("\n");
     const md1 = blocksToMarkdown(markdownToBlocks(md0));
@@ -65,14 +65,14 @@ test("markdown: plain paragraph text survives (no silent data loss for ordinary 
   });
 });
 
-test("markdown: a paragraph that starts with a block marker stays a paragraph (pinned)", { todo: "BUG (low): '> x' / '# x' / '1. x' paragraph text becomes a quote / heading / list after export + import" }, () => {
+test("markdown: a paragraph that starts with a block marker stays a paragraph (pinned)", () => {
   for (const text of ["> not a quote", "# not a heading", "1. not a list", "- not a bullet", "---"]) {
     const back = markdownToBlocks(blocksToMarkdown([newBlock("p", { text })]));
     assert.deepEqual(back.map((b) => [b.type, b.text]), [["p", text]], text);
   }
 });
 
-test("markdown: list items and headings whose text holds U+2028/U+2029 keep their type (pinned)", { todo: "BUG (low): markdownToBlocks list/heading regexes use (.*)$ and '.' stops at U+2028/U+2029, so '1. a\u2028' imports as a paragraph" }, () => {
+test("markdown: list items and headings whose text holds U+2028/U+2029 keep their type (pinned)", () => {
   for (const [md, type] of [["1. a\u2028b", "numbered"], ["- a\u2029", "bullet"], ["## a\u2028", "h2"]]) {
     assert.equal(markdownToBlocks(md)[0].type, type, JSON.stringify(md));
   }
@@ -143,7 +143,7 @@ test("inline tokens: the renderer (parseInline) sees every token scanTokens sees
   });
 });
 
-test("inline tokens: emphasis markers inside a token don't close emphasis opened before it (pinned)", { todo: "BUG (medium-low): blocks/inline.js findClose doesn't skip {{…}} tokens or code spans, so '*note {{= 2*3}} x' renders the formula as broken text ('note {{= 2' in italics) while scanTokens / search / extractLinks still see the token; same for '_' in token args ('x _y {{value:db|a_ b|c}}', ids like a_)" }, () => {
+test("inline tokens: emphasis markers inside a token don't close emphasis opened before it (pinned)", () => {
   for (const s of ["*note: {{= 2*3}} and more", "x _y {{value:db|a_ b|c}}", "~~a {{= \"~~\"}}", "*a `b*` c*"]) {
     const flat = (ns) => ns.flatMap((x) => [x, ...flat(x.children ?? [])]);
     const nodes = flat(parseInline(s));
@@ -245,7 +245,7 @@ test("typespec: garbage type text returns { ok: false } and never throws", async
   });
 });
 
-test("typespec: deeply nested type text returns { ok: false } instead of throwing RangeError", { todo: "BUG: parseType only catches its own errors; 'Array[' x 20000 throws RangeError (stack overflow) to the caller (specOf in views/filters)" }, () => {
+test("typespec: deeply nested type text returns { ok: false } instead of throwing RangeError", () => {
   const text = "Array[".repeat(20000) + "int" + "]".repeat(20000);
   assert.doesNotThrow(() => parseType(text));
 });

@@ -5,7 +5,7 @@ import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
 import { renderInline } from "./inlineView.js";
 import { isTokenId } from "../blocks/inline.js";
-import { parseEmbed, embedKey, resolveEmbed, embedCycleFrom, embedPlainText, EMBED_MAX_BLOCKS } from "../links.js";
+import { parseEmbed, embedKey, resolveEmbed, embedCycleFrom, embedPlainText, EMBED_MAX_BLOCKS, EMBED_MAX_DEPTH, EMBED_MAX_EXPANSIONS } from "../links.js";
 
 const miss = (label, title) => h("span", { class: "ichip ichip-miss", title }, ico("info"), h("span", {}, label));
 /** Every page with blocks the chip may read (live pages only: trashed or archived targets read as missing). */
@@ -77,9 +77,12 @@ export function embedChip(n, ctx) {
     const names = loop.pageIds.map((id) => titleOf(pages.find((p) => p.id === id)));
     return warnBox(`Recursive embed not shown: ${names.join(" › ")}`, page);
   }
+  // one budget per outermost embed, shared by everything nested inside it
+  const budget = stack.length && ctx?.embedBudget ? ctx.embedBudget : { n: 0 };
+  if (stack.length >= EMBED_MAX_DEPTH || ++budget.n > EMBED_MAX_EXPANSIONS) return warnBox("Nested embed not shown: too much embedded content", page);
   const r = resolveEmbed(pages, n);
   if (!r.ok && !r.blocks.length) return warnBox(r.error?.message || "Embedded content unavailable", page);
-  const sub = { ...ctx, embedStack: [...stack, key], locked: true };
+  const sub = { ...ctx, embedStack: [...stack, key], embedBudget: budget, locked: true };
   const shown = r.blocks.slice(0, EMBED_MAX_BLOCKS);
   const more = r.blocks.length - shown.length;
   const label = e.mode === "h" ? `${titleOf(page)} › ${String(r.blocks[0]?.text ?? "").replace(/[*_`~]/g, "").trim() || "Heading"}` : titleOf(page);

@@ -10,6 +10,15 @@ const DELIMS = [["**", "b"], ["~~", "s"], ["*", "i"], ["_", "i"]];
 const isWord = (ch) => ch !== void 0 && /[A-Za-z0-9]/.test(ch);
 function findClose(s, d, from) {
   for (let j = from; j <= s.length - d.length; j++) {
+    const c = s[j];
+    if (c === "`" && s[j - 1] !== "\\") {
+      const e = s.indexOf("`", j + 1);
+      if (e > j + 1) { j = e; continue; }
+    }
+    if (c === "{" && s[j - 1] !== "\\") {
+      const tk = inl.readToken(s, j);
+      if (tk) { j = tk.end - 1; continue; }
+    }
     if (!s.startsWith(d, j) || s[j - 1] === "\\") continue;
     if (d === "*" && (s[j + 1] === "*" || s[j - 1] === "*")) continue;
     if (d === "_" && isWord(s[j + d.length])) continue;

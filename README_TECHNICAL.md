@@ -30,6 +30,13 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
   guarded against parent loops; permissions fail closed.
 - The local adapter skips and logs corrupt records. ZIP inflation stops at each entry's declared size. Key files must
   use 1,000–10,000,000 PBKDF2 iterations. CSV export prefixes `'` to text cells starting with `= + - @`, tab or CR.
+- Inline parsing is linear: `{{img:…}}` scans fail early once a part can't be valid, and `findClose` skips `{{…}}`
+  tokens and code spans and remembers that a delimiter has no closer. Embeds nest at most 5 deep and expand at most
+  2000 times per export or outermost chip (`EMBED_MAX_DEPTH`, `EMBED_MAX_EXPANSIONS` in `links.js`).
+- Formula `*`/`?` criteria use a non-backtracking matcher, `REPT` results are capped at 1e6 characters, and key access
+  reads own keys only. `parseType` returns a parse error for very deeply nested type text. Graph rules and positions
+  treat names like `__proto__` and `constructor` as data. Markdown export escapes plain lines that would import as
+  another block type; the importer removes the escape.
 
 ### Fuzz tests
 

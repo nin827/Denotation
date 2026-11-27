@@ -14,11 +14,11 @@ const NUM_RE = /^(\d{1,5}(?:\.\d{1,3})?|\.\d{1,3})\s*(px|em|rem)?$/i;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,39}$/;
 const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
 const norm = (s) => String(s ?? "").trim().toLowerCase();
-const round = (n) => Math.round(n * 100) / 100;
+const round = (n) => Math.round(n * 100) / 100; // Infinity for n near Number.MAX_VALUE: callers reject non-finite results
 
 /** { n, unit } from "320", "320px", "20 em", "1.5rem" or a finite number (px); null when it is not a size. */
 export function parseSize(input) {
-  if (typeof input === "number") return Number.isFinite(input) && input > 0 ? { n: round(input), unit: "px" } : null;
+  if (typeof input === "number") return Number.isFinite(input) && input > 0 && Number.isFinite(round(input)) ? { n: round(input), unit: "px" } : null;
   if (typeof input !== "string") return null;
   const m = NUM_RE.exec(input.trim());
   if (!m) return null;

@@ -203,7 +203,7 @@ test("normalizeBlocks: arbitrary JSON-ish block lists never throw and come back 
   });
 });
 
-test("normalizeBlocks: a columns / column block with non-array children (pinned)", { todo: "BUG: normalizeBlocks throws TypeError '(b.children || []).filter is not a function' for columns.children = {} / \"x\", and 'b.children.push is not a function' for column.children = \"\" / 0 / false" }, () => {
+test("normalizeBlocks: a columns / column block with non-array children (pinned)", () => {
   for (const children of [{}, "x", 5, true]) assert.doesNotThrow(() => normalizeBlocks([{ id: "a", type: "columns", children }]), JSON.stringify(children));
   for (const children of ["", 0, false]) assert.doesNotThrow(() => normalizeBlocks([{ id: "a", type: "column", children }]), JSON.stringify(children));
 });
