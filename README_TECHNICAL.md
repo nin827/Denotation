@@ -20,6 +20,27 @@ node work/test/e2e/bigdata.cjs  # large-data check (5000-row windowed table/shee
 
 `npm` is only used as a script runner. There are no dependencies to install.
 
+### Fuzz tests
+
+`work/test/fuzz-*.test.js` are seeded, reproducible fuzz tests (part of `npm test`, a few seconds each). Shared helpers
+are in `work/test/fixtures/fuzz.js` (in-house PRNG, payload lists, growth/timing helpers).
+
+- Security: XSS payloads through inline tokens, links, props, markdown, CSV and vault paths; prototype pollution through
+  prefs, permissions, sync manifests, typespec, JSON import, terms and graph rules; MCP path / symlink / permission
+  checks; ZIP slip, bombs and corrupt entries; crypto envelope tampering; OAuth state / nonce / replay.
+- Stability: round trips (markdown, CSV, inline tokens, wiki syntax, typespec, sizes), random workspace operation
+  sequences (tree, Trash/Archive, link index vs a full rescan), sync convergence and tombstones, formula engine.
+- Performance: growth checks (time ratio vs input ratio) with printed timings; superlinear cases fail.
+
+A failure prints `[fuzz <name> seed=… case=… (FUZZ_SEED=…)]`; replay with `FUZZ_SEED=<n> node --test <file>`. Env:
+`FUZZ_SEED` (base seed), `FUZZ_RUNS` (case multiplier), `FUZZ_HEAVY=1` (big perf sizes). Known bugs are pinned as
+`{ todo: "BUG: …" }` tests so the suite stays green; remove the todo when fixed.
+
+`node work/test/e2e/fuzz-xss.cjs` (PORT 8096–8099, default 8097) seeds a payload-filled workspace and renders every
+page, row, Trash, Archive, the graph, quick find and term cards. It fails if a payload runs or the DOM gets `on*`
+attributes, script/iframe elements, `javascript:`/`data:text` URLs or injected inline CSS. Known issues print as
+`KNOWN` (`FUZZ_STRICT=1` fails on them).
+
 ### Deploy and PWA
 
 - **Deploy:** `.github/workflows/pages.yml` publishes `source/app/` to GitHub Pages on every push to `main` (and on manual
