@@ -2,6 +2,9 @@
 
 ## 0.1 (2026-11-27)
 
+- Formulas and graphs: `^` binds tighter than unary minus and is right-associative (`-2^2` = -4, `2^3^2` = 512).
+  Formulas that relied on the old reading change value.
+
 - Security: Content-Security-Policy on the app and the redirect page; cloud sign-in tokens are encrypted with the
   PIN (cloud sync pauses while locked); PIN records with an out-of-range iteration count are rejected.
 

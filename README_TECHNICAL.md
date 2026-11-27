@@ -72,6 +72,10 @@ Formula sources use `runFormula` from `ui/inlineChips.js`. Registered by `ui/plu
 
 ### Function graphs
 
+Formula precedence (high to low): primary and postfix `%`; `^` (right-assoc, exponent is a unary expression); unary
+`-`/`+`; `* /`; `+ -`; `&`; comparisons (`parse()` in `formula.js`: `unary -> pow -> postfix`).
+
+
 Block `{type:"plot", fns:[{expr, hue?}], xmin, xmax, ymin?, ymax?, points, grid}` and chip `{{plot:<json>}}` (short keys,
 argument ≤ 1000 characters, `PLOT_TOKEN_MAX` in `inline.js`). `js/plot/plot.js` is pure: `cleanPlot`, `compileExpr`
 (formula engine, `x` via the constant hook, then pi/e/tau and repository constants), `sampleFn` / `refineSamples`

@@ -143,10 +143,18 @@ function parse(src) {
       const a = unary();
       return op === "-" ? { k: "neg", a } : a;
     }
-    return postfix();
+    return pow();
   };
-  const pow = level(["^"], unary);
-  const mul = level(["*", "/"], pow);
+  // ^ binds tighter than unary minus (-2^2 = -4) and is right-associative (2^3^2 = 512); the exponent may carry a sign (2^-2)
+  const pow = () => {
+    const a = postfix();
+    if (isOp("^")) {
+      p++;
+      return { k: "bin", op: "^", a, b: unary() };
+    }
+    return a;
+  };
+  const mul = level(["*", "/"], unary);
   const add = level(["+", "-"], mul);
   const cat = level(["&"], add);
   const expr = level(["=", "<>", "<", ">", "<=", ">="], cat);

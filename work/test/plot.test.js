@@ -34,6 +34,13 @@ test("cleanPlot: defaults, swaps, caps, hostile input", () => {
   assert.equal(({}).fns, undefined);
 });
 
+test("compileExpr: -x^2 is a downward parabola, ^ binds tighter than unary minus", () => {
+  assert.equal(compileExpr("-x^2").f(2), -4);
+  assert.equal(compileExpr("-x^2").f(-2), -4);
+  assert.equal(compileExpr("(-x)^2").f(2), 4);
+  assert.equal(compileExpr("2^-x").f(2), 0.25);
+});
+
 test("compileExpr: x, constants, implicit 2x, errors", () => {
   assert.equal(compileExpr("x^2 + 1").f(3), 10);
   assert.equal(compileExpr("2x + 1").f(4), 9);
