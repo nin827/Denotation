@@ -1,7 +1,8 @@
 import { detectShortcut, toggleMarker, scanTokens } from "../blocks/inline.js";
 import {
   isTexty,
-  COLORS,
+  normColor,
+  normBg,
   normalizeBlocks,
   isFoldable,
   numbering,
@@ -41,7 +42,15 @@ const fit = (el) => {
 };
 const listLike = (b) => ["bullet", "numbered", "todo"].includes(b.type);
 const focusable = (b) => isTexty(b) || b.type === "code";
-const classOf = (b) => `${b.color && COLORS.includes(b.color) && b.color !== "default" ? ` col-${b.color}` : ""}${b.bg && COLORS.includes(b.bg) && b.bg !== "default" ? ` bg-${b.bg}` : ""}`;
+const colorOf = (b) => {
+  const c = normColor(b.color);
+  const bg = normBg(b.bg);
+  return { cls: `${c !== null ? " has-color" : ""}${bg !== null ? " has-bg" : ""}${bg === "grey" ? " bg-grey" : ""}`, c, bg };
+};
+const applyHues = (el, { c, bg }) => {
+  if (c !== null) el.style.setProperty("--blk-h", c);
+  if (typeof bg === "number") el.style.setProperty("--blk-bg-h", bg);
+};
 const PLACEHOLDER = { h1: "Heading 1", h2: "Heading 2", h3: "Heading 3", h4: "Heading 4", quote: "Quote", callout: "Type something\u2026", code: "Code", bullet: "List", numbered: "List", todo: "To-do", toggle: "Toggle" };
 const handleIcon = () => h("span", { class: "handle-icon" }, ico("menu"));
 export function createBlockEditor(container, ctx) {
@@ -89,7 +98,9 @@ export function createBlockEditor(container, ctx) {
   inst.renderList = renderList;
   function blockEl(b, parent, nums) {
     const wrap = h("div", { class: "blk-wrap", "data-id": b.id });
-    const row = h("div", { class: `blk-row t-${b.type}${classOf(b)}` });
+    const col = colorOf(b);
+    const row = h("div", { class: `blk-row t-${b.type}${col.cls}` });
+    applyHues(row, col);
     if (!ctx.locked) {
       const handle = h("div", {
         class: "gutter",
@@ -179,6 +190,7 @@ export function createBlockEditor(container, ctx) {
         const a = e.target.closest("a");
         if (a) return;
         e.preventDefault();
+        if (e.button !== 0) return; // right-click: no focus, no edit mode, so the block menu can open
         content.classList.add("editing");
         fit(ta);
         ta.focus();
@@ -803,6 +815,97 @@ export function createBlockEditor(container, ctx) {
     from.inst.redraw();
     save();
     redraw();
+  }
+  wireBlockContextMenu();
+  /**
+   * Right-click, long-press and Shift+F10 / ContextMenu key open the block handle's menu.
+   * Local on purpose: ui/contextMenu.js (bindContextMenu) can replace this later, keeping the same native-menu rules.
+   */
+  function wireBlockContextMenu() {
+    const NATIVE = "input,textarea,select,[contenteditable],a[href]";
+    const LONG_MS = 520;
+    const rowOf = (t) => t?.closest?.(".blk-row");
+    const blockOf = (row) => {
+      const id = row?.closest(".blk-wrap")?.dataset.id;
+      return id ? find(container.blocks, id)?.block ?? null : null;
+    };
+    const selected = () => {
+      try {
+        return !!window.getSelection?.()?.toString().trim();
+      } catch {
+        return false;
+      }
+    };
+    const open = (row, anchor) => {
+      const b = blockOf(row);
+      if (!b || ctx.locked) return false;
+      openBlockMenu(anchor, b, inst, actions);
+      return true;
+    };
+    // native menu stays on text fields, edit mode, links and selected text (the handle always gets the block menu)
+    const native = (t, sel = selected()) => !t.closest(".gutter") && (!!t.closest(NATIVE) || !!t.closest(".blk-content.editing") || sel);
+    let press = null;
+    let swallow = 0;
+    const cancel = () => {
+      clearTimeout(press?.timer);
+      press = null;
+    };
+    root.addEventListener("contextmenu", (e) => {
+      if (e.defaultPrevented) return;
+      const longTouch = press !== null; // the browser's own long-press menu beat our timer
+      cancel();
+      if (longTouch) swallow = Date.now() + 700;
+      const row = rowOf(e.target);
+      // a touch long-press selects a word by itself; that selection is not a reason to keep the native menu
+      if (!row || native(e.target, longTouch ? false : selected()) || !open(row, { x: e.clientX, y: e.clientY })) return;
+      if (longTouch) window.getSelection?.()?.removeAllRanges();
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    root.addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || !(e.key === "ContextMenu" || e.key === "F10" && e.shiftKey)) return;
+      const t = e.target;
+      if (t.closest?.("input,select,[contenteditable]") || t.closest?.("textarea:not(.blk-ta)")) return;
+      const row = rowOf(t);
+      if (!row) return;
+      const r = row.getBoundingClientRect();
+      if (open(row, { x: r.left + 24, y: Math.min(r.bottom, r.top + 28) })) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    root.addEventListener("pointerdown", (e) => {
+      cancel();
+      if (e.pointerType !== "touch" || !e.isPrimary) return;
+      const row = rowOf(e.target);
+      if (!row || e.target.closest(NATIVE) || e.target.closest(".blk-content.editing")) return;
+      const start = { x: e.clientX, y: e.clientY };
+      press = {
+        start,
+        timer: setTimeout(() => {
+          press = null;
+          swallow = Date.now() + 700;
+          if (open(row, start)) {
+            window.getSelection?.()?.removeAllRanges();
+            // cancelling touchend stops the emulated mousedown/click that would close the menu again
+            document.addEventListener("touchend", (ev) => ev.cancelable && ev.preventDefault(), { once: true, capture: true });
+          }
+        }, LONG_MS)
+      };
+    });
+    root.addEventListener("pointermove", (e) => {
+      if (press && Math.hypot(e.clientX - press.start.x, e.clientY - press.start.y) > 8) cancel();
+    });
+    for (const t of ["pointerup", "pointercancel", "scroll"]) root.addEventListener(t, cancel, true);
+    // the click / mousedown that follows a long-press must not start editing
+    for (const t of ["mousedown", "click"]) {
+      root.addEventListener(t, (e) => {
+        if (Date.now() < swallow) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+    }
   }
   redraw();
   return { el: root, root, redraw, focusBlock, container, inst };

@@ -35,7 +35,33 @@ export const isTexty = (b) => TEXTY.has(b.type);
 export const isFoldable = (b) => b.type === "toggle" || isHeading(b) && !!b.fold;
 const canNest = (b) => NESTABLE.has(b.type) || isHeading(b) && !!b.fold;
 export const hasChildren = (b) => (b.children?.length ?? 0) > 0;
-export const COLORS = ["default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"];
+/** The 12 block colour hues (OKLCH degrees) with their menu names. Grey exists only as a background. */
+export const HUES = [
+  [0, "Rose"], [30, "Red"], [60, "Orange"], [90, "Yellow"], [120, "Lime"], [150, "Green"],
+  [180, "Teal"], [210, "Cyan"], [240, "Blue"], [270, "Violet"], [300, "Purple"], [330, "Pink"]
+];
+export const HUE_NAMES = Object.fromEntries(HUES);
+/**
+ * Legacy colour names -> nearest hue. Each legacy swatch hex (light mode) was converted to its OKLCH hue and
+ * snapped to the nearest 30 degree step: brown 44 -> 30, orange 55 -> 60, yellow 79 -> 90, green 157 -> 150,
+ * blue 239 -> 240, purple 308 -> 300, pink 352 -> 0, red 27 -> 30. Legacy "gray" is default text / grey background.
+ */
+export const LEGACY_HUES = { brown: 30, orange: 60, yellow: 90, green: 150, blue: 240, purple: 300, pink: 0, red: 30 };
+const asHue = (v) => {
+  if (typeof v === "string" && /^\d{1,3}$/.test(v)) v = Number(v);
+  return Number.isInteger(v) && v >= 0 && v < 360 && v % 30 === 0 ? v : null;
+};
+/** Text colour: a hue number, or null for default. Accepts legacy names; "gray" and anything invalid is default. */
+export function normColor(v) {
+  const h = asHue(v);
+  if (h !== null) return h;
+  return typeof v === "string" && Object.hasOwn(LEGACY_HUES, v) ? LEGACY_HUES[v] : null;
+}
+/** Background: a hue number, "grey", or null for default. Accepts legacy names; legacy "gray" becomes "grey". */
+export function normBg(v) {
+  if (v === "grey" || v === "gray") return "grey";
+  return normColor(v);
+}
 const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
 export const TABLE_LIMITS = { maxRows: 100, maxCols: 12 };
 export const COLUMN_LIMITS = { min: 2, max: 6 };
@@ -55,7 +81,7 @@ export function newBlock(type = "p", props = {}) {
     case "callout":
       b.text ?? (b.text = "");
       b.icon ?? (b.icon = "icon:lightbulb");
-      b.bg ?? (b.bg = "gray");
+      b.bg ?? (b.bg = "grey");
       break;
     case "code":
       b.text ?? (b.text = "");
@@ -287,6 +313,12 @@ export function normalizeBlocks(blocks) {
         continue;
       }
       if (!b.id) b.id = newId();
+      for (const [k, fn] of [["color", normColor], ["bg", normBg]]) {
+        if (!(k in b)) continue;
+        const v = fn(b[k]);
+        if (v === null) delete b[k];
+        else b[k] = v;
+      }
       if (!BLOCK_TYPES.includes(b.type)) b.type = "p";
       if (TEXTY.has(b.type) || b.type === "code") b.text = typeof b.text === "string" ? b.text : "";
       if (b.type === "pivot") {

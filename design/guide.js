@@ -1,4 +1,5 @@
 // Live style guide. Applies prefs exactly like public/js/ui/appearance.js applyPrefs (mode, accent, font).
+import { HUES } from "../public/js/blocks/model.js";
 import { ico } from "../public/js/icons/index.js";
 import { MODES, FONTS, ACCENT_HUES, resolveMode, resolveAccent, tokens, fontSpec, sanitizePrefs, headingSizes } from "../public/js/prefs.js";
 
@@ -32,6 +33,7 @@ function apply() {
   $("resolved").textContent = state.mode === "variable" ? `now ${m}` : "";
   drawControls();
   drawTokens();
+  drawBlockColors();
 }
 function drawControls() {
   $("c-mode").replaceChildren(...MODES.map((m) => h("button", { type: "button", "aria-pressed": String(state.mode === m), onClick: () => { state.mode = m; apply(); } }, ico(MODE_ICONS[m][1]), MODE_ICONS[m][0])));
@@ -120,3 +122,14 @@ function build() {
 }
 build();
 apply();
+
+function drawBlockColors() {
+  const sample = (label, cls, style) => h("div", { class: `blk-row ${cls}`, style }, h("div", { class: "rendered", style: "padding:4px 8px" }, label));
+  $("blockcolors").replaceChildren(
+    h("div", { class: "cp-grid", role: "group", "aria-label": "Block colours" },
+      ...HUES.map(([deg, name]) => h("span", { class: "cp-sw hue", style: `--h:${deg}`, title: `${name} ${deg}\u00b0` }, h("span", { class: "cp-a" }, "A"))),
+      h("span", { class: "cp-sw grey", title: "Grey (background only)" })),
+    ...HUES.filter((_, i) => i % 3 === 0).map(([deg, name]) => sample(`${name} ${deg}\u00b0: text and background`, "has-color has-bg", `--blk-h:${deg};--blk-bg-h:${deg}`)),
+    sample("Grey background, default text", "has-bg bg-grey")
+  );
+}

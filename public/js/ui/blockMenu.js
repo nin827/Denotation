@@ -1,10 +1,78 @@
-import { isTexty, COLORS, COLUMN_LIMITS } from "../blocks/model.js";
+import { isTexty, HUES, normColor, normBg, COLUMN_LIMITS } from "../blocks/model.js";
+import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
 import { openMenu } from "./popover.js";
 import { CATALOG } from "../blocks/catalog.js";
 
-const swatch = (c, bg) => bg ? `color-mix(in srgb, var(--c-${c}) 30%, var(--bg))` : `var(--c-${c})`;
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
+let pickerClose = null;
+/** Swatch grid (6 per row) for text colour and background; the chosen swatch shows a check, not just a fill. */
+function openColorPicker(anchor, b, a) {
+  pickerClose?.();
+  const curColor = normColor(b.color);
+  const curBg = normBg(b.bg);
+  const sw = (key, value, current, { label, cls = "", glyph }) => {
+    const sel = value === current;
+    return h("button", {
+      type: "button",
+      class: `cp-sw ${cls}${sel ? " sel" : ""}`,
+      style: typeof value === "number" ? `--h:${value}` : null,
+      title: label,
+      "aria-label": label,
+      "aria-pressed": String(sel),
+      onClick: () => {
+        close();
+        a.setColor(b, key, value === null ? "default" : value);
+      }
+    }, sel ? ico("check") : h("span", { class: "cp-a" }, glyph ?? ""));
+  };
+  const hueLabel = ([deg, name]) => `${name} ${deg}\u00b0`;
+  const el = h("div", { class: "color-pop", role: "dialog", "aria-label": "Block color" },
+    h("div", { class: "cp-title" }, "Text color"),
+    h("div", { class: "cp-grid", role: "group", "aria-label": "Text color" },
+      sw("color", null, curColor, { label: "Default text", glyph: "A" }),
+      ...HUES.map((hu) => sw("color", hu[0], curColor, { label: hueLabel(hu), cls: "hue fg", glyph: "A" }))),
+    h("div", { class: "cp-title" }, "Background"),
+    h("div", { class: "cp-grid", role: "group", "aria-label": "Background color" },
+      sw("bg", null, curBg, { label: "Default background" }),
+      ...HUES.map((hu) => sw("bg", hu[0], curBg, { label: hueLabel(hu), cls: "hue" })),
+      sw("bg", "grey", curBg, { label: "Grey", cls: "grey" })));
+  const onKey = (e) => {
+    const btns = [...el.querySelectorAll("button")];
+    const i = btns.indexOf(document.activeElement);
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 6, ArrowUp: -6 }[e.key];
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    } else if (step) {
+      e.preventDefault();
+      e.stopPropagation();
+      btns[Math.min(btns.length - 1, Math.max(0, (i < 0 ? 0 : i + step)))].focus();
+    }
+  };
+  const onDown = (e) => {
+    if (!el.contains(e.target)) close();
+  };
+  function close() {
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("mousedown", onDown, true);
+    el.remove();
+    if (pickerClose === close) pickerClose = null;
+  }
+  pickerClose = close;
+  document.body.append(el);
+  const r = anchor instanceof Element ? anchor.getBoundingClientRect() : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const left = Math.max(8, Math.min(r.left, vw - el.offsetWidth - 8));
+  const top = Math.max(8, Math.min(r.bottom + 4, vh - el.offsetHeight - 8));
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("mousedown", onDown, true);
+  (el.querySelector("button[aria-pressed=true]") ?? el.querySelector("button")).focus();
+  return { close, el };
+}
 export function openBlockMenu(anchor, b, inst, a) {
   const { ctx } = inst;
   const texty = isTexty(b);
@@ -17,16 +85,7 @@ export function openBlockMenu(anchor, b, inst, a) {
     });
   }
   if (texty) {
-    items.push({
-      label: "Color",
-      icon: ico("palette"),
-      items: [
-        { header: true, label: "Text color" },
-        ...COLORS.map((c) => ({ label: cap(c), swatch: c === "default" ? "var(--text)" : swatch(c), onSelect: () => a.setColor(b, "color", c) })),
-        { header: true, label: "Background" },
-        ...COLORS.map((c) => ({ label: cap(c), swatch: c === "default" ? "var(--bg)" : swatch(c, true), onSelect: () => a.setColor(b, "bg", c) }))
-      ]
-    });
+    items.push({ label: "Color", icon: ico("palette"), hint: "Text, background", onSelect: () => openColorPicker(anchor, b, a) });
   }
   if (/^h[1-4]$/.test(b.type)) {
     items.push({ label: b.fold ? "Make not foldable" : "Make foldable (toggle heading)", icon: ico("chevron-right"), onSelect: () => a.setFold(b, !b.fold) });

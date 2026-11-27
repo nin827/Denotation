@@ -41,6 +41,19 @@ No presets, no custom background/text colours.
 
 `--c-*` are the label/option colours (chips, select options, favourite star). `color-scheme` follows the mode.
 
+## Block colours
+
+Block text and background use 12 OKLCH hues (0 to 330 in 30 steps: Rose, Red, Orange, Yellow, Lime, Green, Teal, Cyan, Blue, Violet, Purple, Pink), plus **grey as a background only**. Stored as `block.color = <hue>` and `block.bg = <hue> | "grey"`; `normColor` / `normBg` in `blocks/model.js` map legacy names (red, blue, ...) to the nearest hue.
+CSS sets `--blk-h` (text) and `--blk-bg-h` (background) inline on the block row, with `.has-color`, `.has-bg`, `.bg-grey`. Per-mode lightness/chroma tokens: `--blk-fg` (text L C), `--blk-tint` (background L C), `--blk-grey`.
+
+| Mode | Text `L C` | Background `L C` | Grey bg | Worst text on page | Worst text on any tint | Default text on tint |
+|---|---|---|---|---|---|---|
+| Neutral | .40 .13 | .84 .05 | L .83 | 5.9 | 4.8 | 9.0 |
+| Light | .48 .14 | .94 .04 | L .94 | 5.6 | 4.6 | 9.0 |
+| Dark | .78 .12 | .32 .05 | L .32 | 8.5 | 5.9 | 9.0 |
+
+Menu: `.color-pop` with two `.cp-grid` (6 per row; swatch 32px, 40px on coarse pointers), `.cp-sw` buttons labelled by hue name and degrees ("Red 30°"; names are plain words for people, degrees disambiguate). The selected swatch shows a check icon, `aria-pressed` is set, never colour alone.
+
 ## Accent
 
 24 OKLCH hues (0 to 345 in 15 steps, chroma 0.16) plus grey, set as `--accent-h` / `--accent-c` on `<html>`; CSS derives the rest.

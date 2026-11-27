@@ -138,13 +138,13 @@ Trashing a page also hides the pages inside it. Deleting a database row from its
 
 A page is a stack of **blocks**: paragraphs, headings, lists and so on. Click anywhere in a block to write in it. Each block has a **handle** (three lines) on its left that appears when you hover. Hovering is not needed on touch screens.
 
-- **Click the handle** for the block menu.
+- **Click the handle** for the block menu, or right-click the block (long-press on a touch screen, Shift+F10 / the Menu key while it's focused). While you're editing text, on links or on selected text, right-click still shows your browser's own menu.
 - **Drag the handle** to move the block, even into a column or another position in a list.
 
 The block menu has:
 
 - **Turn into**: change the type of the block.
-- **Color**: set a text colour or a background colour (gray, brown, orange, yellow, green, blue, purple, pink, red).
+- **Color**: a text colour (Default or one of 12 hues) and a background (Default, 12 hues or Grey). Grey is background only. The current choice shows a check mark, and colours adapt to light, neutral and dark mode. Older pages keep their look as closely as possible: old colour names map to the nearest hue, and old grey text becomes default.
 - **Make foldable** on headings (turns it into a toggle heading).
 - **Column count** on a columns block.
 - **Duplicate**, **Copy**, **Cut**, **Paste below**, **Move up**, **Move down**.
