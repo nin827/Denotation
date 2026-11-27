@@ -2,6 +2,8 @@
 
 ## 0.1 (2026-11-27)
 
+- Math, graph and chart editors open next to their chip on desktop (bottom sheet on phones).
+
 - Formulas and graphs: `^` binds tighter than unary minus and is right-associative (`-2^2` = -4, `2^3^2` = 512).
   Formulas that relied on the old reading change value.
 

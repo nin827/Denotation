@@ -1,0 +1,11 @@
+/* Anchored editor popover (js/ui/anchoredEditor.js). Phones get the shared bottom-sheet .modal instead. */
+.aed {
+  position: fixed; z-index: 45; box-sizing: border-box; display: flex; flex-direction: column; max-width: calc(100vw - 16px);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-float);
+  padding: 14px 16px 12px; overscroll-behavior: contain; animation: pop-in .11s ease-out; outline: none;
+}
+.aed-title { margin: 0 0 10px; font-size: var(--fs-ui); flex: none; }
+.aed-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.aed-actions { flex: none; margin-top: 10px; }
+.aed .modal-error:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .aed { animation: none; } }

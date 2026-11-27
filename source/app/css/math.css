@@ -16,7 +16,6 @@
 .math-display .katex-display { margin: 0; }
 
 /* editor */
-.modal:has(.math-ed) { width: min(640px, 100%); }
 .math-ta { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 16px; resize: vertical; min-height: 4.5em; }
 .math-preview { min-height: 3.2em; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; }
 .math-preview.is-display { justify-content: center; }
@@ -34,7 +33,5 @@
 
 /* phones: the editor is a sheet from the bottom */
 @media (max-width: 599px) {
-  .modal-overlay:has(.math-ed) { place-items: end center; padding: 0; }
-  .modal:has(.math-ed) { width: 100%; max-height: 92%; border-radius: var(--r-lg) var(--r-lg) 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   .math-pal-btn { min-height: 40px; min-width: 40px; }
 }

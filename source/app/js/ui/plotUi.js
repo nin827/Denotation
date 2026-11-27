@@ -4,7 +4,7 @@
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { setBlockMenu } from "./blockExtras.js";
-import { openModal } from "./modal.js";
+import { openAnchoredEditor } from "./anchoredEditor.js";
 import { CONSTANTS_EVENT } from "./inlineChips.js";
 import { constantResolver, findRepo } from "../constants.js";
 import {
@@ -133,7 +133,7 @@ export function plotBody(b, inst, a) {
     return true;
   };
   const edit = () => openPlotEditor({
-    spec: b, ctx: inst.ctx, title: "Edit function graph",
+    spec: b, ctx: inst.ctx, title: "Edit function graph", anchor: wrap,
     onSave: (spec) => {
       apply(spec);
       a.save();
@@ -191,7 +191,7 @@ export function plotChip(n, ctx) {
 export function plotChipAction(el, ctx, apply) {
   const spec = plotFromArg(el.dataset.plot ?? "") ?? cleanPlot({});
   openPlotEditor({
-    spec, ctx, title: "Edit inline graph",
+    spec, ctx, title: "Edit inline graph", anchor: el,
     onSave: (next) => {
       const token = plotToken(next);
       if (token) apply(token);
@@ -221,10 +221,10 @@ export function pickPlot(ctx, { onPick, onCancel } = {}, spec) {
 const fmt = (n) => (n === undefined || n === null ? "" : String(Number(Number(n).toPrecision(12))));
 
 /**
- * The dedicated editor (a modal: a bottom sheet on phones). Works on a copy; Esc, a click outside or Done saves
+ * The dedicated editor (a popover next to its anchor on desktop, a bottom sheet on phones). Works on a copy; Esc, a click outside or Done saves
  * through onSave(spec) when something changed, Cancel leaves the graph as it was.
  */
-export function openPlotEditor({ spec, ctx, title, onSave, onClose, always = false }) {
+export function openPlotEditor({ spec, ctx, title, onSave, onClose, always = false, anchor }) {
   const start = cleanPlot(spec);
   const st = {
     fns: start.fns.map((f) => ({ expr: f.expr, hue: f.hue })),
@@ -405,7 +405,8 @@ export function openPlotEditor({ spec, ctx, title, onSave, onClose, always = fal
     const next = readState().spec;
     if (always || !same(next, start)) onSave(next);
   };
-  const modal = openModal({
+  const modal = openAnchoredEditor({
+    anchor, width: 780,
     title,
     content: body,
     actions: [{ label: "Cancel", run: () => { cancelled = true; } }, { label: "Done", class: "primary" }],

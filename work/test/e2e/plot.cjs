@@ -84,9 +84,22 @@ async function run(browser, { phone = false } = {}) {
     await page.waitForFunction(() => document.querySelectorAll(".pe-preview .plot-point").length === 1);
     await shot("editor");
     if (!(await noHScroll())) throw new Error("horizontal scroll with the editor open");
-    const box = await page.locator(".modal").boundingBox();
+    const box = await page.locator(".modal, .aed").boundingBox();
     const vw = await page.evaluate(() => window.innerWidth);
     return box.x >= -1 && box.x + box.width <= vw + 1;
+  });
+  if (!phone) await check("desktop: the editor is a popover beside the graph, not centred", async () => {
+    const ed = await page.locator(".aed").boundingBox();
+    const hit = await page.locator(".plot-hit").first().boundingBox();
+    const near = Math.abs(ed.y - (hit.y + hit.height)) < 20 || Math.abs(ed.y + ed.height - hit.y) < 20 || (ed.y < hit.y + hit.height && ed.y + ed.height > hit.y);
+    const role = await page.locator(".aed").getAttribute("role");
+    const label = await page.locator(".aed").evaluate((el) => el.getAttribute("aria-label") || document.getElementById(el.getAttribute("aria-labelledby"))?.textContent);
+    await shot("popover");
+    return near && Math.abs(ed.x - hit.x) < 400 && role === "dialog" && !!label && (await page.locator(".modal-overlay").count()) === 0;
+  });
+  if (phone) await check("phone: the editor is a bottom sheet", async () => {
+    const r = await page.locator(".modal").boundingBox();
+    return r.y + r.height >= 840 && r.width >= 389 && (await page.locator(".aed").count()) === 0;
   });
   await check("a bad range shows an inline error and keeps the last good graph", async () => {
     await page.locator('input[aria-label="x min"]').fill("5");

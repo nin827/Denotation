@@ -61,6 +61,12 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
 - `content-visibility: auto` on `.blk-wrap` was measured (`work/test/e2e/blockperf.cjs`) and rejected: slower first
   paint, clipped block handle, wrong TOC jump distance.
 
+### Editors for math, graphs and charts
+
+They open as a popover anchored to the chip or block on desktop (`ui/anchoredEditor.js`, `css/anchored.css`) and as a
+bottom sheet on phones (≤600px, or touch with a viewport ≤820px). Esc or a click outside saves, Cancel restores; the
+editor closes when its anchor scrolls out of view or the page changes (`CLOSE_EVENT`).
+
 ### Inline charts
 
 Chip `{{chart:<json>}}` (≤ 4000 characters, `CHART_TOKEN_MAX`) and block `chart` share one spec: `k` kind (spark, bar,

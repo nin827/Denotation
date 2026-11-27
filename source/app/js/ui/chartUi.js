@@ -2,7 +2,7 @@
 // SVG is built with createElementNS and text only goes in as text nodes / attributes; nothing here uses innerHTML.
 import { h, debounce } from "./dom.js";
 import { ico } from "../icons/index.js";
-import { openModal } from "./modal.js";
+import { openAnchoredEditor } from "./anchoredEditor.js";
 import { evalExpression } from "../formula.js";
 import { sourceList, sourceLabel, isTableSourceId, findTableSource } from "../sources.js";
 import * as chips from "./inlineChips.js";
@@ -220,7 +220,7 @@ const errLine = (msg) => h("div", { class: "chart-ed-err", role: "status" }, ico
  * The dedicated chart editor (a dialog; a bottom sheet on phones). Live preview, inline errors, and Esc / clicking outside
  * saves (a new chart is only inserted once something changed); Cancel discards. onSave(spec) gets the cleaned spec.
  */
-export function openChartEditor({ spec, ctx, block = false, isNew = false, onSave, onCancel }) {
+export function openChartEditor({ spec, ctx, block = false, isNew = false, onSave, onCancel, anchor }) {
   const start = cleanSpec(spec, { block });
   const startJson = JSON.stringify(start);
   const st = {
@@ -396,14 +396,13 @@ export function openChartEditor({ spec, ctx, block = false, isNew = false, onSav
     if (isNew) return edited ? onSave?.(sp) : onCancel?.();
     if (JSON.stringify(sp) !== startJson) onSave?.(sp);
   };
-  const modal = openModal({
+  const modal = openAnchoredEditor({
+    anchor, width: 540,
     title: isNew ? (block ? "New chart" : "New inline chart") : block ? "Edit chart" : "Edit inline chart",
     content: body,
     actions: [{ label: "Cancel", run: () => { cancelled = true; } }, { label: isNew ? "Insert" : "Done", class: "primary", run: () => { edited = true; } }],
     onClose: finish
   });
-  body.closest(".modal")?.classList.add("chart-ed-modal");
-  body.closest(".modal-overlay")?.classList.add("chart-ed-overlay");
   requestAnimationFrame(() => body.querySelector(".chart-radio.on")?.focus());
   return modal;
 }

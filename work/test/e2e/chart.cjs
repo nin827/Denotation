@@ -279,13 +279,29 @@ async function run(browser, { phone = false } = {}) {
   });
   await page.waitForSelector(".ichip-chart svg");
   await check("no horizontal page scroll", noXScroll);
+  if (!phone) await check("desktop: the editor is a popover next to the chip, not centred; Esc closes it", async () => {
+    await dismissToasts();
+    const chip = page.locator(".ichip-chart").first();
+    const cb = await chip.boundingBox();
+    await chip.click();
+    await page.waitForSelector(".aed .chart-ed");
+    await page.waitForTimeout(300);
+    const ed = await page.locator(".aed").boundingBox();
+    const vw = await page.evaluate(() => window.innerWidth);
+    const label = await page.locator(".aed").evaluate((el) => el.getAttribute("aria-label") || document.getElementById(el.getAttribute("aria-labelledby"))?.textContent);
+    const ok = (Math.abs(ed.y - (cb.y + cb.height)) < 24 || Math.abs(ed.y + ed.height - cb.y) < 24) && ed.x >= 0 && ed.x + ed.width <= vw && !!label && (await noXScroll()) && (await page.locator(".modal-overlay").count()) === 0;
+    await shot("popover");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".aed", { state: "detached" });
+    return ok;
+  });
   if (phone) {
     await check("phone: the editor is a bottom sheet that fits the screen", async () => {
       await dismissToasts();
       await page.locator(".ichip-chart").first().tap();
       await page.waitForSelector(".chart-ed");
       await page.waitForTimeout(400); // the dialog pops in
-      const r = await page.locator(".chart-ed-modal").evaluate((el) => {
+      const r = await page.locator(".modal:has(.chart-ed)").evaluate((el) => {
         const b = el.getBoundingClientRect();
         return { w: b.width, bottom: b.bottom, vh: window.innerHeight, sw: document.documentElement.scrollWidth, fs: getComputedStyle(el.querySelector("input,select,textarea")).fontSize };
       });

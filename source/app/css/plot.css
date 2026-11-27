@@ -35,7 +35,6 @@
 .ichip-plot .plot-frame { stroke: var(--border); }
 
 /* editor */
-.modal:has(.plot-edit) { width: min(820px, 100%); }
 .plot-edit { display: grid; gap: 12px; }
 .pe-preview { min-width: 0; }
 .pe-form { min-width: 0; }

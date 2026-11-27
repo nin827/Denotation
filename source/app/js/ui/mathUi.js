@@ -2,7 +2,7 @@
 // symbol palette). KaTeX loads lazily through ../math/katex.js; pure token helpers are in ../math/latex.js.
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
-import { openModal } from "./modal.js";
+import { openAnchoredEditor } from "./anchoredEditor.js";
 import { toast } from "./dialogs.js";
 import { setBlockMenu } from "./blockExtras.js";
 import { renderLatexInto, checkLatex, ensureMathStyles } from "../math/katex.js";
@@ -63,7 +63,7 @@ export async function paintMath(el, latex, display) {
  * The dedicated editor. Esc, a click outside and "Done" save; "Cancel" restores. onSave(latex) runs once, only when the
  * source changed (an empty source is passed on as "" so the caller can remove the chip or leave the block empty).
  */
-export function openMathEditor({ latex = "", display = false, onSave, onClose }) {
+export function openMathEditor({ latex = "", display = false, onSave, onClose, anchor }) {
   ensureMathStyles();
   const max = display ? MAX_BLOCK_LATEX : MAX_INLINE_LATEX;
   const start = latex;
@@ -109,7 +109,8 @@ export function openMathEditor({ latex = "", display = false, onSave, onClose })
     }, label)))
   )));
   const body = h("div", { class: "math-ed" }, ta, preview, error, h("details", { class: "math-pal-wrap", open: matchMedia?.("(min-width: 600px)").matches ?? true }, h("summary", {}, "Symbols"), palette));
-  const modal = openModal({
+  const modal = openAnchoredEditor({
+    anchor, width: 560,
     title: display ? "Math block" : "Inline math",
     content: body,
     actions: [{ label: "Cancel", run: () => { cancelled = true; } }, { label: "Done", class: "primary" }],
@@ -165,6 +166,7 @@ export function mathBody(b, inst, a) {
     openMathEditor({
       latex: b.text, display: true,
       onSave: (latex) => { b.text = latex; a.save(); },
+      anchor: wrap,
       onClose: () => { draw(); wrap.querySelector("button")?.focus(); }
     });
   }

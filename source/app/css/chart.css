@@ -40,7 +40,6 @@ button.ichip-chart:focus-visible { outline: 2px solid var(--accent); outline-off
 .chart-cap { color: var(--muted); font-size: var(--fs-ui); font-variant-numeric: tabular-nums; margin-top: 4px; }
 
 /* editor (a dialog on desktop, a bottom sheet on phones) */
-@media (min-width: 601px) { .chart-ed-modal { width: min(560px, 100%); } }   /* phones: the shared bottom-sheet dialog rules apply */
 .chart-ed { display: grid; gap: var(--sp-12); }
 .chart-ed-group { display: grid; gap: var(--sp-6); }
 .chart-ed-h { font-size: var(--fs-md); color: var(--muted); font-weight: 600; }

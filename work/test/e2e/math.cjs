@@ -190,6 +190,21 @@ async function run(browser, { phone = false } = {}) {
     await page.waitForSelector(".math-block .katex-display");
     return noHScroll();
   });
+  if (!phone) await check("desktop: the editor is a popover next to the block, Esc saves, Cancel restores", async () => {
+    const blk = page.locator(".math-block-btn").first();
+    const bb = await blk.boundingBox();
+    await blk.click();
+    await editor.waitFor();
+    await page.waitForTimeout(300);
+    const ed = await page.locator(".aed").boundingBox();
+    const role = await page.locator(".aed").getAttribute("role");
+    const near = Math.abs(ed.y - (bb.y + bb.height)) < 24 || Math.abs(ed.y + ed.height - bb.y) < 24;
+    await shot("popover");
+    const ok = near && role === "dialog" && (await noHScroll()) && (await page.locator(".modal-overlay").count()) === 0;
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".aed", { state: "detached" });
+    return ok;
+  });
   if (phone) await check("the editor is a bottom sheet on phones", async () => {
     await page.locator(".math-block-btn").first().click();
     await editor.waitFor();
