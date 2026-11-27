@@ -52,7 +52,7 @@ import { validPage, validRow, MANIFEST } from "../vault.js";
 import { PERMISSIONS_FILE } from "../permissions.js";
 import { syncPermissions, loadLocalPermissions } from "./folderPermissions.js";
 import { planSync, applyPlan, summarize, conflictCount, keyOf, stamp, isNoop, TOMBSTONE_TTL_MS, manifestStamp, sameStamp, bumpManifest } from "../sync.js";
-import { createLocationRegistry, asProvider, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId } from "./locations.js";
+import { createLocationRegistry, asProvider, sameCloudFolder, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId } from "./locations.js";
 import { KEYS_FILE, isEnvelope, encryptText, decryptText, sanitizeKeyFile, encFields, manifestEncrypted } from "../crypto.js";
 
 export { encFields, manifestEncrypted };
@@ -784,7 +784,7 @@ export function createFolderAdapter(cache, {
   // ---------- locations ----------
   const sameHandle = async (a, b) => {
     if (!a || !b) return false;
-    if (a === b) return true;
+    if (a === b || sameCloudFolder(a, b)) return true;
     try {
       return typeof a.isSameEntry === "function" ? await a.isSameEntry(b) : false;
     } catch {
@@ -828,14 +828,14 @@ export function createFolderAdapter(cache, {
     persist();
     notify();
   }
-  /** Auto checks every pollMs (30 s) while visible, each at most once per cooldown window. */
+  /** Auto checks every pollMs (30 s) while visible, each at most once per cooldown window. A location in "error" is retried with a full sync. */
   const ensurePoll = () => {
     if (pollTimer || !pollMs) return;
     pollTimer = setInterval(() => {
       const l = main();
-      if (!l || l.state !== "synced" || mode !== "auto" || running || hidden() || paused()) return;
+      if (!l || l.state !== "synced" && l.state !== "error" || mode !== "auto" || running || hidden() || paused()) return;
       if (clock() - Math.max(lastSyncEnd, lastCheckEnd) < Math.max(cooldownMs, pollMs * 0.9)) return;
-      autoCheck().catch(() => {});
+      (l.state === "error" ? runSync("merge", { quiet: true }) : autoCheck()).catch(() => {});
     }, Math.max(10, Math.floor(Math.min(pollMs, Math.max(cooldownMs, 1)) / 3)));
     pollTimer.unref?.();
   };

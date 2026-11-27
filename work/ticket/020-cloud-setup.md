@@ -22,9 +22,11 @@ IDs in `public/js/config.js` under `oauth`.
 - Whether work/school accounts support the OneDrive app folder.
 
 ## Follow-ups
-- `folder.js`: after an "error" state the 30 s poll stops until the next edit or reconnect; retry "error" locations on
-  the next poll (cloud errors are more common).
-- Adding the same cloud folder twice is refused by name only.
+- ~~`folder.js`: after an "error" state the 30 s poll stops until the next edit or reconnect; retry "error" locations on
+  the next poll (cloud errors are more common).~~ Done: auto mode retries an "error" main with a quiet merge on the next poll.
+- ~~Adding the same cloud folder twice is refused by name only.~~ Done: `sameCloudFolder` (provider, folder name, Drive
+  space, account) is checked in `addLoc` and in the redirect sign-in path; the folder is looked up by name, so that is
+  the cloud folder identity.
 - Tokens in IndexedDB are not encrypted with the PIN key.
 - Optional CSP `<meta>` (GitHub Pages can't set headers): `default-src 'self'; script-src 'self'; connect-src 'self'
   https://www.googleapis.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com

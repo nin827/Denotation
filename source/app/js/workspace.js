@@ -13,6 +13,7 @@ import { formatResult } from "./formula.js";
 import { toText } from "./dbviews.js";
 import { createWorkspaceLinks } from "./graph/workspaceLinks.js";
 import { termsOf } from "./terms.js";
+import { constantById, formatConstant, statusById } from "./constants.js";
 
 // id -> page index per pages array, so isTrashed / ancestors over a whole list stay O(n) instead of rebuilding the map per call.
 // Holds references, so in-place edits (trashedAt, parentId) are seen; a changed length drops it.
@@ -532,14 +533,19 @@ export function createWorkspace(store) {
       for (let q = p, n = 0; q && n <= byId.size; q = byId.get(q.parentId), n++) if (q.type === "repo") return q;
       return null;
     };
-    const termResolver = (repo) => {
-      const list = termsOf(repo);
-      if (!list.length) return undefined;
-      return (n) => {
-        if (n.kind !== "term") return undefined;
-        const t = list.find((x) => x.id === n.args[0]);
+    // chips are searched as the text they show: terms (text + definition), constant values, status labels, page titles
+    const termResolver = (repo) => (n) => {
+      if (n.kind === "term") {
+        const t = termsOf(repo).find((x) => x.id === n.args[0]);
         return t ? `${t.text} ${t.definition ?? ""}` : undefined;
-      };
+      }
+      if (n.kind === "const") {
+        const c = constantById(repo, n.args[0]);
+        return c ? formatConstant(c) : undefined;
+      }
+      if (n.kind === "status") return statusById(repo, n.args[0])?.label;
+      if (n.kind === "page") return byId.get(n.args[0])?.title || undefined;
+      return undefined;
     };
     const hits = [];
     for (const p of live) {

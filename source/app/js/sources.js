@@ -4,7 +4,7 @@
 //  - A database marked `page.dataSource === true` is a data source. Pickers list those first.
 //  - A `/table` block marked `block.dataSource === true` with a `block.sourceName` is a read-only table source. Its
 //    virtual database id is `tbl-<blockId>` (short enough for the 64-character inline token id limit).
-import { walk } from "./blocks/model.js";
+import { walk, tableColIds } from "./blocks/model.js";
 import { isHidden, isTrashed } from "./workspace.js";
 
 export const TABLE_PREFIX = "tbl-";
@@ -29,18 +29,19 @@ export const isTableSource = (block) => block?.type === "table" && block.dataSou
 
 /**
  * Columns and rows of a table block: the first row holds the column names (blank names become "Column N", repeated
- * names get " 2", " 3"). Column ids are `c0`, `c1`... by position; row ids are `r1`, `r2`... Every column is text.
+ * names get " 2", " 3"). Column ids are the block's stable `colIds` (`c0`, `c1`... by position until a column is inserted or deleted); row ids are `r1`, `r2`... Every column is text.
  * keyIndex is the key column position (default 0, clamped into range).
  */
 export function tableData(block) {
   const cells = Array.isArray(block?.cells) && Array.isArray(block.cells[0]) ? block.cells : [[""]];
   const seen = new Map();
+  const colIds = tableColIds({ cells, colIds: block?.colIds });
   const columns = cells[0].map((raw, i) => {
     let name = String(raw ?? "").trim() || `Column ${i + 1}`;
     const n = (seen.get(name.toLowerCase()) ?? 0) + 1;
     seen.set(name.toLowerCase(), n);
     if (n > 1) name = `${name} ${n}`;
-    return { id: `c${i}`, name, type: "text", config: {} };
+    return { id: colIds[i], name, type: "text", config: {} };
   });
   const rows = cells.slice(1).map((r, i) => ({
     id: `r${i + 1}`,

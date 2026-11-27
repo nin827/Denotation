@@ -140,10 +140,11 @@ function crumbTrail(env, page, row) {
   if (row) chain.push({ id: row.id, title: row.title, icon: row.icon, isRow: true });
   return chain;
 }
-const exportMarkdown = async (env, title, blocks, props = null) => {
+const exportMarkdown = async (env, pageId, title, blocks, props = null) => {
   const live = () => env.pages().filter((p) => p.type !== "sync" && !isHidden(env.pages(), p));
   const lookup = {
     ws: env.ws,
+    pageId, // constants and statuses resolve through this page's repository
     livePages: live,
     pageInfo: (id) => {
       const p = env.pages().find((x) => x.id === id);
@@ -440,7 +441,7 @@ function pageMenuItems(env, target, opts) {
         await env.refresh();
         env.leave([target.id]);
       } } : null,
-      target.blocks ? { label: "Export as Markdown", icon: ico("file-down"), onSelect: () => exportMarkdown(env, opts.titleValue, target.blocks || [], target.props) } : null
+      target.blocks ? { label: "Export as Markdown", icon: ico("file-down"), onSelect: () => exportMarkdown(env, target.id, opts.titleValue, target.blocks || [], target.props) } : null
     ].filter(Boolean);
   }
   const pick = async (key) => {
@@ -533,7 +534,7 @@ function pageMenuItems(env, target, opts) {
     }
   }
   if (target.blocks || isRow) {
-    items.push({ label: "Export as Markdown", icon: ico("file-down"), onSelect: () => exportMarkdown(env, opts.titleValue, target.blocks || [], isRow ? null : target.props) });
+    items.push({ label: "Export as Markdown", icon: ico("file-down"), onSelect: () => exportMarkdown(env, isRow ? target.dbId : target.id, opts.titleValue, target.blocks || [], isRow ? null : target.props) });
   }
   if (!isRow && target.type !== "repo" && target.type !== "sync") items.push({ label: "Archive", icon: ico("archive"), onSelect: async () => {
     if (await archiveWithConfirm(env, target)) env.leave([target.id]);

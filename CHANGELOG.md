@@ -2,6 +2,12 @@
 
 ## 0.1 (2026-11-27)
 
+- Search finds constant values, status labels, page-chip titles and term text. Markdown export resolves constants and
+  statuses correctly, also from row pages. Changing a constant refreshes its databases' formulas in the background.
+- Sheet group label rows stay visible when scrolling; freezing no longer freezes extra columns when a group is collapsed.
+- Chips pointing at a table column keep working when other columns are inserted or deleted.
+- Sync: a location in the error state is retried automatically; adding the same cloud folder twice is refused.
+
 Added: inline charts (sparkline, mini bar, pie, progress) and a chart block, fed by numbers, a database column or a
 formula, updating live, with an editor.
 

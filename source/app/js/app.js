@@ -236,9 +236,7 @@ async function route() {
   closePopovers(); // a menu left open must not outlive the page it was opened on
   const target = parseHash();
   const known = target?.kind === "page" && pages.find((p) => p.id === target.id && p.type !== "sync");
-  if (known) {
-    currentId = known.id;
-    drawSidebar();
+  if (known) { // the sidebar is drawn once, after the page list reloads
     mainEl.classList.add("loading");
   }
   await persistence.flush();

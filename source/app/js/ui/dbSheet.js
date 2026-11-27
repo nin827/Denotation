@@ -20,7 +20,7 @@ import { toast } from "./dialogs.js";
 import { bindContextMenu } from "./contextMenu.js";
 import { bindRowMenu } from "./dbMenus.js";
 import { rowHeightAttrs } from "../sizes.js";
-import { frozenClass, wrapClass, displayClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
+import { stackHeadRows, frozenClass, wrapClass, displayClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
 import { windowedRows } from "./bigLists.js";
 
 const sel = new Map();
@@ -382,6 +382,7 @@ export function renderSheet(a) {
     h("tfoot", {}, footer)
   );
   table.prepend(h("colgroup", {}, h("col", { style: `width:${RN}px` }), cg, h("col", { style: "width:40px" })));
+  stackHeadRows(table);
   root.append(
     h("div", { class: "tbl-scroll" }, table),
     h("button", { class: "add-row sheet-add", onClick: async () => {

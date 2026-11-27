@@ -409,7 +409,22 @@ export const clampWidth = (px) => Math.min(COL_WIDTH.max, Math.max(COL_WIDTH.min
 export const STUB_WIDTH = 104;
 export const colWidth = (view, col) => col?.stub ? STUB_WIDTH : resolveDisplay(view, col) === "hide" ? HIDE_WIDTH : clampWidth(view.widths?.[col.id] ?? COL_WIDTH.def);
 export const isWrapped = (view, col) => resolveDisplay(view, col) === "wrap";
-export const freezeCount = (view, cols) => Math.max(0, Math.min(Number(view.freeze) || 0, cols.length));
+/**
+ * How many of the shown `cols` are frozen. `view.freeze` counts real columns, so a collapsed-group stub (which stands for
+ * `count` columns) is frozen only when all the columns it hides fall inside that count: collapsing never freezes extras.
+ */
+export function freezeCount(view, cols) {
+  const want = Math.max(0, Number(view.freeze) || 0);
+  let real = 0;
+  let n = 0;
+  for (const c of cols) {
+    const span = c?.stub ? Math.max(1, c.count || 1) : 1;
+    if (real + span > want) break;
+    real += span;
+    n++;
+  }
+  return n;
+}
 export function freezeOffsets(view, cols, lead = 0) {
   const n = freezeCount(view, cols);
   const out = [];

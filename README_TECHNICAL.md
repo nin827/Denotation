@@ -29,6 +29,20 @@ escaping doubles backslashes) and block `{type:"math", text}` (≤ 4000). `js/ma
 `strict:"ignore"`, `maxSize:20`, `maxExpand:200`; output is built by KaTeX DOM calls, never `innerHTML`. UI in
 `ui/mathUi.js`, registered by `ui/plugins/math.js`. Tests: `work/test/math.test.js`, `work/test/e2e/math.cjs`.
 
+### Follow-ups (ticket 016, 020)
+
+- Cloud folder identity: provider, folder name (case-insensitive), Drive space and account (`sameCloudFolder` in
+  `adapters/locations.js`); `addLoc` and the redirect sign-in refuse a duplicate. In auto mode the 30 s poll retries a
+  main in the "error" state with a quiet merge.
+- Table blocks get `colIds` (stable column ids for data-source chips) and `colSeq` (never reused) on the first column
+  insert, delete or shrink; before that ids are positional `c0…`. `tableColIds(block)` returns them.
+- `formulaRefresh.js`: after a repository's constants change, `refreshFormulaCaches` recomputes its databases' formula
+  caches at idle time in chunks of 200 rows, so the MCP server sees fresh values. A newer change cancels the run.
+- `view.freeze` counts real columns; `freezeCount` maps it onto shown columns including collapsed-group stubs. Sheet
+  header rows stack sticky (`stackHeadRows`).
+- `content-visibility: auto` on `.blk-wrap` was measured (`work/test/e2e/blockperf.cjs`) and rejected: slower first
+  paint, clipped block handle, wrong TOC jump distance.
+
 ### Inline charts
 
 Chip `{{chart:<json>}}` (≤ 4000 characters, `CHART_TOKEN_MAX`) and block `chart` share one spec: `k` kind (spark, bar,

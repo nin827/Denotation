@@ -302,10 +302,36 @@ export function plainText(blocks, resolve = null) {
   });
   return lines.filter(Boolean).join("\n");
 }
+/**
+ * Stable column ids of a table block, used by data-source chips. A block starts with the positional ids `c0`, `c1`...
+ * (nothing stored); the first column insert or delete writes them to `colIds` (with a never-reused counter `colSeq`),
+ * so a chip that refers to `c3` keeps pointing at the same column afterwards.
+ */
+const COL_ID = /^[A-Za-z0-9_-]{1,32}$/;
+const validColIds = (ids, n) => Array.isArray(ids) && ids.length === n && ids.every((x) => typeof x === "string" && COL_ID.test(x)) && new Set(ids).size === n;
+export const tableColIds = (b) => {
+  const n = b?.cells?.[0]?.length ?? 1;
+  return validColIds(b?.colIds, n) ? b.colIds : Array.from({ length: n }, (_, i) => `c${i}`);
+};
+const nextColNum = (b, ids) => ids.reduce((m, id) => /^c\d+$/.test(id) ? Math.max(m, Number(id.slice(1)) + 1) : m, Math.max(ids.length, Number.isInteger(b.colSeq) ? b.colSeq : 0));
+/** Store `ids` on the block, keeping the counter ahead of every id ever used. */
+function setColIds(b, ids, seq) {
+  b.colIds = ids;
+  b.colSeq = Math.max(seq, nextColNum(b, ids));
+}
 export function tableResize(b, rows, cols) {
   const r = clampInt(rows, 1, TABLE_LIMITS.maxRows);
   const c = clampInt(cols, 1, TABLE_LIMITS.maxCols);
+  const before = b.cells[0].length;
+  const ids = tableColIds(b).slice();
+  const seq = nextColNum(b, ids);
   b.cells = Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_2, j) => b.cells[i]?.[j] ?? ""));
+  if (c < before || b.colIds) {
+    ids.length = Math.min(ids.length, c);
+    let next = seq;
+    while (ids.length < c) ids.push(`c${next++}`);
+    setColIds(b, ids, next);
+  }
   for (const [key, n] of [["colWidths", c], ["rowHeights", r]]) {
     const list = normSizeList(b[key], n, key === "colWidths" ? SIZE_RANGES.column : SIZE_RANGES.row);
     if (list) b[key] = list;
@@ -334,7 +360,11 @@ export function tableInsertCol(b, at) {
   const n = b.cells[0].length;
   if (n >= TABLE_LIMITS.maxCols) return false;
   const i = Math.min(n, Math.max(0, Math.round(Number(at) || 0)));
+  const ids = tableColIds(b).slice();
+  const seq = nextColNum(b, ids);
+  ids.splice(i, 0, `c${seq}`);
   for (const row of b.cells) row.splice(i, 0, "");
+  setColIds(b, ids, seq + 1);
   if (Array.isArray(b.colWidths)) b.colWidths.splice(i, 0, null);
   if (Number.isInteger(b.sourceKey) && b.sourceKey >= i) b.sourceKey += 1;
   cleanTable(b);
@@ -343,7 +373,11 @@ export function tableInsertCol(b, at) {
 /** Delete column `c`; the last remaining column cannot be deleted (returns false). */
 export function tableDeleteCol(b, c) {
   if (b.cells[0].length <= 1 || c < 0 || c >= b.cells[0].length) return false;
+  const ids = tableColIds(b).slice();
+  const seq = nextColNum(b, ids);
+  ids.splice(c, 1);
   for (const row of b.cells) row.splice(c, 1);
+  setColIds(b, ids, seq);
   if (Array.isArray(b.colWidths)) b.colWidths.splice(c, 1);
   if (Number.isInteger(b.sourceKey)) {
     if (b.sourceKey === c) delete b.sourceKey;
@@ -357,6 +391,10 @@ export function cleanTable(b) {
   b.headerRow = !!(b.headerRow ?? b.header);
   delete b.header;
   b.headerCol = !!b.headerCol;
+  if (!validColIds(b.colIds, b.cells[0].length)) {
+    delete b.colIds;
+    delete b.colSeq;
+  } else b.colSeq = nextColNum(b, b.colIds);
   for (const [key, n, range] of [["colWidths", b.cells[0].length, SIZE_RANGES.column], ["rowHeights", b.cells.length, SIZE_RANGES.row]]) {
     const list = normSizeList(b[key], n, range);
     if (list) b[key] = list;

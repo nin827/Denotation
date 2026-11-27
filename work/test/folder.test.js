@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createMemoryAdapter } from "../../source/app/js/adapters/memory.js";
 import { createFolderAdapter, SYNC_COOLDOWN_MS } from "../../source/app/js/adapters/folder.js";
 import { createWorkspace } from "../../source/app/js/workspace.js";
-import { createLocationRegistry, memoryHandles, LOCATIONS_KEY, SYNC_MODE_KEY, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId, PUSH_MINUTES } from "../../source/app/js/adapters/locations.js";
+import { sameCloudFolder, createLocationRegistry, memoryHandles, LOCATIONS_KEY, SYNC_MODE_KEY, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId, PUSH_MINUTES } from "../../source/app/js/adapters/locations.js";
 import { importFiles } from "../../source/app/js/vault.js";
 
 // Minimal stand-in for FileSystemDirectoryHandle / FileSystemFileHandle.
@@ -1293,4 +1293,49 @@ test("setMany that fails part-way (quota) still queues the records it saved, and
   const rows = Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, dbId: "d", createdAt: i, values: {} }));
   await assert.rejects(fs.setMany("rows", rows), /Quota/);
   assert.equal(fs.status().unpushed, 3);
+});
+
+test("auto mode: a location in the error state is retried on the next poll", async () => {
+  const dir = fakeDir("V");
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { mode: "auto", pollMs: 30, cooldownMs: 0, debounceMs: 5 });
+  await fs.connect(dir);
+  const real = { file: dir.getFileHandle, dir: dir.getDirectoryHandle };
+  const down = () => { throw new Error("offline"); };
+  dir.getFileHandle = down;
+  dir.getDirectoryHandle = down;
+  await assert.rejects(fs.syncNow(), /offline/);
+  assert.equal(fs.status().state, "error");
+  assert.match(fs.status().error, /offline/);
+  await tick(100);
+  assert.equal(fs.status().state, "error", "still failing: stays in error");
+  dir.getFileHandle = real.file;
+  dir.getDirectoryHandle = real.dir;
+  await tick(150);
+  assert.equal(fs.status().state, "synced", "the next poll recovered it");
+  await fs.disconnect();
+});
+
+test("sameCloudFolder: provider, folder name, Drive space and account decide", () => {
+  const g = { cloud: "gdrive", folder: "Denotation", space: "drive", account: { id: "u1" } };
+  assert.equal(sameCloudFolder(g, { ...g, tokenKey: "tok:google:other" }), true);
+  assert.equal(sameCloudFolder(g, { ...g, folder: " denotation " }), true);
+  assert.equal(sameCloudFolder(g, { ...g, folder: "Other" }), false);
+  assert.equal(sameCloudFolder(g, { ...g, space: "appdata" }), false);
+  assert.equal(sameCloudFolder(g, { ...g, account: { id: "u2" } }), false);
+  assert.equal(sameCloudFolder(g, { ...g, account: null }), true);
+  assert.equal(sameCloudFolder(g, { cloud: "onedrive", folder: "Denotation", account: { id: "u1" } }), false);
+  assert.equal(sameCloudFolder(g, null), false);
+  assert.equal(sameCloudFolder({}, {}), false);
+});
+
+test("adding the same cloud folder twice is refused even under another name", async () => {
+  const cloud = (dir, handle, name) => ({ ...folderProvider(dir), type: "gdrive", name, handle, permission: async () => "granted" });
+  const h1 = { cloud: "gdrive", folder: "Denotation", space: "drive", account: { id: "u1" }, tokenKey: "tok:google:a" };
+  const fs = createFolderAdapter(createMemoryAdapter(), { pollMs: 0 });
+  await fs.addLocation(cloud(fakeDir("A"), h1, "Google Drive: Denotation"));
+  await assert.rejects(fs.addLocation(cloud(fakeDir("B"), { ...h1, tokenKey: "tok:google:b" }, "Renamed")), /already connected/);
+  await fs.addLocation(cloud(fakeDir("C"), { ...h1, folder: "Second", tokenKey: "tok:google:c" }, "Google Drive: Second"));
+  assert.equal(fs.status().locations.length, 2);
+  await fs.disconnect();
 });

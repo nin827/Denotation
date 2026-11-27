@@ -100,6 +100,15 @@ export async function createStore() { const s = createMemoryAdapter(); const d =
   // ---- sheet: windowed, keyboard navigation reaches far rows
   await tab("sheet");
   await page.waitForSelector(".sheet-table tbody tr:not(.vspacer)");
+  // header rows stack: group label rows are sticky and each sticks below the row above (not all at top:0)
+  await page.waitForTimeout(150);
+  const tops = await page.$$eval(".sheet-table thead tr", (trs) => trs.map((tr) => ({ top: parseFloat(tr.cells[1].style.top), h: tr.offsetHeight, pos: getComputedStyle(tr.cells[1]).position })));
+  if (tops.length < 4) fail(`sheet: expected letters + 2 group rows + header, got ${tops.length} rows`);
+  let acc = 0;
+  tops.forEach((t, i) => {
+    if (t.pos !== "sticky" || Math.abs(t.top - acc) > 1) fail(`sheet header row ${i}: top ${t.top} (expected ${acc}), position ${t.pos}`);
+    acc += t.h;
+  });
   const sheetDrawn = await page.locator(".sheet-table tbody tr").count();
   if (sheetDrawn > 200) fail(`sheet drew ${sheetDrawn} rows`);
   await page.locator('.sheet td[data-r="0"][data-c="0"]').click();

@@ -518,10 +518,13 @@ export function cloudWarning(w) {
  */
 export async function registerLocationFromRedirect({ handles, storage, descriptor, rec, tokenKey, role, name, type, now = Date.now() }) {
   const ts = tokenStore(handles);
-  await ts.put(tokenKey, rec);
-  const { createLocationRegistry } = await locations();
+  const { createLocationRegistry, sameCloudFolder } = await locations();
   const registry = createLocationRegistry({ storage, handles });
   const list = await registry.migrate(now);
+  for (const l of list) {
+    if (l.type === type && sameCloudFolder((await registry.getHandle(l.id).catch(() => null))?.handle, descriptor)) throw new Error(`"${l.name}" is already connected.`);
+  }
+  await ts.put(tokenKey, rec);
   const id = registry.newId();
   await registry.putHandle(id, descriptor);
   const next = list.map((l) => (role === "main" && l.role === "main" ? { ...l, role: "backup" } : l));

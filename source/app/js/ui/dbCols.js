@@ -17,6 +17,19 @@ export function cellStyle(a, col, i, lead = 0) {
   const off = freezeOffsets(a.view, a.cols, lead);
   return `width:${w}px;min-width:${w}px;max-width:${w}px;${i < off.length ? `position:sticky;left:${off[i]}px;` : ""}`;
 }
+/** Stacks a table's sticky header rows: each `thead` row sticks below the rows above it (group rows make them differ in height). */
+export function stackHeadRows(table) {
+  const head = table.tHead;
+  if (!head || typeof ResizeObserver !== "function") return;
+  const place = () => {
+    let top = 0;
+    for (const tr of head.rows) {
+      for (const th of tr.cells) th.style.top = `${top}px`;
+      top += tr.offsetHeight;
+    }
+  };
+  new ResizeObserver(place).observe(head);
+}
 export const frozenClass = (a, i) => (i < freezeCount(a.view, a.cols) ? " frozen" : "") + (i === freezeCount(a.view, a.cols) - 1 ? " frozen-last" : "");
 export const wrapClass = (a, col) => isWrapped(a.view, col) ? " wrap" : "";
 /** Class for a cell's display mode in this view (" d-wrap", " d-hide", …; nothing for clip). */
@@ -121,8 +134,8 @@ function layoutMenu(a) {
     a.redraw();
   };
   const mark = (on) => ico(on ? "check" : "minus");
-  const n = freezeCount(v, a.cols);
   const real = a.cols.filter((c) => !c.stub);
+  const n = Math.min(Math.max(0, Number(v.freeze) || 0), a.realCols?.length ?? a.cols.length);
   return [
     { label: v.wrapAll ? "Wrap all cells: on" : "Wrap all cells: off", icon: ico("text-wrap"), onSelect: async () => {
       v.wrapAll = !v.wrapAll;
@@ -130,7 +143,7 @@ function layoutMenu(a) {
       await done();
     } },
     { label: "Column display", icon: ico("eye"), items: real.map((c) => ({ label: `${c.name} (${DISPLAY_LABEL[resolveDisplay(v, c)]})`, items: displayItems(a, c) })) },
-    { label: `Freeze columns: ${n || "none"}`, icon: ico("pin"), items: [0, 1, 2, 3].filter((k) => k <= a.cols.length).map((k) => ({ label: k === 0 ? "None" : `First ${k} column${k > 1 ? "s" : ""}`, icon: mark(n === k), onSelect: async () => {
+    { label: `Freeze columns: ${n || "none"}`, icon: ico("pin"), items: [0, 1, 2, 3].filter((k) => k <= (a.realCols?.length ?? a.cols.length)).map((k) => ({ label: k === 0 ? "None" : `First ${k} column${k > 1 ? "s" : ""}`, icon: mark(n === k), onSelect: async () => {
       v.freeze = k;
       await done();
     } })) },

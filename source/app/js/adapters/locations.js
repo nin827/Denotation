@@ -290,6 +290,19 @@ export function folderProvider(dir) {
     }
   };
 }
+/**
+ * True when two cloud handles point at the same folder: same provider, same folder name (case-insensitive, as Drive and
+ * OneDrive treat names), same Drive space and the same account (an unknown account on either side counts as the same).
+ */
+export function sameCloudFolder(a, b) {
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || !a.cloud || a.cloud !== b.cloud) return false;
+  const name = (h) => String(h.folder ?? "").trim().toLowerCase();
+  if (!name(a) || name(a) !== name(b)) return false;
+  if (a.cloud === "gdrive" && (a.space === "appdata") !== (b.space === "appdata")) return false;
+  const ia = a.account?.id;
+  const ib = b.account?.id;
+  return !ia || !ib || ia === ib;
+}
 /** A cloud descriptor's provider, or null when `h` isn't one. A damaged descriptor throws. */
 export function cloudProvider(h, deps = {}) {
   if (!h || typeof h !== "object" || typeof h.readText === "function") return null;

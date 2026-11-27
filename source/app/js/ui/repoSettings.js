@@ -10,6 +10,7 @@ import { termsChanged } from "./termsUi.js";
 import { createTermsPanel } from "./termsPanel.js";
 import { HUES } from "../blocks/model.js";
 import { setConstantsProvider } from "../formula.js";
+import { refreshFormulaCaches } from "../formulaRefresh.js";
 import {
   CONST_TYPES, DATE_STYLES, MAX_CONSTANTS, MAX_STATUSES, NAME_RE,
   cleanConstants, cleanStatuses, coerceValue, constantsOf, constantResolver, countTokenUsers, findRepo, newStatus, statusList, validDate
@@ -25,6 +26,12 @@ export function installFormulaConstants(env) {
 }
 
 const TYPE_LABEL = { text: "Text", number: "Number", date: "Date" };
+let refreshGen = 0;
+/** Recompute database formula caches for this repository in the background (the MCP server reads them). */
+function refreshInBackground(env, repoId) {
+  const gen = ++refreshGen;
+  refreshFormulaCaches(env.ws, env.pages(), repoId, { isStale: () => gen !== refreshGen }).catch(() => {});
+}
 let uid = 0;
 const fid = (p) => `${p}${++uid}`;
 const field = (label, control, cls = "") => h("label", { class: `ip-field rs-field ${cls}` }, h("span", {}, label), control);
@@ -65,6 +72,7 @@ export function openRepoSettings(env, repo, tab = "constants") {
       await env.refresh();
       constantsChanged();
       termsChanged();
+      if ("constants" in patch) refreshInBackground(env, repoId);
     }).catch((e) => toast(e?.message || "Could not save.", "error"));
     return chain;
   };
