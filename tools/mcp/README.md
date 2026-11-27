@@ -77,7 +77,7 @@ Any client that starts stdio servers works. For example, in Claude Desktop's `cl
 ## When changes show up in the app
 
 The server writes the same JSON files the app does (each with a new `updatedAt`). In **Auto** sync mode the app picks
-them up when its window regains focus, every ~30 seconds while it is open, or on **Sync now**. In **Manual** mode use
+them up when its window regains focus or every 30 seconds while it is open (at most one pull per 30 seconds). In **Manual** mode use
 **Pull** (the footer says "Folder has newer changes" after the window regains focus). For each page or row the
 newer version wins, so an edit you make in the app after the assistant's edit is kept.
 

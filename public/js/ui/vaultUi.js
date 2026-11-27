@@ -221,13 +221,28 @@ export function createVaultUi(ctx) {
     const del = c.deleted ? `, ${c.deleted} deleted` : "";
     if (kind === "push") toast(c.pushed || c.deleted ? `Pushed ${c.pushed}${del} to "${mainLoc()?.name}".` : "Nothing to push: the folder already matches.");
     else if (kind === "pull") toast(c.pulled || c.deleted ? `Pulled ${c.pulled}${del} from "${mainLoc()?.name}".` : "Nothing to pull: this browser already matches.");
-    else toast(c.pulled || c.pushed || c.deleted ? `Synced: ${c.pulled} loaded, ${c.pushed} saved${del}.` : "Everything is in sync.");
+    else toast(c.pulled || c.pushed || c.deleted ? `Merged: ${c.pulled} loaded, ${c.pushed} saved${del}.` : "Everything is in sync.");
   };
-  const syncNow = () => run("Sync", async () => {
-    await ctx.flush();
-    summaryToast("merge", (await store.syncNow()).counts);
-  });
+  // One cooldown is shared by auto pulls, Pull and Push: while it runs the buttons show the seconds left.
+  const coolLeft = () => {
+    const until = live ? st().cooldownUntil : 0;
+    return until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 0;
+  };
+  const coolLabel = (label) => (coolLeft() ? `${label} (${coolLeft()}s)` : label);
+  let coolTick = null;
+  const watchCooldown = () => {
+    if (coolTick || !coolLeft()) return;
+    coolTick = setInterval(() => {
+      if (!coolLeft()) {
+        clearInterval(coolTick);
+        coolTick = null;
+      }
+      ctx.redraw();
+      renderDialog?.();
+    }, 1000);
+  };
   const transfer = (dir) => run(dir === "push" ? "Push" : "Pull", async () => {
+    if (coolLeft()) return toast(`Wait ${coolLeft()} s before the next Pull or Push.`);
     await ctx.flush();
     const r = await store[dir]();
     if (r.applied) return summaryToast(dir, r.counts);
@@ -302,7 +317,7 @@ export function createVaultUi(ctx) {
     const isMain = loc.role === "main";
     const s = st();
     const type = LOCATION_TYPES.find((t) => t.type === loc.type)?.label ?? loc.type;
-    const btn = (label, icon, onClick, cls = "") => h("button", { class: `chip-btn ${cls}`.trim(), onClick }, ico(icon), ` ${label}`);
+    const btn = (label, icon, onClick, cls = "", disabled = false) => h("button", { class: `chip-btn ${cls}`.trim(), onClick, disabled }, ico(icon), ` ${label}`);
     const needs = loc.state === "needs-permission";
     return h(
       "li",
@@ -324,9 +339,8 @@ export function createVaultUi(ctx) {
         "div",
         { class: "loc-actions" },
         needs ? btn("Reconnect", "refresh-cw", reconnectAll) : null,
-        isMain && !needs ? btn("Pull", "download", () => transfer("pull")) : null,
-        isMain && !needs ? btn("Push", "upload", () => transfer("push")) : null,
-        isMain && !needs ? btn("Sync now", "refresh-cw", syncNow) : null,
+        isMain && !needs ? btn(coolLabel("Pull"), "download", () => transfer("pull"), "", !!coolLeft()) : null,
+        isMain && !needs ? btn(coolLabel("Push"), "upload", () => transfer("push"), "", !!coolLeft()) : null,
         !isMain ? btn("Make main", "folder-sync", () => makeMain(loc)) : null,
         !isMain && !needs ? btn("Restore from this backup…", "rotate-ccw", () => restoreFrom(loc)) : null,
         btn("Remove", "unplug", () => removeLoc(loc))
@@ -364,6 +378,7 @@ export function createVaultUi(ctx) {
   async function init() {
     if (!live) return;
     store.onStatus(() => {
+      watchCooldown();
       ctx.redraw();
       renderDialog?.();
     });
@@ -401,9 +416,8 @@ export function createVaultUi(ctx) {
       { label: "Export", icon: ico("file-down"), items: exportItems() },
       { label: "Import", icon: ico("upload"), items: importItems() },
       live ? { label: "Storage…", icon: ico("hard-drive"), hint: m ? (s.mode === "manual" ? "manual" : "auto") : "", onSelect: openStorage } : null,
-      ok ? { label: "Pull", icon: ico("download"), hint: s.incoming ? "new" : "", onSelect: () => transfer("pull") } : null,
-      ok ? { label: "Push", icon: ico("upload"), hint: s.unpushed ? String(s.unpushed) : "", onSelect: () => transfer("push") } : null,
-      ok ? { label: "Sync now", icon: ico("refresh-cw"), onSelect: syncNow } : null,
+      ok ? { label: coolLabel("Pull"), icon: ico("download"), hint: s.incoming ? "new" : "", disabled: !!coolLeft(), onSelect: () => transfer("pull") } : null,
+      ok ? { label: coolLabel("Push"), icon: ico("upload"), hint: s.unpushed ? String(s.unpushed) : "", disabled: !!coolLeft(), onSelect: () => transfer("push") } : null,
       m && !ok ? { label: "Reconnect storage", icon: ico("refresh-cw"), onSelect: reconnectAll } : null
     ].filter(Boolean);
   };
@@ -425,8 +439,8 @@ export function createVaultUi(ctx) {
           { class: "note sync-pending", role: "status" },
           [s.unpushed ? `${plural(s.unpushed, "change")} not pushed` : "", s.incoming ? "Folder has newer changes" : ""].filter(Boolean).join(" · "),
           " ",
-          s.incoming ? h("button", { onClick: () => transfer("pull") }, ico("download"), " Pull") : null,
-          s.unpushed ? h("button", { onClick: () => transfer("push") }, ico("upload"), " Push") : null
+          s.incoming ? h("button", { onClick: () => transfer("pull"), disabled: !!coolLeft() }, ico("download"), ` ${coolLabel("Pull")}`) : null,
+          s.unpushed ? h("button", { onClick: () => transfer("push"), disabled: !!coolLeft() }, ico("upload"), ` ${coolLabel("Push")}`) : null
         ));
       }
     }

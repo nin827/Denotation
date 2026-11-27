@@ -83,9 +83,13 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
   provider uses File System Access; Google Drive / OneDrive will plug in as providers). Per-device config:
   `localStorage["denotion:storage-locations"]` = `[{ id, type, name, role: "main"|"backup", addedAt, lastSyncAt }]`;
   handles in IndexedDB (db `denotation`, store `handles`, key `loc:<id>`); the old single folder handle migrates to a main.
-  - **Main** (zero or one): two-way. **Auto** (`denotion:folder-sync`): merge on connect, on focus/visibility (≤ every
-    5 s) and every ~30 s while visible; writes debounced ~800 ms. **Manual**: no automatic writes; Pull / Push mirror one
-    side onto the other after a conflict warning; a read-only check powers the footer counts.
+  - **Main** (zero or one): two-way. **Auto** (`denotion:folder-sync`): pull/merge on connect, on focus/visibility and
+    every 30 s while visible. One shared 30 s cooldown (`SYNC_COOLDOWN_MS` in `folder.js`) covers auto pulls and manual
+    Pull / Push: a focus inside the window queues one trailing pull; manual calls are refused with `code: "cooldown"`
+    and the UI shows the seconds left. Local edits are written debounced ~800 ms (not throttled) and flushed at once on
+    `pagehide` / `beforeunload` / hidden, on disconnect / make main, and before Pull / Push. **Manual**: no automatic
+    writes; Pull / Push mirror one side onto the other after a conflict warning; a read-only check (once per window)
+    powers the footer counts. Connect, make main and permission grants run at once and start the cooldown.
   - **Backups**: copy-only. The app writes changed records, tombstones, `denotation.json` and `permissions.json` after
     each main sync (or ~5 s after saves with no main); never reads them during sync. Restore = JSON restore with fresh
     `updatedAt`.

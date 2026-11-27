@@ -1,7 +1,7 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { createMemoryAdapter } from "../public/js/adapters/memory.js";
-import { createFolderAdapter } from "../public/js/adapters/folder.js";
+import { createFolderAdapter, SYNC_COOLDOWN_MS } from "../public/js/adapters/folder.js";
 import { createWorkspace } from "../public/js/workspace.js";
 import { createLocationRegistry, memoryHandles, LOCATIONS_KEY } from "../public/js/adapters/locations.js";
 import { importFiles } from "../public/js/vault.js";
@@ -205,7 +205,7 @@ const countWrites = (d) => {
 test("auto mode: the periodic poll merges changes made in the folder", async () => {
   const dir = fakeDir("V");
   const cache = createMemoryAdapter();
-  const fs = createFolderAdapter(cache, { mode: "auto", pollMs: 30, debounceMs: 5 });
+  const fs = createFolderAdapter(cache, { mode: "auto", pollMs: 30, cooldownMs: 0, debounceMs: 5 });
   await fs.connect(dir);
   let remote = 0;
   fs.onRemoteChange(() => remote++);
@@ -343,7 +343,7 @@ test("backups get a copy after each main sync and never lose files the app didn'
 test("with no main, local saves are copied to backups (debounced)", async () => {
   const bak = fakeDir("B");
   const cache = createMemoryAdapter();
-  const fs = createFolderAdapter(cache, { backupDebounceMs: 10 });
+  const fs = createFolderAdapter(cache, { backupDebounceMs: 10, cooldownMs: 0 });
   await fs.addLocation(bak);
   await fs.set("pages", "p", page("p", "P", 3));
   assert.equal(bak.read("pages/p.json"), undefined);
@@ -443,3 +443,222 @@ test("locations needing permission wait for one user gesture", async () => {
   assert.equal(JSON.parse(a.read("pages/p.json")).title, "P");
   assert.equal(JSON.parse(b.read("pages/p.json")).title, "P");
 });
+
+// ---------- 1-minute cooldown (fake timers + fake window) ----------
+const settle = async () => {
+  for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+};
+const advance = async (ms) => {
+  for (let left = ms; left > 0; ) {
+    const step = Math.min(left, 1000);
+    mock.timers.tick(step);
+    await settle();
+    left -= step;
+  }
+};
+function fakeWin() {
+  const L = {};
+  const add = (k) => (n, f) => (L[`${k}${n}`] ??= []).push(f);
+  const doc = { visibilityState: "visible", addEventListener: add("doc:") };
+  return {
+    document: doc,
+    addEventListener: add(""),
+    emit: (n, k = "") => (L[`${k}${n}`] ?? []).forEach((f) => f()),
+    hide() {
+      doc.visibilityState = "hidden";
+      this.emit("visibilitychange", "doc:");
+    }
+  };
+}
+/** Counts how often the main's pages/ directory is listed, i.e. how many syncs / checks read it. */
+async function countReads(dir) {
+  const pages = await dir.getDirectoryHandle("pages", { create: true });
+  const orig = pages.entries.bind(pages);
+  const c = { n: 0 };
+  pages.entries = () => {
+    c.n++;
+    return orig();
+  };
+  return c;
+}
+async function withClock(fn) {
+  mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1_700_000_000_000 });
+  try {
+    await fn();
+  } finally {
+    mock.timers.reset();
+  }
+}
+const pageFile = async (dir) => (await dir.getDirectoryHandle("pages")).tree.get("p.json");
+
+test("cooldown constant is 30 s", () => assert.equal(SYNC_COOLDOWN_MS, 30000));
+
+test("auto poll runs every 30 s, not sooner", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin() });
+  await fs.connect(dir);
+  const reads = await countReads(dir);
+  await advance(29_000);
+  assert.equal(reads.n, 0);
+  await advance(1_000);
+  assert.equal(reads.n, 1);
+  await advance(30_000);
+  assert.equal(reads.n, 2);
+  await fs.disconnect();
+}));
+
+test("focus inside the window queues exactly one trailing pull for the window end", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(dir);
+  const reads = await countReads(dir);
+  for (let i = 0; i < 3; i++) {
+    await advance(6_000);
+    win.emit("focus");
+  }
+  assert.equal(reads.n, 0, "inside the window: no sync");
+  await advance(11_000);
+  assert.equal(reads.n, 0);
+  await advance(1_000);
+  assert.equal(reads.n, 1, "one trailing pull at the window end");
+  await advance(10_000);
+  win.emit("focus");
+  await advance(20_000);
+  assert.equal(reads.n, 2, "a later focus waits for its own window");
+}));
+
+test("focus after the window pulls right away", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(dir);
+  const reads = await countReads(dir);
+  await advance(31_000);
+  win.emit("focus");
+  await settle();
+  assert.equal(reads.n, 1);
+}));
+
+test("manual mode: the focus check also runs at most once per window", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, mode: "manual" });
+  await fs.connect(dir);
+  const reads = await countReads(dir);
+  await advance(10_000);
+  win.emit("focus");
+  await advance(10_000);
+  assert.equal(reads.n, 0);
+  await advance(10_000);
+  assert.equal(reads.n, 1);
+}));
+
+test("Pull and Push share the cooldown with auto pulls and are refused while it runs", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
+  await fs.connect(dir); // first sync runs at once and starts the cooldown
+  assert.equal(fs.status().cooldownUntil, Date.now() + 30_000);
+  await advance(5_000);
+  for (const dir of ["pull", "push"]) {
+    await assert.rejects(() => fs[dir]({ force: true }), (e) => e.code === "cooldown" && e.waitMs > 24_000 && e.waitMs <= 25_000);
+  }
+  await advance(25_000);
+  assert.equal(fs.status().cooldownUntil, 0);
+  assert.equal((await fs.pull({ force: true })).applied, true, "first Pull after a quiet period runs");
+  assert.ok(fs.status().cooldownUntil > 0, "Pull started the cooldown");
+  await assert.rejects(() => fs.push({ force: true }), { code: "cooldown" });
+  await advance(30_000);
+  assert.equal((await fs.push({ force: true })).applied, true);
+}));
+
+test("a Pull that only warns does not start the cooldown, so the forced retry runs", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { win: fakeWin(), pollMs: 0, mode: "manual" });
+  await fs.connect(dir);
+  await cache.set("pages", "l", page("l", "local only", Date.now()));
+  const first = await fs.pull();
+  assert.equal(first.applied, false);
+  assert.equal((await fs.pull({ force: true })).applied, true);
+}));
+
+test("a Pull in the window resets it for auto pulls", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+  await fs.connect(dir);
+  await advance(31_000);
+  await fs.pull({ force: true });
+  const reads = await countReads(dir);
+  await advance(10_000);
+  win.emit("focus");
+  await advance(10_000);
+  assert.equal(reads.n, 0);
+  await advance(10_000);
+  assert.equal(reads.n, 1, "trailing pull when the Pull's window ended");
+}));
+
+test("edits are still written after the normal debounce, not held by the cooldown", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
+  await fs.connect(dir);
+  await advance(1_000);
+  await fs.set("pages", "p", page("p", "v1", 1));
+  await advance(900);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
+  await fs.set("pages", "p", page("p", "v2", 2));
+  await advance(900);
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v2");
+}));
+
+test("hiding the page, pagehide and beforeunload flush pending writes immediately", () => withClock(async () => {
+  for (const how of ["hide", "pagehide", "beforeunload"]) {
+    const dir = fakeDir("V");
+    const win = fakeWin();
+    const fs = createFolderAdapter(createMemoryAdapter(), { win, pollMs: 0 });
+    await fs.connect(dir);
+    await fs.set("pages", "p", page("p", "v1", 1));
+    await advance(100);
+    assert.equal(dir.read("pages/p.json"), undefined, "still in the debounce");
+    if (how === "hide") win.hide();
+    else win.emit(how);
+    await settle();
+    assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1", how);
+    await fs.disconnect();
+  }
+}));
+
+test("disconnect and Pull / Push write pending edits first", () => withClock(async () => {
+  const dir = fakeDir("V");
+  const fs = createFolderAdapter(createMemoryAdapter(), { win: fakeWin(), pollMs: 0 });
+  await fs.connect(dir);
+  await advance(31_000);
+  await fs.set("pages", "p", page("p", "v1", 1));
+  await fs.push({ force: true });
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v1");
+  await advance(31_000);
+  await fs.set("pages", "p", page("p", "v2", 2));
+  await fs.disconnect();
+  assert.equal(JSON.parse(dir.read("pages/p.json")).title, "v2");
+}));
+
+test("backups copy at most once per window and are flushed on hide", () => withClock(async () => {
+  const bak = fakeDir("B");
+  const win = fakeWin();
+  const fs = createFolderAdapter(createMemoryAdapter(), { win, backupDebounceMs: 10 });
+  await fs.addLocation(bak);
+  await fs.set("pages", "p", page("p", "P1", 3));
+  await advance(5_000);
+  assert.equal(bak.read("pages/p.json"), undefined);
+  await advance(24_000);
+  assert.equal(bak.read("pages/p.json"), undefined);
+  await advance(1_000);
+  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P1");
+  await fs.set("pages", "p", page("p", "P2", 4));
+  await advance(5_000);
+  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P1");
+  win.hide();
+  await settle();
+  assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P2");
+}));

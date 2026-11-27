@@ -10,12 +10,17 @@
 //
 // Main location: two-way sync planned by ../sync.js.
 //   auto (default): merge (per-record last write wins, tombstones honoured) on connect, on window focus
-//     (at most every 5 s) and every ~30 s while visible; local edits are written debounced (~800 ms).
+//     and every 30 s while visible ("auto pull"); local edits are written debounced (~800 ms) and flushed at
+//     once when the page is hidden or closed, on disconnect / make main, and before Pull / Push.
+//   One shared cooldown (SYNC_COOLDOWN_MS) starts at the end of every auto pull, Pull and Push (connect, make main
+//     and permission grants run immediately and start it too). An auto pull runs at most once per window (a focus
+//     inside the window queues one trailing pull for its end); Pull / Push are refused (error code "cooldown")
+//     until it ends. Scheduled backups also copy at most once per window (flushed on hide).
 //   manual: nothing is applied automatically. pull() / push() overwrite in one direction and return
 //     the conflicts first unless { force: true }. A read-only check on connect / focus counts what the
 //     folder has that this browser doesn't (`incoming`) and what isn't pushed yet (`unpushed`).
 // Backups: copy-only. After each sync of the main (or ~5 s after local saves when there is no main or
-//   the main is in auto mode) the app writes changed records, tombstones and permissions.json to each
+//   the main is in auto mode, at most once per cooldown window) the app writes changed records, tombstones and permissions.json to each
 //   backup. A backup is never read back automatically and never loses a record file the app didn't delete.
 //
 // Deletions: the cache keeps tombstones ({ id: "<col>:<id>", col, rid, deletedAt, synced }). Unsynced
@@ -28,6 +33,8 @@ import { planSync, applyPlan, summarize, conflictCount, keyOf, stamp, isNoop, TO
 import { createLocationRegistry, asProvider, loadSyncMode, saveSyncMode } from "./locations.js";
 
 export { loadSyncMode, saveSyncMode } from "./locations.js";
+/** Shared by auto pulls, manual Pull / Push and scheduled backups: at most one per this window. */
+export const SYNC_COOLDOWN_MS = 30_000;
 export const folderSupported = () => typeof globalThis.showDirectoryPicker === "function";
 
 const COLS = ["pages", "rows"];
@@ -89,7 +96,10 @@ async function readTombs(p, now = Date.now()) {
 export function createFolderAdapter(cache, {
   debounceMs = 800,
   backupDebounceMs = 5000,
-  pollMs = 30000,
+  cooldownMs = SYNC_COOLDOWN_MS,
+  pollMs = cooldownMs,
+  clock = () => Date.now(),
+  win = globalThis,
   mergeOnFocus = true,
   onConnected = syncPermissions,
   mode: initialMode,
@@ -100,7 +110,9 @@ export function createFolderAdapter(cache, {
   const locs = []; // runtime locations
   const statusFns = new Set();
   const remoteFns = new Set();
-  const timers = new Map(); // "col/id" -> timeout (auto-mode writes to the main)
+  const dirty = new Map(); // "col/id" -> [col, id]: auto-mode edits waiting to be written to the main
+  let writeTimer = null;
+  let trailTimer = null; // one trailing automatic sync / check queued by a focus inside the window
   const pending = new Set(); // manual mode: keys edited here since the last sync
   let planUnpushed = new Set(); // manual mode: keys the last check found not pushed
   let incoming = 0; // manual mode: changes the last check found in the main
@@ -108,7 +120,10 @@ export function createFolderAdapter(cache, {
   let pollTimer = null;
   let lock = Promise.resolve();
   let running = 0;
-  let lastAutoSync = 0;
+  let lastSyncEnd = 0; // end of the last auto pull / Pull / Push (starts the shared cooldown)
+  let lastCheckEnd = 0; // manual mode: end of the last read-only check
+  let coolTimer = null;
+  let lastBackupEnd = 0;
 
   const main = () => locs.find((l) => l.role === "main") ?? null;
   const backups = () => locs.filter((l) => l.role === "backup");
@@ -123,6 +138,7 @@ export function createFolderAdapter(cache, {
       mode,
       unpushed: m ? new Set([...pending, ...planUnpushed]).size : 0,
       incoming: m ? incoming : 0,
+      cooldownUntil: m ? cooldownUntil() : 0,
       lastSyncAt: m?.lastSyncAt ?? 0,
       locations: locs.map(publicLoc)
     };
@@ -219,9 +235,31 @@ export function createFolderAdapter(cache, {
       if (cur && !cur.synced && Number(cur.deletedAt) === t.deletedAt) await cache.remove(TOMBS, cur.id);
     }
   });
+  const cooldownUntil = () => (lastSyncEnd + cooldownMs > clock() ? lastSyncEnd + cooldownMs : 0);
+  /** Start the shared cooldown now; tell listeners when it ends so buttons can re-enable. */
+  const startCooldown = () => {
+    lastSyncEnd = clock();
+    clearTimeout(coolTimer);
+    if (!cooldownMs) return;
+    coolTimer = setTimeout(notify, cooldownMs + 5);
+    coolTimer.unref?.();
+  };
+  const guardCooldown = () => {
+    const left = cooldownUntil() - clock();
+    if (left > 0) throw Object.assign(new Error(`Please wait ${Math.ceil(left / 1000)} s before the next Pull or Push.`), { code: "cooldown", waitMs: left });
+  };
+  /** Take (and forget) the queued main writes. */
+  const takeDirty = () => {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+    const keys = [...dirty.values()];
+    dirty.clear();
+    return keys;
+  };
   const clearTimers = () => {
-    for (const t of timers.values()) clearTimeout(t);
-    timers.clear();
+    takeDirty();
+    clearTimeout(trailTimer);
+    trailTimer = null;
   };
 
   /** Run a merge / push / pull against the main. Returns { applied, plan, conflicts, counts }. */
@@ -231,8 +269,9 @@ export function createFolderAdapter(cache, {
       if (!l) throw new Error("No main storage location.");
       if (!ready(l)) throw Object.assign(new Error(`No access to "${l.name}" yet. Reconnect it first.`), { code: "needs-permission" });
       if (!quiet) setLoc(l, "syncing");
+      const taken = takeDirty(); // the snapshot already holds every pending local edit
+      let applied = false;
       try {
-        clearTimers(); // the snapshot already holds every pending local edit
         const snap = await snapshot(l);
         const plan = planSync({ ...snap, direction, now: Date.now() });
         if (direction !== "merge" && conflictCount(plan) && !force) {
@@ -248,7 +287,9 @@ export function createFolderAdapter(cache, {
         planUnpushed = new Set();
         incoming = 0;
         setLoc(l, "synced");
-        if (direction === "merge") lastAutoSync = Date.now();
+        applied = true;
+        clearTimeout(trailTimer); // this sync satisfies a queued focus sync
+        trailTimer = null;
         if (!quiet || !isNoop(plan)) notify();
         if (done.pulled || done.deletedLocal) for (const f of [...remoteFns]) f(done);
         await runBackups();
@@ -256,6 +297,9 @@ export function createFolderAdapter(cache, {
       } catch (e) {
         failLoc(l, e);
         throw e;
+      } finally {
+        if (applied || direction === "merge") startCooldown();
+        if (!applied) for (const [c, id] of taken) scheduleWrite(c, id); // nothing was written: keep them queued
       }
     });
   }
@@ -275,6 +319,8 @@ export function createFolderAdapter(cache, {
       } catch (e) {
         failLoc(l, e);
         throw e;
+      } finally {
+        lastCheckEnd = clock();
       }
     });
   }
@@ -303,6 +349,19 @@ export function createFolderAdapter(cache, {
       failLoc(l, e);
     }
   };
+  /** Queue an auto-mode write ~debounceMs after the edit (not throttled by the cooldown). */
+  const scheduleWrite = (col, id) => {
+    dirty.set(`${col}/${id}`, [col, id]);
+    clearTimeout(writeTimer);
+    writeTimer = setTimeout(() => {
+      writeTimer = null;
+      writeDirty().catch(() => {});
+    }, debounceMs);
+    writeTimer.unref?.();
+  };
+  async function writeDirty() {
+    await Promise.all(takeDirty().map(([col, id]) => pushKey(col, id)));
+  }
   const schedule = (col, id) => {
     const l = main();
     if (l && mode === "manual") {
@@ -310,12 +369,7 @@ export function createFolderAdapter(cache, {
       pending.add(keyOf(col, id));
       if (status().unpushed !== before) notify();
     } else if (l) {
-      const key = `${col}/${id}`;
-      clearTimeout(timers.get(key));
-      timers.set(key, setTimeout(() => {
-        timers.delete(key);
-        pushKey(col, id);
-      }, debounceMs));
+      scheduleWrite(col, id);
     }
     if (!l || mode === "auto") scheduleBackups();
   };
@@ -324,10 +378,12 @@ export function createFolderAdapter(cache, {
   const scheduleBackups = (ms = backupDebounceMs) => {
     if (!backups().some(ready)) return;
     clearTimeout(backupTimer);
+    const t = clock();
     backupTimer = setTimeout(() => {
       backupTimer = null;
       runBackups().catch(() => {});
-    }, ms);
+    }, Math.max(ms, lastBackupEnd + cooldownMs - t));
+    backupTimer.unref?.();
   };
   async function runBackups() {
     clearTimeout(backupTimer);
@@ -335,7 +391,9 @@ export function createFolderAdapter(cache, {
     for (const l of backups()) if (ready(l)) await runBackup(l).catch(() => {});
   }
   function runBackup(l) {
-    l.busy = (l.busy ?? Promise.resolve()).then(() => backupOnce(l)).catch((e) => failLoc(l, e));
+    l.busy = (l.busy ?? Promise.resolve()).then(() => backupOnce(l)).catch((e) => failLoc(l, e)).finally(() => {
+      lastBackupEnd = clock();
+    });
     return l.busy;
   }
   async function backupOnce(l) {
@@ -443,9 +501,9 @@ export function createFolderAdapter(cache, {
       const l = main();
       if (!l || l.state !== "synced" || mode !== "auto" || running) return;
       if (globalThis.document?.visibilityState === "hidden") return;
-      if (Date.now() - lastAutoSync < pollMs * 0.9) return;
+      if (clock() - lastSyncEnd < Math.max(cooldownMs, pollMs * 0.9)) return;
       runSync("merge", { quiet: true }).catch(() => {});
-    }, Math.max(10, Math.floor(pollMs / 3)));
+    }, Math.max(10, Math.floor(Math.min(pollMs, Math.max(cooldownMs, 1)) / 3)));
     pollTimer.unref?.();
   };
   const plain = (r) => ({ pulled: r.counts.pulled, pushed: r.counts.pushed, deleted: r.counts.deleted });
@@ -518,6 +576,7 @@ export function createFolderAdapter(cache, {
     async connect(handle) {
       let m = main();
       if (handle !== undefined && !(m && (await sameHandle(m.provider.handle ?? m.provider, handle.handle ?? handle)))) {
+        await adapter.flush(); // the old main (replaced below) gets its pending writes first
         m = await addLoc(handle, "main", "syncing");
       }
       if (!m) throw new Error("No folder chosen.");
@@ -532,12 +591,20 @@ export function createFolderAdapter(cache, {
       if (onConnected) await Promise.resolve(onConnected(adapter)).catch(() => {});
       return counts;
     },
-    /** Two-way merge now (newest wins), in either mode. */
+    /** Internal two-way merge (newest wins), no cooldown check; the UI has no "Sync now" button. */
     syncNow: () => runSync("merge"),
-    /** Overwrite the main with this browser. Without force, returns { applied: false, conflicts } if that would lose newer folder state. */
-    push: (opts) => runSync("push", opts),
-    /** Overwrite this browser with the main. Without force, returns { applied: false, conflicts } if that would lose newer local work. */
-    pull: (opts) => runSync("pull", opts),
+    /** Overwrite the main with this browser (refused during the cooldown). Without force, returns { applied: false, conflicts } if that would lose newer folder state. */
+    async push(opts) {
+      guardCooldown();
+      await adapter.flush();
+      return runSync("push", opts);
+    },
+    /** Overwrite this browser with the main (refused during the cooldown). Without force, returns { applied: false, conflicts } if that would lose newer local work. */
+    async pull(opts) {
+      guardCooldown();
+      await adapter.flush();
+      return runSync("pull", opts);
+    },
     check,
     async setMode(m) {
       const next = m === "manual" ? "manual" : "auto";
@@ -552,7 +619,10 @@ export function createFolderAdapter(cache, {
     /** Stop using the main location (pages stay in this browser and in the folder). */
     async disconnect() {
       const m = main();
-      if (m) await dropLoc(m);
+      if (m) {
+        await adapter.flush();
+        await dropLoc(m);
+      }
     },
     /** Add a location. role "main" replaces the current main (which is removed) and syncs; "backup" copies to it. */
     async addLocation(handle, { role = "backup" } = {}) {
@@ -564,6 +634,7 @@ export function createFolderAdapter(cache, {
         state = "needs-permission";
       }
       if (role === "main") {
+        await adapter.flush();
         const old = main();
         const l = await addLoc(handle, "backup", state);
         if (old) {
@@ -604,7 +675,10 @@ export function createFolderAdapter(cache, {
     },
     async removeLocation(id) {
       const l = locs.find((x) => x.id === id);
-      if (l) await dropLoc(l);
+      if (l) {
+        if (l.role === "main") await adapter.flush();
+        await dropLoc(l);
+      }
     },
     /** Ask for access to every location that needs it (call from a user gesture). Returns the names still without access. */
     async requestPermissions() {
@@ -685,32 +759,48 @@ export function createFolderAdapter(cache, {
         }).catch((e) => failLoc(b, e));
       }
     },
-    /** Write everything still waiting for its debounce (main writes and backups), and wait for all file writes. */
+    /** Write everything still waiting (main writes and backups) now, ignoring the cooldown, and wait for all file writes. */
     async flush() {
-      const due = [...timers.keys()];
-      clearTimers();
-      await Promise.all(due.map((k) => {
-        const [col, id] = k.split("/");
-        return pushKey(col, id);
-      }));
+      if (dirty.size) await writeDirty();
       if (backupTimer) await runBackups();
       await Promise.all(locs.flatMap((l) => [...l.chains.values(), l.busy].filter(Boolean)));
     }
   };
 
   // Pick up changes made elsewhere (other devices, the AI assistant's MCP server) when the window
-  // regains focus. Throttled. Auto: merge. Manual: only count them for the footer.
+  // regains focus. Auto: merge. Manual: only count them for the footer. Both at most once per cooldown
+  // window (measured from the end of the last pull / push / check); a focus inside the window queues one trailing run.
   let lastFocus = 0;
+  const hidden = () => win.document?.visibilityState === "hidden";
+  const focusAction = () => (mode === "auto" ? runSync("merge", { quiet: true }) : check()).catch(() => {});
   const onFocus = () => {
     const l = main();
-    if (!l || l.state !== "synced" || running || Date.now() - lastFocus < FOCUS_MERGE_MS) return;
-    if (globalThis.document?.visibilityState === "hidden") return;
-    lastFocus = Date.now();
-    (mode === "auto" ? runSync("merge", { quiet: true }) : check()).catch(() => {});
+    if (!l || l.state !== "synced" || running || hidden()) return;
+    const t = clock();
+    if (t - lastFocus < FOCUS_MERGE_MS) return;
+    lastFocus = t;
+    const wait = Math.max(lastSyncEnd, mode === "auto" ? 0 : lastCheckEnd) + cooldownMs - t;
+    if (wait <= 0) focusAction();
+    else if (!trailTimer) {
+      trailTimer = setTimeout(() => {
+        trailTimer = null;
+        const m = main();
+        if (m && m.state === "synced" && !running && !hidden()) focusAction();
+      }, wait);
+      trailTimer.unref?.();
+    }
   };
-  if (mergeOnFocus && typeof globalThis.addEventListener === "function" && globalThis.document) {
-    globalThis.addEventListener("focus", onFocus);
-    globalThis.document.addEventListener?.("visibilitychange", onFocus);
+  // Never lose or delay edits when the tab goes away: flush everything pending right now.
+  const onHide = () => void adapter.flush().catch(() => {});
+  const onVisibility = () => (hidden() ? onHide() : onFocus());
+  if (mergeOnFocus && typeof win.addEventListener === "function" && win.document) {
+    win.addEventListener("focus", onFocus);
+    win.document.addEventListener?.("visibilitychange", onVisibility);
+  }
+  if (typeof win.addEventListener === "function") {
+    win.addEventListener("pagehide", onHide);
+    win.addEventListener("beforeunload", onHide);
+    if (!mergeOnFocus) win.document?.addEventListener?.("visibilitychange", () => hidden() && onHide());
   }
   return adapter;
 }
