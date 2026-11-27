@@ -18,7 +18,7 @@ function h(tag, props, ...kids) {
 const state = { mode: "neutral", accent: resolveAccent("random"), random: true, font: "system" };
 const MODE_ICONS = { neutral: ["Neutral", "contrast"], light: ["Light", "sun"], dark: ["Dark", "moon"], variable: ["Variable", "sun-moon"] };
 
-const TOKENS = ["--bg", "--bg-soft", "--bg-hover", "--text", "--muted", "--border", "--accent", "--accent-soft", "--accent-ink", "--on-accent", "--danger", "--scrim",
+const TOKENS = ["--bg", "--bg-soft", "--bg-hover", "--text", "--muted", "--border", "--border-ctl", "--accent", "--accent-soft", "--accent-ink", "--on-accent", "--danger", "--code-fg", "--scrim",
   "--c-gray", "--c-brown", "--c-orange", "--c-yellow", "--c-green", "--c-blue", "--c-purple", "--c-pink", "--c-red"];
 
 function apply() {
@@ -92,8 +92,7 @@ function build() {
     h("div", { class: "modal-actions" }, h("button", {}, "Cancel"), h("button", { class: "primary" }, "Save"))));
   $("toasts").append(h("div", { class: "toast", role: "status" }, "Block copied"), h("div", { class: "toast error", role: "alert" }, "That page no longer exists."));
   $("side").append(h("div", { class: "side-box" },
-    h("div", { class: "brand" }, h("span", { class: "brand-name" }, "Denotion"), h("button", { class: "act-new primary" }, I("plus"), h("span", {}, "New"), I("chevron-down")), h("button", { class: "icon", "aria-label": "Search" }, I("search"))),
-    h("div", { class: "side-tools" }, ...[["search", "Search"], ["settings-2", "Settings"], ["ticket", "Ticket"], ["trash", "Trash"]].map(([i, t], n) => h("button", { class: `tool${n === 1 ? " active" : ""}` }, I(i), h("span", {}, t)))),
+    h("div", { class: "brand" }, h("span", { class: "brand-name" }, "Denotion"), h("button", { class: "act-new primary" }, I("plus"), h("span", {}, "New"), I("chevron-down")), h("button", { class: "icon", "aria-label": "Search", title: "Search" }, I("search")), h("button", { class: "icon", "aria-label": "Workspace menu", title: "Workspace menu" }, I("ellipsis"))),
     h("div", { class: "side-section" }, "Pages"),
     h("div", { class: "side-item active", tabindex: "0" }, h("span", { class: "twist-gap" }), h("span", { class: "side-icon" }, I("file-text")), h("span", { class: "side-title" }, "Active page")),
     h("div", { class: "side-item", tabindex: "0" }, h("button", { class: "icon twist open", "aria-label": "Collapse" }, I("chevron-right")), h("span", { class: "side-icon" }, I("folder-open")), h("span", { class: "side-title" }, "Folder with children")),
@@ -111,10 +110,20 @@ function build() {
   $("tables").append(h("div", { class: "db-wrap" }, h("table", { class: "db-table" },
     h("thead", {}, h("tr", {}, th("Name"), th("Status"), th("Due"))),
     h("tbody", {}, ...[["Write spec", "Doing", "2026-12-01"], ["Ship guide", "Todo", "2026-12-05"]].map((r) => h("tr", {}, ...r.map((c) => h("td", {}, h("span", { class: "cell-btn" }, c)))))))));
-  $("icons").append(...[["12px", 12], ["14px", 14], ["16px", 16], ["1.1em (default)", null], ["20px", 20]].map(([l, px]) => {
+  $("icons").append(...[["--ico-xs 12", 12], ["--ico-sm 14", 14], ["--ico-md 16", 16], ["default 1.1em", null], ["--ico-lg 18", 18]].map(([l, px]) => {
     const i = ico("star"); if (px) i.style.cssText = `width:${px}px;height:${px}px`;
     return h("div", {}, i, l);
   }));
+  $("radius").append(...[["--r-xs", "4px", "handles, rows, small chips"], ["--radius", "6px", "controls, cards, callouts"], ["--r-md", "8px", "menus, toasts, repo cards"], ["--r-lg", "12px", "modals, sheets"], ["--r-pill", "999px", "chips, badges"]]
+    .map(([n, px, use]) => h("div", { class: "g-scale" }, h("i", { style: `border-radius:var(${n})` }), h("b", {}, n), h("span", {}, `${px}, ${use}`))));
+  $("spacing").append(...["--sp-2", "--sp-4", "--sp-6", "--sp-8", "--sp-12", "--sp-16", "--sp-24"]
+    .map((n) => h("div", { class: "g-scale" }, h("i", { class: "bar", style: `width:var(${n})` }), h("b", {}, n), h("span", {}, getComputedStyle(root).getPropertyValue(n).trim()))));
+  $("shadow").append(
+    h("div", { class: "g-scale" }, h("i", { style: "box-shadow:var(--shadow-float);border-radius:var(--r-md)" }), h("b", {}, "--shadow-float"), h("span", {}, "menus, popovers, toasts")),
+    h("div", { class: "g-scale" }, h("i", { style: "box-shadow:var(--shadow-overlay);border-radius:var(--r-lg)" }), h("b", {}, "--shadow-overlay"), h("span", {}, "modals, overlay sidebar")));
+  $("focus").append(h("button", {}, "Button"), h("button", { class: "primary" }, "Primary"), h("input", { type: "text", "aria-label": "Text input", placeholder: "Input" }),
+    h("div", { class: "seg", role: "group", "aria-label": "Inset ring" }, h("button", { type: "button", "aria-pressed": "true" }, "Inset"), h("button", { type: "button", "aria-pressed": "false" }, "ring")),
+    h("p", { class: "g-note", style: "flex-basis:100%;margin:0" }, "--ring is 2px --accent, offset 1px. Controls inside a clipping box (menus, lists, segments, table cells) use offset -2px."));
   const sizes = headingSizes(sanitizePrefs({ headingStep: 4, headingIntercept: 0 }));
   $("steps").textContent = `Prefs example: base 15, step 4, intercept 0 gives H4 to H1 = ${sizes.h4}, ${sizes.h3}, ${sizes.h2}, ${sizes.h1} px.`;
   $("c-font").addEventListener("change", (e) => { state.font = e.target.value; apply(); });

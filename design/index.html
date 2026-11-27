@@ -33,11 +33,20 @@
       <div><small>H3 1.2rem / 650</small><span class="h3">Heading three</span></div>
       <div><small>H4 1.02rem / 650</small><span class="h4">Heading four</span></div>
       <div><small>Body 15px / 1.5</small><span>The quick brown fox jumps over the lazy dog. <a href="#tokens">A link</a> and <span class="inline-code">inline code</span>.</span></div>
-      <div><small>Small 13px</small><span style="font-size:13px">Secondary text, hints and labels.</span></div>
-      <div><small>Caption 11-12px</small><span style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Section label</span></div>
+      <div><small>Compact UI 14px</small><span style="font-size:var(--fs-ui)">Menu rows, segmented buttons, outline.</span></div>
+      <div><small>Label 13px</small><span style="font-size:var(--fs-md)">Secondary text, hints and labels.</span></div>
+      <div><small>Small 12px</small><span style="font-size:var(--fs-sm)">Footers, chips, shortcut hints.</span></div>
+      <div><small>Caption 11px</small><span style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Section label</span></div>
       <div><small>Mono</small><span style="font-family:var(--mono);font-size:13px">const x = 42; // --mono</span></div>
     </div>
     <p class="g-note" id="steps" style="margin-top:8px"></p>
+
+    <h2>Radius, spacing, shadow, focus</h2>
+    <p class="g-note">Scales live as tokens on <code>:root</code> in <code>style.css</code>. Use the token, never a one-off value.</p>
+    <h3>Radius</h3><div class="demo" id="radius"></div>
+    <h3>Spacing</h3><div class="demo" id="spacing"></div>
+    <h3>Shadow (floating layers only)</h3><div class="demo" id="shadow"></div>
+    <h3>Focus ring (Tab through these)</h3><div class="demo" id="focus"></div>
 
     <h2>Icons</h2>
     <p class="g-note">Lucide via <code>ico(name)</code>; inline SVG, follows text colour, <code>aria-hidden</code>.</p>
