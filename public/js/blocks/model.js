@@ -1,5 +1,6 @@
 import { newId } from "../ids.js";
 import { stripInline } from "./inline.js";
+import { cleanBlock as cleanPreviewBlock } from "../preview.js";
 
 const BLOCK_TYPES = [
   "p",
@@ -24,7 +25,8 @@ const BLOCK_TYPES = [
   "breadcrumb",
   "synced",
   "page",
-  "pivot"
+  "pivot",
+  "preview"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
@@ -90,6 +92,13 @@ export function newBlock(type = "p", props = {}) {
       b.colBy ?? (b.colBy = null);
       b.agg ?? (b.agg = "count");
       b.value ?? (b.value = null);
+      break;
+    case "preview":
+      b.dbId ?? (b.dbId = null);
+      b.keys ?? (b.keys = []);
+      b.presetId ?? (b.presetId = null);
+      b.config ?? (b.config = null);
+      b.snapshot ?? (b.snapshot = null);
       break;
     case "divider":
     case "toc":
@@ -284,6 +293,7 @@ export function normalizeBlocks(blocks) {
         for (const k of ["source", "rowBy", "colBy", "value"]) if (typeof b[k] !== "string") b[k] = null;
         if (typeof b.agg !== "string") b.agg = "count";
       }
+      if (b.type === "preview") cleanPreviewBlock(b);
       if (b.type === "table") {
         if (!Array.isArray(b.cells) || !b.cells.length || !Array.isArray(b.cells[0])) b.cells = [[""]];
         const w = Math.max(...b.cells.map((r) => Array.isArray(r) ? r.length : 0), 1);

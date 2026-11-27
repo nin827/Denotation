@@ -1,3 +1,4 @@
+import { previewLine } from "../preview.js";
 import { numbering, hasChildren, newBlock, normalizeBlocks } from "./model.js";
 
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
@@ -70,6 +71,9 @@ ${b.text}
         break;
       case "bookmark":
         text = b.url ? `[${b.title || b.url}](${b.url})` : "";
+        break;
+      case "preview":
+        text = ctx.recordPreview?.(b) ?? previewLine(ctx.pageTitle?.(b.dbId), b.keys);
         break;
       case "synced":
         text = blocksToMarkdown(ctx.syncBlocks?.(b.ref) ?? [], ctx);

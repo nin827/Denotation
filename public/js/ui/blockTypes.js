@@ -3,6 +3,7 @@ import { h } from "./dom.js";
 import { iconNode, ico, pageIcon } from "../icons/index.js";
 import { toast } from "./dialogs.js";
 import { pivotBody } from "./pivotBlock.js";
+import { recordPreviewBody } from "./recordPreview.js";
 import { createBlockEditor } from "./blockEditor.js";
 
 const MAX_EMBED_BYTES = 15e4;
@@ -27,6 +28,8 @@ export function specialBody(b, inst, a) {
       return syncedBody(b, inst);
     case "pivot":
       return pivotBody(b, inst, a);
+    case "preview":
+      return recordPreviewBody(b, inst, a);
     case "page":
       return pageBody(b, inst);
     default:
