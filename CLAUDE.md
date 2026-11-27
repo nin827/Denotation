@@ -8,19 +8,22 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 
 ## Hard rules
 
+- **Folders:** `source/` is everything the product needs (`source/app/` = the served app, `source/mcp/` = the AI
+  connector). `work/` is development only (`work/test`, `work/tools`, `work/ticket`, `work/design`). Deleting `work/`
+  must leave the app and connector fully working: nothing in `source/` may import or read from `work/`.
 - **No packages, no build step.** Native ES modules only. Build everything in house (markdown, CSV, formulas, charts,
-  sync, UI). The only third-party code allowed is **Lucide icons** (a trimmed set in `public/js/icons/lucide-data.js`) and
+  sync, UI). The only third-party code allowed is **Lucide icons** (a trimmed set in `source/app/js/icons/lucide-data.js`) and
   **KaTeX** (math rendering, MIT; vendored with its fonts and licence when the math feature lands, ticket 022).
   Nothing loads from a CDN, so the app works offline. `npm` is just a script runner (`npm start`, `npm test`), with no dependencies.
   Dev-only exception: Playwright (preinstalled) for the browser smoke test.
-- **Served over HTTP:** `npm start` (`python3 -m http.server 8080 -d public`, binds 127.0.0.1). Port 8080 is the
+- **Served over HTTP:** `npm start` (`python3 -m http.server 8080 -d source/app`, binds 127.0.0.1). Port 8080 is the
   owner's real data; agents test on **8090–8099**, never 8080.
-- After adding, removing or renaming any file under `public/`, run `node tools/gen-sw-files.mjs` (service-worker
-  precache list; `test/pwa.test.js` checks it).
+- After adding, removing or renaming any file under `source/app/`, run `node work/tools/gen-sw-files.mjs` (service-worker
+  precache list; `work/test/pwa.test.js` checks it).
 - Every path is relative (GitHub Pages serves under `/<repo>/`). No leading `/` in fetches, imports or links.
 - No native `alert` / `confirm` / `prompt` (use `ui/dialogs.js`, `ui/modal.js`).
 - Never put personal details (names, emails) in project files.
-- Fonts are system stacks or vendored open-source (SIL OFL) files in `public/fonts/`. Never load fonts from a CDN.
+- Fonts are system stacks or vendored open-source (SIL OFL) files in `source/app/fonts/`. Never load fonts from a CDN.
 
 ## Safety
 
@@ -44,7 +47,7 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 - **Owner preferences:** try the simple solution first and go more complex only if asked. Keep explanations short.
   Split long output into several messages. If the owner's `budget` skill is active, plan on Opus, implement on Sonnet,
   and pause to let them switch models.
-- **Don't block on questions.** Put open questions in `ticket/NNN-slug.md` (see `ticket/README.md`), carry on with a
+- **Don't block on questions.** Put open questions in `work/ticket/NNN-slug.md` (see `work/ticket/README.md`), carry on with a
   sensible default, and walk through them when the owner says "clear tickets".
 - **Commits:** group related, tested work into one commit (e.g. a feature with its docs, tests and follow-up fixes)
   instead of many small ones, so history stays readable. Push after each. Never commit files an agent still owns.
@@ -61,8 +64,8 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
 ## Testing
 
 ```bash
-npm test                     # node --test test/*.test.js  (built-in runner only)
-node test/e2e/smoke.cjs      # Playwright smoke test on port 8099
+npm test                     # node --test work/test/*.test.js  (built-in runner only)
+node work/test/e2e/smoke.cjs      # Playwright smoke test on port 8099
 ```
 - Add `node:test` unit tests (seeded fuzz where useful) for pure logic modules as they're touched: `schema`, `dbviews`,
   `formula`, `pivot`, `csv`, `prefs`, `blocks/*`, `workspace` (with the `memory` adapter).
@@ -71,7 +74,7 @@ node test/e2e/smoke.cjs      # Playwright smoke test on port 8099
 ## Architecture
 
 Full details in `README_TECHNICAL.md`. In short:
-- `public/index.html`, `css/style.css`, `js/app.js` (hash routing `#page-<id>`).
+- `source/app/index.html`, `css/style.css`, `js/app.js` (hash routing `#page-<id>`).
 - Storage behind `js/store.js` with adapters in `js/adapters/` (`local`, `memory`, `artifact-db`, `firebase` stub), all
   with the interface `list/get/set/remove(collection, id, data)`. Collections `pages` and `rows`; every record carries
   `updatedAt` or `createdAt`. Prefs in `localStorage["denotion:prefs"]`.
@@ -81,7 +84,7 @@ Full details in `README_TECHNICAL.md`. In short:
 - `js/workspace.js` holds all data operations. `js/ui/*` renders. `h(tag, props, ...children)` is the DOM helper;
   `replaceChildren` stringifies `null`, so `.filter(Boolean)`.
 - Keep each record under ~250 KB (also matters for sync). Rows cache formula results in `row.values[colId]`; `applyFormulas` recomputes them.
-- AI access: `tools/mcp/` is a Node-only MCP server (built-ins only, no dependencies). `js/permissions.js` must stay
+- AI access: `source/mcp/` is a Node-only MCP server (built-ins only, no dependencies). `js/permissions.js` must stay
   pure because Node imports it. The server never writes `permissions.json`.
 - Sidebar rows have no buttons: right-click, long-press or Shift+F10 opens the page menu. Long titles roll as a marquee.
 
@@ -100,15 +103,15 @@ Full details in `README_TECHNICAL.md`. In short:
 - **Fonts:** a short *Recommended* list (system sans (default), serif and mono, plus vendored Noto Sans / Noto Serif /
   Noto Sans Mono) and an *On this device* list from `queryLocalFonts()` where supported (otherwise a font-name field).
   Device fonts are never presented as recommendations.
-- **Design:** clean and minimal. The design spec and live style guide are in `design/` (`design/README.md`,
-  `design/index.html`); keep them in sync with `css/style.css`.
+- **Design:** clean and minimal. The design spec and live style guide are in `work/design/` (`work/design/README.md`,
+  `work/design/index.html`); keep them in sync with `css/style.css`.
 - Correct, selected and error states show an icon or label, never colour alone. Respect `prefers-reduced-motion`.
 - Mobile-first: works from 360px wide, no horizontal page scroll, respects `env(safe-area-inset-*)`, inputs ≥ 16px on
   phones, no hover-only affordances.
 
 ## Roadmap: GitHub Pages + PWA + local files + cloud sync (feasible, no backend)
 
-1. **Deploy + PWA (done).** GitHub Actions workflow publishing `public/` to Pages, plus `.nojekyll`. `manifest.webmanifest`
+1. **Deploy + PWA (done).** GitHub Actions workflow publishing `source/app/` to Pages, plus `.nojekyll`. `manifest.webmanifest`
    (relative `start_url`/`scope` `./`), icons generated in house, `sw.js` (precache app shell, versioned
    `CACHE_VERSION`, stale-while-revalidate for same-origin GETs, never cache cross-origin, delete old caches on
    activate). "Update available · Reload" toast. Install button in Settings (`beforeinstallprompt`; iOS shows

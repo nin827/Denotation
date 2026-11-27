@@ -36,7 +36,7 @@ You need Node.js (for `npm`) and Python 3 (it acts as a tiny web server).
 
 To stop it, press Ctrl+C in the terminal. Your pages stay in the browser and will be there next time.
 
-> **Open it over `http://`, not as a file.** Double-clicking `public/index.html` will not work, because browsers refuse to run the app's code straight from a folder. Always use the address above.
+> **Open it over `http://`, not as a file.** Double-clicking `source/app/index.html` will not work, because browsers refuse to run the app's code straight from a folder. Always use the address above.
 
 > **Keep the same address.** Your workspace belongs to one exact address, port included. If you open `http://localhost:8080` one day and `http://127.0.0.1:8080` the next, each one looks like a brand new, empty workspace. Pick one and stick with it.
 
@@ -554,10 +554,10 @@ That's the **workspace** setting. To set one repository, page or database differ
 **2. Connect.** The connector works on a [connected folder](#storage-main-and-backups), so connect one first (Chrome or Edge). Then add the connector to your assistant. For Claude Code:
 
 ```bash
-claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.mjs --folder <path to your folder>
+claude mcp add denotation -- node <path to Denotation>/source/mcp/denotation-mcp.mjs --folder <path to your folder>
 ```
 
-It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [tools/mcp/README.md](tools/mcp/README.md).
+It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [source/mcp/README.md](source/mcp/README.md).
 
 **3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Archived pages are hidden from its page list and search unless it asks to include them. Its changes show up in Denotation when you switch back to the window, or within 30 seconds: the assistant marks the folder as changed and Denotation then pulls (in manual mode use **Pull**).
 

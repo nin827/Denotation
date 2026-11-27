@@ -34,3 +34,5 @@ There's no account and no server. Your workspace stays on your device unless you
 ## Under the hood
 
 Plain HTML, CSS and JavaScript, with no build step, no frameworks and no third-party code except [Lucide](https://lucide.dev) icons. Built with Claude, under human supervision. For personal use, so keep expectations modest.
+
+Current version: **0.1** ([changelog](CHANGELOG.md)).

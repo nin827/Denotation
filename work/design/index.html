@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Denotation style guide</title>
+  <link rel="stylesheet" href="../../source/app/css/style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <div class="g-bar"><div class="g-bar-in">
+    <strong>Denotation design</strong>
+    <div class="g-ctl"><span>Mode <b id="resolved"></b></span><div class="seg" id="c-mode" role="group" aria-label="Theme value"></div></div>
+    <div class="g-ctl"><label for="c-font"><span>Font</span></label><select id="c-font"></select></div>
+    <div class="g-ctl accent"><span>Accent</span><div class="swatch-grid" id="c-accent" role="group" aria-label="Accent color"></div></div>
+  </div></div>
+  <main class="g-main">
+    <h1>Style guide</h1>
+    <p class="g-note">Live view of <code>source/app/css/style.css</code>. The spec is in <code>work/design/README.md</code>. Controls mirror Appearance settings.</p>
+
+    <h2>Colour tokens</h2>
+    <p class="g-note">Resolved for the current mode and accent.</p>
+    <div class="g-tokens" id="tokens"></div>
+
+    <h2>Block colours</h2>
+    <p class="g-note">12 hues for text and background, plus grey for background only. Menu swatches and applied samples (<code>--blk-h</code>, <code>.has-color</code>, <code>.has-bg</code>).</p>
+    <div class="demo col" id="blockcolors" style="align-items:stretch"></div>
+
+    <h2>Typography</h2>
+    <div class="g-type">
+      <div><small>H1 1.9rem / 700</small><span class="h1">Heading one</span></div>
+      <div><small>H2 1.45rem / 650</small><span class="h2">Heading two</span></div>
+      <div><small>H3 1.2rem / 650</small><span class="h3">Heading three</span></div>
+      <div><small>H4 1.02rem / 650</small><span class="h4">Heading four</span></div>
+      <div><small>Body 15px / 1.5</small><span>The quick brown fox jumps over the lazy dog. <a href="#tokens">A link</a> and <span class="inline-code">inline code</span>.</span></div>
+      <div><small>Compact UI 14px</small><span style="font-size:var(--fs-ui)">Menu rows, segmented buttons, outline.</span></div>
+      <div><small>Label 13px</small><span style="font-size:var(--fs-md)">Secondary text, hints and labels.</span></div>
+      <div><small>Small 12px</small><span style="font-size:var(--fs-sm)">Footers, chips, shortcut hints.</span></div>
+      <div><small>Caption 11px</small><span style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Section label</span></div>
+      <div><small>Mono</small><span style="font-family:var(--mono);font-size:13px">const x = 42; // --mono</span></div>
+    </div>
+    <p class="g-note" id="steps" style="margin-top:8px"></p>
+
+    <h2>Radius, spacing, shadow, focus</h2>
+    <p class="g-note">Scales live as tokens on <code>:root</code> in <code>style.css</code>. Use the token, never a one-off value.</p>
+    <h3>Radius</h3><div class="demo" id="radius"></div>
+    <h3>Spacing</h3><div class="demo" id="spacing"></div>
+    <h3>Shadow (floating layers only)</h3><div class="demo" id="shadow"></div>
+    <h3>Focus ring (Tab through these)</h3><div class="demo" id="focus"></div>
+
+    <h2>Icons</h2>
+    <p class="g-note">Lucide via <code>ico(name)</code>; inline SVG, follows text colour, <code>aria-hidden</code>.</p>
+    <div class="demo"><div class="g-ico" id="icons"></div></div>
+
+    <h2>Buttons</h2><div class="demo" id="buttons"></div>
+    <h2>Inputs</h2><div class="demo col" id="inputs" style="max-width:480px"></div>
+    <h2>Segmented control</h2><div class="demo" id="seg"></div>
+    <h2>Menu</h2><div class="demo" id="menu"></div>
+    <h2>Modal</h2><div class="demo" id="modal"></div>
+    <h2>Toasts</h2><div class="demo col" id="toasts" style="align-items:flex-start"></div>
+    <h2>Sidebar</h2><div class="demo" id="side"></div>
+    <h2>Chips, badge, banner</h2><div class="demo" id="chips"></div>
+    <h2>Cards</h2><div class="demo grid" id="cards"></div>
+    <h2>Table</h2><div class="demo" id="tables"></div>
+  </main>
+  <script type="module" src="guide.js"></script>
+</body>
+</html>

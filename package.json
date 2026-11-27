@@ -1,11 +1,11 @@
 {
   "name": "denotation",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Personal Notion/Obsidian-style workspace that runs in the browser.",
   "scripts": {
-    "start": "python3 -m http.server 8080 --bind 127.0.0.1 -d public",
-    "test": "node --test test/*.test.js"
+    "start": "python3 -m http.server 8080 --bind 127.0.0.1 -d source/app",
+    "test": "node --test work/test/*.test.js"
   }
 }
