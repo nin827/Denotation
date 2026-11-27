@@ -78,6 +78,7 @@ export function renderSheet(a) {
       toast("Formula cells are computed. Click the column name to edit the formula.");
       return;
     }
+    if (td.querySelector("input, select")) return; // already editing (a double tap fires mousedown and dblclick)
     const cur = row.values[col.id];
     if (col.type === "checkbox") {
       a.setCell(row, col, !cur);
@@ -240,6 +241,7 @@ export function renderSheet(a) {
     e.preventDefault();
     paste(e.clipboardData.getData("text/plain"));
   });
+  let touchTap = false;
   a.rows.forEach((row, r) => {
     const tds = a.cols.map((col, c) => {
       const td = h("td", {
@@ -248,10 +250,16 @@ export function renderSheet(a) {
         "data-r": r,
         "data-c": c,
         role: "gridcell",
+        onPointerdown: (e) => {
+          touchTap = e.pointerType !== "mouse";
+        },
         onMousedown: (e) => {
           if (e.target.closest("input,select")) return;
           e.preventDefault();
+          // touch has no double-click: a tap on the cell that is already selected edits it
+          const again = touchTap && !e.shiftKey && s.f.r === r && s.f.c === c && s.a.r === r && s.a.c === c;
           select(r, c, e.shiftKey);
+          if (again) return edit(r, c);
           dragging = true;
         },
         onMouseenter: () => {
@@ -268,8 +276,11 @@ export function renderSheet(a) {
     tbody.append(h(
       "tr",
       {},
-      h("th", { class: "sheet-rn", title: "Select row; double-click to open as page", onMousedown: (e) => {
+      h("th", { class: "sheet-rn", title: "Select row; double-click (or tap again) to open as page", onPointerdown: (e) => {
+        touchTap = e.pointerType !== "mouse";
+      }, onMousedown: (e) => {
         e.preventDefault();
+        if (touchTap && s.a.r === r && s.f.r === r && s.a.c === 0 && s.f.c === C - 1) return a.onOpenRow?.(row.id);
         s.a = { r, c: 0 };
         s.f = { r, c: C - 1 };
         paint();

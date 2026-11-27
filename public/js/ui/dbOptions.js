@@ -6,6 +6,7 @@ import { openModal } from "./modal.js";
 export function openDbOptions(kind, a, { onDone, redraw }) {
   const { db, view: view } = a;
   const box = h("div", { class: "opt-list" });
+  const fill = (...kids) => box.replaceChildren(...kids.filter(Boolean));
   const colSelect = (value, onChange) => h(
     "select",
     { "aria-label": "Property", value, onChange: (e) => onChange(e.target.value) },
@@ -30,7 +31,7 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
   }
   function drawFilter() {
     const rules = view.filter.rules;
-    box.replaceChildren(
+    fill(
       rules.length ? null : h("p", { class: "hint" }, "No filters. Every row is shown."),
       ...rules.map((rule, i) => {
         const col = db.columns.find((c) => c.id === rule.col);
@@ -87,7 +88,7 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
   }
   function drawSort() {
     const sorts = view.sorts;
-    box.replaceChildren(
+    fill(
       sorts.length ? null : h("p", { class: "hint" }, "No sorting. Rows keep the order they were created in. Empty values always sort last."),
       ...sorts.map((s, i) => h(
         "div",
@@ -122,7 +123,7 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
     );
   }
   function drawProps() {
-    box.replaceChildren(
+    fill(
       h("p", { class: "hint" }, "Choose which properties this view shows. The first property is the title and always stays."),
       ...db.columns.map((c, i) => h(
         "label",

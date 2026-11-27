@@ -12,6 +12,7 @@ import { walk } from "../blocks/model.js";
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { toast } from "./dialogs.js";
+import { openMenu } from "./popover.js";
 
 export function groupSections(a) {
   if (!a.view.groupBy || !a.db.columns.some((c) => c.id === a.view.groupBy)) return [{ label: null, value: void 0, rows: a.rows }];
@@ -44,7 +45,7 @@ const delBtn = (a, row) => h("button", { class: "icon", title: "Delete row", "ar
   await a.removeRow(row);
   a.redraw();
 } }, ico("x"));
-function card(a, row, skip, extra = {}) {
+function card(a, row, skip, extra = {}, moveTo = null) {
   return h(
     "div",
     { class: "card", tabindex: 0, role: "button", onClick: () => a.onOpenRow?.(row.id), onKeydown: (e) => {
@@ -52,9 +53,14 @@ function card(a, row, skip, extra = {}) {
     }, ...extra },
     h("div", { class: "card-title" }, a.title(row)),
     h("div", { class: "card-chips" }, chips(a, row, skip)),
-    h("div", { class: "card-tools" }, openBtn(a, row), delBtn(a, row))
+    h("div", { class: "card-tools" }, moveTo?.length > 1 ? moveBtn(moveTo) : null, openBtn(a, row), delBtn(a, row))
   );
 }
+// Board cards drag between columns with a mouse; this is the tap alternative (touch has no HTML5 drag).
+const moveBtn = (items) => h("button", { class: "icon", title: "Move to...", "aria-label": "Move card to another column", "aria-haspopup": "menu", onClick: (e) => {
+  e.stopPropagation();
+  openMenu(e.currentTarget, items);
+} }, ico("arrow-right-left"));
 let dragRow = null;
 export function renderBoard(a) {
   const col = a.db.columns.find((c) => c.id === a.view.groupBy);
@@ -121,7 +127,7 @@ export function renderBoard(a) {
         onDragend: () => {
           dragRow = null;
         }
-      })))
+      }, movable ? [{ header: true, label: "Move to" }, ...groups.filter((o) => o !== g && o.value !== void 0).map((o) => ({ label: o.label || "No value", onSelect: () => move(row, o) }))] : null)))
     );
     return colEl;
   }));

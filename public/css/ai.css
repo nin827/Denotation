@@ -52,3 +52,7 @@
   .ai-seg button { min-height: 40px; font-size: 15px; }
   .ai-ov-open { flex-wrap: wrap; }
 }
+@media (pointer: coarse) {
+  .ai-ov-open, .ai-ov-remove, .ai-copy { min-height: 44px; }
+  .ai-seg button { min-height: 44px; }
+}

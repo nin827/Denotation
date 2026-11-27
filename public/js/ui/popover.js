@@ -70,15 +70,18 @@ export function openMenu(anchor, items, { onClose, empty = "No results", width: 
   function place() {
     const a = anchor instanceof Element ? anchor.getBoundingClientRect() : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
     const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
+    // the visible area: with the on-screen keyboard up, only the visual viewport (above the keyboard) counts
+    const vv = window.visualViewport;
+    const vTop = vv ? vv.offsetTop : 0;
+    const vh = vv ? Math.min(vv.height + vTop, document.documentElement.clientHeight) : document.documentElement.clientHeight;
     const w = el.offsetWidth || 240;
     const hgt = el.offsetHeight || 200;
     const left = Math.max(8, Math.min(a.left, vw - w - 8));
     const below = vh - a.bottom - 8;
-    const top = below >= Math.min(hgt, 260) || a.top < hgt ? a.bottom + 4 : a.top - hgt - 4;
+    const top = below >= Math.min(hgt, 260) || a.top - vTop < hgt ? a.bottom + 4 : a.top - hgt - 4;
     el.style.left = `${left}px`;
-    el.style.top = `${Math.max(8, top)}px`;
-    el.style.maxHeight = `${Math.max(160, vh - Math.max(8, top) - 8)}px`;
+    el.style.top = `${Math.max(vTop + 8, top)}px`;
+    el.style.maxHeight = `${Math.max(160, vh - Math.max(vTop + 8, top) - 8)}px`;
   }
   const onKey = (e) => {
     if (closed) return;
@@ -114,13 +117,18 @@ export function openMenu(anchor, items, { onClose, empty = "No results", width: 
   const onDown = (e) => {
     if (!el.contains(e.target)) close();
   };
+  const width0 = window.innerWidth;
+  const onResize = () => {
+    if (window.innerWidth !== width0) close();
+    else place();
+  };
   function close() {
     if (closed) return;
     closed = true;
     if (current === api) current = null;
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("mousedown", onDown, true);
-    window.removeEventListener("resize", close);
+    window.removeEventListener("resize", onResize);
     el.remove();
     onClose?.();
   }
@@ -139,7 +147,7 @@ export function openMenu(anchor, items, { onClose, empty = "No results", width: 
   document.body.append(el);
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("mousedown", onDown, true);
-  window.addEventListener("resize", close);
+  window.addEventListener("resize", onResize);
   draw();
   return api;
 }

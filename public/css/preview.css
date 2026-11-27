@@ -46,7 +46,7 @@
 @media (max-width: 600px) { .rp-dl-row { grid-template-columns: 1fr; gap: 0; } }
 
 /* settings popover */
-.rp-pop { position: fixed; z-index: 30; left: var(--rp-left, 8px); top: var(--rp-top, 8px); width: var(--rp-w, 360px); overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .22); font-size: 14px; }
+.rp-pop { position: fixed; z-index: 50; left: var(--rp-left, 8px); top: var(--rp-top, 8px); width: var(--rp-w, 360px); overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .22); font-size: 14px; }
 .rp-pop-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .rp-sec { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
 .rp-sec-title { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -76,4 +76,22 @@
 @media (max-width: 600px) {
   .rp-pop { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 85vh !important; border-radius: 12px 12px 0 0; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
   .rp-chip button.icon, .rp-open { min-width: 36px; min-height: 36px; }
+}
+@media (pointer: coarse) {
+  .rp-gear { min-width: 40px; min-height: 40px; }
+  .rp-open, .rp-chip button.icon { min-width: 40px; min-height: 40px; }
+  .rp-key-input { min-height: 36px; }
+  .rp-keys { min-height: 44px; }
+  .rp-check-label { min-height: 40px; }
+  .rp-link { min-height: 36px; }
+  .rp-pop button, .rp-pop select, .rp-pop input { min-height: 40px; }
+  .rp-pop input[type="checkbox"] { min-height: 0; width: 22px; height: 22px; }
+}
+@media (max-width: 600px) {
+  .rp-pop { bottom: var(--kb, 0px); z-index: 50; }
+  .rp-chip button.icon { min-width: 36px; min-height: 36px; }
+  .rp-chip { font-size: 15px; padding-left: 10px; }
+  .rp-col-opts { padding-left: 0; }
+  .rp-col-opts select { max-width: none; flex: 1; }
+  .rp-card-top { float: none; justify-content: flex-start; margin: 0 0 4px; }
 }

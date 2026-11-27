@@ -70,6 +70,18 @@ The sidebar is on the left. From top to bottom:
 
 On a wide screen the sidebar is **locked open** by default. Unlock it with the padlock icon if you want more room: it then slides in over the page when you open it, and out of the way when you pick a page. On a phone it starts closed, and a small button on the left edge opens it. **Ctrl/Cmd + \\** also opens and closes the sidebar once it is unlocked.
 
+### On a phone or tablet
+
+Denotation works on phones and tablets too:
+- The sidebar slides in over the page: the button at the top left opens it, and tapping outside closes it. (Locking it open only applies on wide screens.)
+- **Long-press** a page in the sidebar for its menu (the same as right-click).
+- Tap a block's **≡ handle** for its options, including **Move up** and **Move down**.
+- On a board, each card has a **Move to…** button. In a sheet, tap a selected cell again to edit it.
+- Dialogs open as sheets from the bottom of the screen, above the keyboard.
+- On iPhone and iPad, **Share → Add to Home Screen** gives the best experience.
+
+Folders and storage locations need Chrome or Edge on a computer. On a phone, use ZIP export and import to move your workspace.
+
 ### Repositories, pages and databases
 
 - A **repository** is a top-level container, like a notebook or a project folder. A new workspace starts with one called "My repository", holding a welcome page and a small example database.

@@ -20,3 +20,10 @@
 @media (max-width: 480px) {
   .loc-actions .chip-btn { font-size: 14px; padding: 4px 10px; }
 }
+@media (pointer: coarse) {
+  .loc-actions .chip-btn, .loc-mode button { min-height: 44px; }
+  .loc-actions { gap: 8px; }
+}
+@media (max-width: 480px) {
+  .loc-mode { max-width: none; }
+}

@@ -43,6 +43,23 @@ export function createLayout({ appEl: appEl, getLocked, onChange }) {
       }
     }
   };
+  // On-screen keyboard: browsers that shrink only the visual viewport (iOS, Chrome with default settings) leave the
+  // layout viewport alone, so publish the keyboard height as --kb (bottom sheets, toasts) and keep the typing field in view.
+  const vv = window.visualViewport;
+  if (vv) {
+    let lastKb = 0;
+    const sync = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      document.documentElement.style.setProperty("--kb", `${kb}px`);
+      if (kb > lastKb + 80) {
+        const el = document.activeElement;
+        if (el?.matches?.("input, textarea, select, [contenteditable]")) setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 60);
+      }
+      lastKb = kb;
+    };
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+  }
   window.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
       e.preventDefault();

@@ -95,7 +95,7 @@ export function createBlockEditor(container, ctx) {
         role: "button",
         tabindex: 0,
         draggable: "true",
-        title: "Drag to move, click for options",
+        title: matchMedia("(hover: none)").matches ? "Tap for options (move, copy, delete...)" : "Drag to move, click for options",
         "aria-label": "Block options",
         onClick: () => openBlockMenu(handle, b, inst, actions),
         onKeydown: (e) => {

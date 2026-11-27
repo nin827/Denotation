@@ -79,6 +79,89 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     failed ||= !ok;
     console.log(`${ok ? "ok  " : "FAIL"} ${t} (${n} sidebar items)${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
   }
+  // Phone pass (390x844, touch): overlay sidebar, menus, typing, a database, dialogs above everything, no horizontal overflow
+  {
+    const t = targets[0];
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    const page = await phone.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    const noOverflow = async (label) => {
+      const w = await page.evaluate(() => [document.documentElement.scrollWidth, document.body.scrollWidth, innerWidth]);
+      if (w[0] > w[2] || w[1] > w[2]) errs.push(`horizontal overflow on ${label}: ${w.join("/")}`);
+    };
+    const sideOpen = async () => { if (await page.locator("#side-open").isVisible()) await page.locator("#side-open").tap(); await page.locator("#sidebar").waitFor({ state: "visible" }); };
+    await page.goto(`http://127.0.0.1:${PORT}${t}`);
+    await page.waitForSelector(".side-item", { state: "attached" });
+    await noOverflow("home");
+    await sideOpen();
+    if (!(await page.locator("#side-scrim").isVisible())) errs.push("phone: sidebar is not an overlay with a scrim");
+    await noOverflow("sidebar");
+    // workspace menu: touch-sized rows, then a dialog must cover the page (including the sidebar button)
+    await page.locator(".act-more").tap();
+    const rowH = await page.locator(".menu-item").first().evaluate((el) => el.getBoundingClientRect().height);
+    if (rowH < 40) errs.push(`phone: menu rows are ${rowH}px tall (< 40)`);
+    await page.locator(".menu-item", { hasText: "Settings" }).tap();
+    await page.waitForSelector(".modal");
+    if (await page.locator("#side-scrim").isVisible()) errs.push("phone: the overlay sidebar stayed open behind a dialog");
+    await noOverflow("settings dialog");
+    const covered = await page.evaluate(() => {
+      const b = document.getElementById("side-open").getBoundingClientRect();
+      const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return !!top?.closest(".modal-overlay");
+    });
+    if (!covered) errs.push("phone: the sidebar button shows through an open dialog");
+    const fs = await page.locator(".modal select, .modal input[type=text]").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize)).catch(() => 16);
+    if (fs < 16) errs.push(`phone: dialog field font is ${fs}px (< 16, iOS would zoom)`);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    // open a page and type into a block
+    await sideOpen();
+    await page.locator(".side-item", { hasText: "Welcome" }).first().tap();
+    await page.waitForSelector(".blk-row");
+    if (await page.locator("#side-scrim").isVisible()) errs.push("phone: the sidebar did not close after opening a page");
+    await page.locator(".doc-tail").tap();
+    await page.keyboard.type("Typed on a phone");
+    await page.waitForFunction(() => [...document.querySelectorAll(".blk-ta")].some((t) => t.value.includes("Typed on a phone")));
+    const taFont = await page.locator(".blk-ta").last().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    if (taFont < 16) errs.push(`phone: block text is ${taFont}px (< 16, iOS would zoom)`);
+    await page.keyboard.type("\n/");
+    await page.waitForSelector(".menu");
+    await noOverflow("slash menu");
+    await page.keyboard.press("Escape");
+    // the handle menu offers Move up/down (the tap alternative to dragging)
+    await page.locator(".gutter").first().tap({ force: true });
+    await page.waitForSelector(".menu-item");
+    if (!(await page.locator(".menu-item", { hasText: "Move down" }).count())) errs.push("phone: handle menu has no Move down");
+    await page.keyboard.press("Escape");
+    await noOverflow("page");
+    // long-press on a sidebar row opens the page menu without navigating
+    await sideOpen();
+    const cdp = await phone.newCDPSession(page);
+    const box = await page.locator(".side-item", { hasText: "Column type" }).first().boundingBox();
+    const pt = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [pt] });
+    await page.waitForTimeout(700);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await page.waitForTimeout(150);
+    if (!(await page.locator(".menu-item", { hasText: "Rename" }).count())) errs.push("phone: long-press on a sidebar row did not open its menu");
+    await page.keyboard.press("Escape");
+    // a database: table, then a board and a calendar, all without horizontal page scroll
+    await page.locator(".side-item", { hasText: "Column type" }).first().tap();
+    await page.waitForSelector(".db-table");
+    await noOverflow("table");
+    for (const v of ["Board", "Calendar", "Sheet"]) {
+      await page.locator(".add-view").tap();
+      await page.locator(".menu-item", { hasText: new RegExp(`^${v}$`) }).tap();
+      await page.waitForTimeout(150);
+      await noOverflow(v);
+    }
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} phone 390x844 touch${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await phone.close();
+  }
   await browser.close();
   server.kill();
   process.exit(failed ? 1 : 0);
