@@ -1,5 +1,5 @@
 const ADAPTERS = {
-  local: async () => (await import("./adapters/local.js")).createLocalAdapter(),
+  local: async (config) => (await import("./adapters/local.js")).createLocalAdapter(globalThis.localStorage, "denotion", { keyring: config.keyring ?? null }),
   memory: async () => (await import("./adapters/memory.js")).createMemoryAdapter(),
   "artifact-db": async (config) => (await import("./adapters/artifact-db.js")).createArtifactDbAdapter(config.artifactDb),
   firebase: async (config) => (await import("./adapters/firebase.js")).createFirebaseAdapter(config.firebase)

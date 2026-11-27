@@ -122,6 +122,9 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await page.keyboard.type("0000");
     await page.waitForFunction(() => /Wrong PIN/.test(document.querySelector(".lock-msg")?.textContent || ""), null, { timeout: 8000 }).catch(() => errs.push("lock: wrong PIN was not refused"));
     if (!(await page.locator("#lock").count())) errs.push("lock: wrong PIN unlocked");
+    if (!/Try again in 3 s/.test(await page.locator(".lock-msg").textContent())) errs.push("lock: wrong PIN message does not say 3 s");
+    if (!(await page.locator('.lock-key[data-key="1"]').isDisabled())) errs.push("lock: keys not blocked right after a wrong PIN");
+    await page.waitForFunction(() => !document.querySelector('.lock-key[data-key="1"]')?.disabled, null, { timeout: 4500 }).catch(() => errs.push("lock: still blocked after 3 s"));
     for (const d of "1357") await page.locator(`.lock-key[data-key="${d}"]`).click();
     await page.waitForSelector("#lock", { state: "detached", timeout: 8000 }).catch(() => errs.push("lock: right PIN did not unlock"));
     await page.waitForSelector(".side-item");
@@ -175,6 +178,151 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     const ok = errs.length === 0;
     failed ||= !ok;
     console.log(`${ok ? "ok  " : "FAIL"} PIN lock + reset${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await ctx.close();
+  }
+  // Encryption: browser copy on (recovery key shown once), reload + unlock decrypts, PIN change re-wraps,
+  // remove PIN refused, a passworded ZIP (WinZip AES) exports and re-imports, storage-location encryption on a
+  // folder (OPFS stands in for the folder picker) and off again, browser copy off.
+  {
+    const t = targets[0];
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => {
+      window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle("vault", { create: true });
+    });
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    const openMenuItem = async (re) => {
+      await page.locator(".act-more").click();
+      await page.locator(".menu-item", { hasText: re }).click();
+    };
+    const closeAll = async () => {
+      while (await page.locator(".modal").count()) {
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(50);
+      }
+    };
+    const unlock = async (pin) => {
+      await page.waitForSelector("#lock");
+      await page.keyboard.type(pin);
+      await page.waitForSelector("#lock", { state: "detached", timeout: 10000 }).catch(() => errs.push(`enc: PIN ${pin} did not unlock`));
+    };
+    const confirmPin = async (pin) => {
+      await page.waitForSelector(".pin-confirm");
+      await page.fill(".pin-confirm", pin);
+      await page.locator(".pin-go").click();
+    };
+    const records = () => page.evaluate(() => Object.keys(localStorage).filter((k) => /^denotion:(pages|rows):/.test(k)).map((k) => localStorage.getItem(k)));
+    await page.goto(`http://127.0.0.1:${PORT}${t}`);
+    await page.waitForSelector(".side-item");
+    await page.evaluate(async () => (await import("./js/lock.js")).setPin("2468", 4));
+    await page.reload();
+    await unlock("2468");
+    await page.waitForSelector(".side-item");
+    await openMenuItem("Settings");
+    if (!/keep the files private/.test(await page.locator(".enc-honest").textContent())) errs.push("enc: honest text missing");
+    await page.locator(".enc-browser").click();
+    await confirmPin("2468");
+    await page.waitForSelector(".rk-code");
+    const rk = (await page.locator(".rk-code").textContent()).trim();
+    if (!/^[A-Z2-7]{4}(-[A-Z2-7]{4}){7}$/.test(rk)) errs.push(`enc: recovery key format ${rk}`);
+    if (await page.locator(".rk-keep").isChecked()) errs.push("enc: keep recovery key is on by default");
+    await page.locator(".rk-saved").click();
+    await page.waitForFunction(() => /browser copy is encrypted/.test(document.querySelector(".enc-progress")?.textContent || ""), null, { timeout: 15000 }).catch(() => errs.push("enc: browser copy job did not finish"));
+    await closeAll();
+    let recs = await records();
+    if (!recs.length || !recs.every((v) => v.includes('"denotation-enc"'))) errs.push(`enc: browser records not all encrypted (${recs.length})`);
+    if (recs.some((v) => v.includes("Welcome"))) errs.push("enc: a title is in clear");
+    if (!(await page.evaluate(() => localStorage.getItem("denotion:keys")))) errs.push("enc: no local key file");
+    if ((await page.evaluate(() => localStorage.getItem("denotion:prefs") ?? "{}")).includes("denotation-enc")) errs.push("enc: prefs were encrypted");
+    await page.reload();
+    await unlock("2468");
+    await page.waitForSelector(".side-item", { hasText: "Welcome" }, { timeout: 8000 }).catch(() => errs.push("enc: workspace not readable after reload + unlock"));
+    // remove PIN is refused while encryption is on
+    await openMenuItem("Settings");
+    await page.locator(".pin-remove").click();
+    await page.fill(".pin-current", "2468");
+    await page.locator(".pin-go").click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".modal-error")].some((e) => /Turn encryption off first/.test(e.textContent)), null, { timeout: 8000 }).catch(() => errs.push("enc: removing the PIN was not refused"));
+    await closeAll();
+    // change PIN: re-wraps the key; the new PIN unlocks and decrypts
+    await openMenuItem("Settings");
+    await page.locator(".pin-change").click();
+    await page.fill(".pin-current", "2468");
+    await page.fill(".pin-new", "1122");
+    await page.fill(".pin-again", "1122");
+    await page.locator(".pin-go").click();
+    await page.waitForFunction(() => document.querySelectorAll(".modal").length === 1, null, { timeout: 15000 }).catch(() => errs.push("enc: PIN change did not finish"));
+    await closeAll();
+    await page.reload();
+    await unlock("1122");
+    await page.waitForSelector(".side-item", { hasText: "Welcome" }, { timeout: 8000 }).catch(() => errs.push("enc: not readable after a PIN change"));
+    // passworded ZIP export (AES entries) and import with the password
+    await openMenuItem(/^Export/);
+    await page.locator(".menu-item", { hasText: "ZIP with options" }).click();
+    await page.locator(".zip-protect").check();
+    await page.fill(".zip-pw-new", "correct horse");
+    await page.fill(".zip-pw-again", "correct horse");
+    const [dl] = await Promise.all([page.waitForEvent("download"), page.locator(".zip-export-go").click()]);
+    const zbuf = fs.readFileSync(await dl.path());
+    if (zbuf.readUInt16LE(8) !== 99 || (zbuf.readUInt16LE(6) & 1) !== 1) errs.push("enc: passworded ZIP entries are not AES (method 99)");
+    if (zbuf.includes("Welcome")) errs.push("enc: passworded ZIP has text in clear");
+    await page.setInputFiles(".side-footer input[type=file]", { name: "locked.zip", mimeType: "application/zip", buffer: zbuf });
+    await page.waitForSelector(".zip-pw");
+    await page.fill(".zip-pw", "wrong horse");
+    await page.locator(".zip-pw-go").click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".modal-error")].some((e) => /Wrong password/.test(e.textContent)), null, { timeout: 8000 }).catch(() => errs.push("enc: wrong ZIP password not refused"));
+    await page.fill(".zip-pw", "correct horse");
+    await page.locator(".zip-pw-go").click();
+    if (!(await page.locator(".toast", { hasText: /Restored \d+ pages/ }).first().textContent({ timeout: 8000 }).catch(() => ""))) errs.push("enc: passworded ZIP import: no success toast");
+    // storage location (OPFS folder) encrypted, then decrypted
+    if (await page.evaluate(() => typeof showDirectoryPicker === "function")) {
+      await openMenuItem("Storage");
+      await page.locator(".modal-actions .loc-add").click();
+      await page.locator(".menu-item", { hasText: "Folder as main" }).click();
+      await page.waitForSelector(".loc-row.main", { timeout: 8000 }).catch(() => errs.push("enc: OPFS folder not added"));
+      await closeAll();
+      await openMenuItem("Settings");
+      await page.locator(".enc-files-on").click();
+      await confirmPin("1122");
+      await page.waitForSelector(".rk-code");
+      await page.locator(".rk-saved").click();
+      await page.waitForFunction(() => /locations are encrypted/.test(document.querySelector(".enc-progress")?.textContent || ""), null, { timeout: 20000 }).catch(async () => errs.push(`enc: storage encryption did not finish: ${await page.locator(".enc-progress").textContent().catch(() => "")}`));
+      await closeAll();
+      const opfs = () => page.evaluate(async () => {
+        const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("vault");
+        const read = async (d, name) => (await (await d.getFileHandle(name)).getFile()).text();
+        const pages = await dir.getDirectoryHandle("pages");
+        const vals = [];
+        for await (const [n] of pages.entries()) vals.push(await read(pages, n));
+        let keys = null;
+        try { keys = await read(dir, "keys.json"); } catch { keys = null; }
+        return { manifest: JSON.parse(await read(dir, "denotation.json")), vals, keys };
+      });
+      let o = await opfs();
+      if (!o.manifest.encrypted || o.manifest.encryption || !o.keys) errs.push(`enc: folder manifest/keys wrong ${JSON.stringify(o.manifest)}`);
+      if (!o.vals.length || !o.vals.every((v) => v.includes('"denotation-enc"'))) errs.push("enc: folder pages not all encrypted");
+      await openMenuItem("Settings");
+      await page.locator(".enc-files-off").click();
+      await confirmPin("1122");
+      await page.waitForFunction(() => /plain again/.test(document.querySelector(".enc-progress")?.textContent || ""), null, { timeout: 20000 }).catch(() => errs.push("enc: storage decryption did not finish"));
+      await closeAll();
+      o = await opfs();
+      if (o.manifest.encrypted || o.keys || o.vals.some((v) => v.includes('"denotation-enc"'))) errs.push("enc: folder not fully plain after turning off");
+    } else errs.push("enc: no folder picker stand-in, folder encryption not tested");
+    // browser copy off: plain again, key file removed (no encryption left)
+    await openMenuItem("Settings");
+    await page.locator(".enc-browser").click();
+    await confirmPin("1122");
+    await page.waitForFunction(() => /plain again/.test(document.querySelector(".enc-progress")?.textContent || ""), null, { timeout: 15000 }).catch(() => errs.push("enc: browser copy decrypt did not finish"));
+    await closeAll();
+    recs = await records();
+    if (recs.some((v) => v.includes('"denotation-enc"'))) errs.push("enc: browser records still encrypted");
+    if (await page.evaluate(() => localStorage.getItem("denotion:keys"))) errs.push("enc: key file left after turning everything off");
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} encryption (browser copy, PIN change, ZIP password, folder)${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
     await ctx.close();
   }
   // Phone lock screen: keypad sized for touch, 16px input, no overflow, tapping the keys unlocks

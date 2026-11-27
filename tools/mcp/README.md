@@ -102,3 +102,7 @@ but never reads them back, so changes the assistant makes in a backup are never 
 - Embedded images appear in Markdown as `![caption](embedded:<block id>)`; keep that line when rewriting a body and
   the image is kept. The server can't add new embedded images.
 - Formula columns are recomputed for the row being written; the app recomputes the rest when the database is opened.
+- **Encrypted folders are refused.** If the app has encrypted the folder (Settings → Security → Encrypt storage
+  locations; `denotation.json` says `"encrypted": true`, or an encryption job is running), every tool returns
+  "this folder is encrypted; the AI server can't read it" and nothing is read or written. The server can't decrypt
+  the files and never writes plain records into an encrypted folder. Turn encryption off in the app to use AI access.

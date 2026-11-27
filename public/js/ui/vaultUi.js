@@ -10,6 +10,7 @@ import { createZip, readZip } from "../zip.js";
 import { toJsonFiles, toMarkdownFiles, importFiles } from "../vault.js";
 import { folderSupported } from "../adapters/folder.js";
 import { LOCATION_TYPES, PUSH_MINUTES } from "../adapters/locations.js";
+import { openUnlockKeyDialog } from "./security.js";
 
 const READ_EXT = /\.(md|markdown|csv|tsv|json|png|jpe?g|gif|webp)$/i;
 const READ_MAX = 256 * 1024 * 1024;
@@ -52,8 +53,34 @@ function summary(r) {
   return extra ? `${main} (${extra})` : main;
 }
 
+/** Ask for a ZIP password. Resolves the text, or null when cancelled. `check(pw)` throws to keep the dialog open. */
+function askZipPassword({ title = "Password-protected ZIP", intro, check } = {}) {
+  const input = h("input", { type: "password", class: "zip-pw", autocomplete: "off", maxlength: 200 });
+  const body = h("div", { class: "pin-dialog" }, h("p", {}, intro ?? "This ZIP is protected with a password."), h("label", {}, "Password", input));
+  return new Promise((resolve) => {
+    let pw = null;
+    openModal({
+      title,
+      content: body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Open", class: "primary zip-pw-go", run: async () => {
+          if (!input.value) throw new Error("Enter the password.");
+          await check?.(input.value);
+          pw = input.value;
+        } }
+      ],
+      onClose: () => resolve(pw)
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") body.closest(".modal")?.querySelector(".zip-pw-go")?.click();
+    });
+    input.focus();
+  });
+}
+
 /**
- * ctx: { store, ws(), flush(), afterImport(result), activeRepoId(), redraw(), onRemote() }
+ * ctx: { store, ws(), flush(), afterImport(result), activeRepoId(), redraw(), onRemote(), keyring }
  */
 export function createVaultUi(ctx) {
   const { store } = ctx;
@@ -82,11 +109,76 @@ export function createVaultUi(ctx) {
     const status = await saveTextFile(`denotation-${today()}.json`, JSON.stringify(await data(), null, 2));
     if (status === "copied") toast("Downloads are unavailable here, so the export was copied to your clipboard.");
   });
-  const exportZip = (format) => run("Export", async () => {
+  const exportZip = (format, password = null) => run("Export", async () => {
     const files = await filesFor(format);
-    const bytes = await createZip(files, { compress: true });
+    if (password) toast("Encrypting the ZIP\u2026");
+    const bytes = await createZip(files, { compress: true, password });
     await saveBinaryFile(`denotation-${today()}${format === "markdown" ? "-markdown" : ""}.zip`, bytes);
   });
+  /** Export dialog for ZIPs with options: format and "Protect with a password" (off by default). */
+  const openZipExport = () => {
+    let format = "json";
+    let protect = false;
+    const seg = h("div", { class: "seg zip-format", role: "group", "aria-label": "Format" });
+    const drawSeg = () => seg.replaceChildren(...[["json", "Denotation JSON"], ["markdown", "Markdown"]].map(([v, label]) => h("button", {
+      type: "button",
+      "aria-pressed": String(format === v),
+      onClick: () => {
+        format = v;
+        drawSeg();
+      }
+    }, format === v ? ico("check") : null, label)));
+    drawSeg();
+    const pw = h("input", { type: "password", class: "zip-pw-new", autocomplete: "new-password", maxlength: 200 });
+    const pw2 = h("input", { type: "password", class: "zip-pw-again", autocomplete: "new-password", maxlength: 200 });
+    const fields = h("div", { class: "zip-pw-fields", hidden: true },
+      h("label", {}, "Password", pw),
+      h("label", {}, "Password again", pw2),
+      h("p", { class: "hint" }, "Standard ZIP AES-256 (WinZip AE-2): opens in 7-Zip, WinRAR, Keka and macOS Archive Utility; Windows Explorer may not open it. File names inside stay visible. There's no way to recover a forgotten password."));
+    const box = h("input", { type: "checkbox", class: "zip-protect", onChange: (e) => {
+      protect = e.target.checked;
+      fields.hidden = !protect;
+      if (protect) pw.focus();
+    } });
+    openModal({
+      title: "Export as ZIP",
+      content: h("div", { class: "zip-export" },
+        h("p", { class: "set-label" }, "Format"), seg,
+        h("label", { class: "check-row" }, box, h("span", {}, "Protect with a password")),
+        fields,
+        h("p", { class: "hint" }, "Passwords are for ZIP exports only; JSON file exports are always plain.")),
+      actions: [
+        { label: "Cancel" },
+        { label: "Export", class: "primary zip-export-go", run: () => {
+          if (protect) {
+            if (pw.value.length < 8) throw new Error("Use a password of at least 8 characters.");
+            if (pw.value !== pw2.value) throw new Error("The two passwords don't match.");
+          }
+          exportZip(format, protect ? pw.value : null);
+        } }
+      ]
+    });
+  };
+  /** Read a ZIP, asking for its password when it has AES entries. Resolves null when the password is cancelled. */
+  const readZipAsk = async (bytes) => {
+    try {
+      return await readZip(bytes);
+    } catch (e) {
+      if (e?.code !== "password-required") throw e;
+    }
+    let entries = null;
+    const pw = await askZipPassword({
+      check: async (p) => {
+        try {
+          entries = await readZip(bytes, { password: p });
+        } catch (e) {
+          if (e?.code === "bad-password") throw new Error("Wrong password.");
+          throw e;
+        }
+      }
+    });
+    return pw ? entries : null;
+  };
   const exportFolder = (format) => run("Export", async () => {
     const dir = await globalThis.showDirectoryPicker({ id: "denotation-export", mode: "readwrite" });
     const files = await filesFor(format);
@@ -114,7 +206,8 @@ export function createVaultUi(ctx) {
         const zip = picked.find((f) => /\.zip$/i.test(f.name));
         if (zip) {
           if (picked.length > 1) throw new Error("Import one ZIP at a time.");
-          const entries = await readZip(new Uint8Array(await zip.arrayBuffer()));
+          const entries = await readZipAsk(new Uint8Array(await zip.arrayBuffer()));
+          if (!entries) return;
           return doImport(entries, { name: zip.name.replace(/\.zip$/i, "") || "Imported" });
         }
         const files = await Promise.all(picked.map(async (f) => ({ path: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
@@ -140,7 +233,18 @@ export function createVaultUi(ctx) {
     const min = s.nextPushAt ? Math.max(1, Math.ceil((s.nextPushAt - Date.now()) / 60000)) : 0;
     return `${plural(s.unpushed, "change")}${min ? ` · next push in ${min} min` : ""}`;
   };
-  const STATE_LABEL = { synced: "Connected", syncing: "Syncing…", "needs-permission": "Needs permission", error: "Error" };
+  const STATE_LABEL = { synced: "Connected", syncing: "Syncing…", "needs-permission": "Needs permission", locked: "Locked", error: "Error" };
+  /** An encrypted location this browser has no key for: ask for its PIN or recovery key, then sync it. */
+  const unlockLoc = (loc) => run("Unlock", async () => {
+    if (!ctx.keyring) throw new Error("Encryption isn't available here.");
+    const keyFile = await store.locationKeyFile(loc.id);
+    if (!keyFile) throw new Error(`"${loc.name}" has no readable key file (keys.json).`);
+    const ok = await openUnlockKeyDialog({ keyFile, keyring: ctx.keyring, intro: `"${loc.name}" is encrypted. Enter the PIN that was used for it, or its recovery key.` });
+    if (!ok) return;
+    await store.retryLocked();
+    const l = st().locations.find((x) => x.id === loc.id);
+    toast(l?.state === "locked" ? `"${loc.name}" is still locked: ${l.error}` : `Unlocked "${loc.name}".`, l?.state === "locked" ? "error" : "info");
+  });
 
   const reconnectAll = () => run("Reconnect", async () => {
     disarm();
@@ -293,7 +397,15 @@ export function createVaultUi(ctx) {
       throw e;
     }
     await ctx.flush();
-    const r = await store.addLocation(handle, { role });
+    let r;
+    try {
+      r = await store.addLocation(handle, { role });
+    } catch (e) {
+      if (e?.code !== "locked") throw e;
+      const loc = st().locations.find((l) => l.state === "locked" && l.name === handle.name);
+      if (loc && /unlock to sync/.test(loc.error)) return unlockLoc(loc);
+      throw e;
+    }
     const name = handle.name;
     if (role === "backup") toast(`Backing up to "${name}".`);
     else if (r.counts?.manual) toast(`"${name}" is the main location. Manual sync: use Pull or Push.`);
@@ -346,11 +458,12 @@ export function createVaultUi(ctx) {
     const s = st();
     const type = LOCATION_TYPES.find((t) => t.type === loc.type)?.label ?? loc.type;
     const btn = (label, icon, onClick, cls = "", disabled = false) => h("button", { class: `chip-btn ${cls}`.trim(), onClick, disabled }, ico(icon), ` ${label}`);
-    const needs = loc.state === "needs-permission";
+    const locked = loc.state === "locked";
+    const needs = loc.state === "needs-permission" || locked;
     return h(
       "li",
       { class: `loc-row${isMain ? " main" : ""}` },
-      h("div", { class: "loc-head" }, ico("folder"), h("strong", { class: "loc-name" }, loc.name || "Folder"), h("span", { class: "chip" }, isMain ? "Main" : "Backup")),
+      h("div", { class: "loc-head" }, ico("folder"), h("strong", { class: "loc-name" }, loc.name || "Folder"), h("span", { class: "chip" }, isMain ? "Main" : "Backup"), loc.encrypted ? h("span", { class: "chip enc-chip" }, ico("lock-keyhole"), " Encrypted") : null),
       h("div", { class: "hint loc-meta" }, `${type} · ${STATE_LABEL[loc.state] ?? loc.state}${loc.error ? `: ${loc.error}` : ""} · last ${isMain ? "synced" : "copied"} ${when(loc.lastSyncAt)}`),
       isMain && !needs
         ? h(
@@ -384,7 +497,8 @@ export function createVaultUi(ctx) {
       h(
         "div",
         { class: "loc-actions" },
-        needs ? btn("Reconnect", "refresh-cw", reconnectAll) : null,
+        loc.state === "needs-permission" ? btn("Reconnect", "refresh-cw", reconnectAll) : null,
+        locked && /unlock to sync/.test(loc.error) ? btn("Unlock…", "lock-keyhole-open", () => unlockLoc(loc), "loc-unlock") : null,
         isMain && !needs ? btn(coolLabel("Pull"), "download", () => transfer("pull"), "", !!coolLeft()) : null,
         isMain && !needs ? btn(coolLabel("Push"), "upload", () => transfer("push"), "", !!coolLeft()) : null,
         !isMain ? btn("Make main", "folder-sync", () => makeMain(loc)) : null,
@@ -442,6 +556,7 @@ export function createVaultUi(ctx) {
     { label: "JSON file", icon: ico("file-braces"), onSelect: exportJsonFile },
     { label: "ZIP — Markdown", icon: ico("file-archive"), onSelect: () => exportZip("markdown") },
     { label: "ZIP — Denotation JSON", icon: ico("file-archive"), onSelect: () => exportZip("json") },
+    { label: "ZIP with options… (password)", icon: ico("file-lock"), onSelect: openZipExport },
     { header: true, label: "Folder" },
     ...(folderSupported()
       ? [
@@ -459,7 +574,7 @@ export function createVaultUi(ctx) {
   /** Entries for the sidebar's workspace (⋯) menu. */
   const menuItems = () => {
     const m = live ? mainLoc() : null;
-    const ok = m && m.state !== "needs-permission";
+    const ok = m && m.state !== "needs-permission" && m.state !== "locked";
     const s = live ? st() : {};
     return [
       { label: "Export", icon: ico("file-down"), items: exportItems() },
@@ -467,7 +582,8 @@ export function createVaultUi(ctx) {
       live ? { label: "Storage…", icon: ico("hard-drive"), hint: m ? (s.mode === "manual" ? "manual" : "auto") : "", onSelect: openStorage } : null,
       ok ? { label: coolLabel("Pull"), icon: ico("download"), hint: s.incoming ? "new" : "", disabled: !!coolLeft(), onSelect: () => transfer("pull") } : null,
       ok ? { label: coolLabel("Push"), icon: ico("upload"), hint: s.unpushed ? String(s.unpushed) : "", disabled: !!coolLeft(), onSelect: () => transfer("push") } : null,
-      m && !ok ? { label: "Reconnect storage", icon: ico("refresh-cw"), onSelect: reconnectAll } : null
+      m && m.state === "needs-permission" ? { label: "Reconnect storage", icon: ico("refresh-cw"), onSelect: reconnectAll } : null,
+      m && m.state === "locked" ? { label: "Unlock storage…", icon: ico("lock-keyhole-open"), onSelect: () => unlockLoc(m) } : null
     ].filter(Boolean);
   };
 
@@ -480,7 +596,7 @@ export function createVaultUi(ctx) {
     const backups = nb ? ` · ${plural(nb, "backup")}` : "";
     if (!m) lines.push(h("div", {}, where + backups));
     else {
-      const tag = { syncing: " · syncing…", "needs-permission": " · paused", error: " · error" }[m.state] ?? "";
+      const tag = { syncing: " · syncing…", "needs-permission": " · paused", locked: " · locked", error: " · error" }[m.state] ?? "";
       lines.push(h("div", { title: "Pages sync with the main location and are cached in this browser." }, ico("folder"), ` Main: ${m.name}${tag}${s.mode === "manual" ? " · manual" : ""}${backups}${user ? ` · ${user}` : ""}`));
       if (s.mode === "auto" && m.state !== "needs-permission" && s.unpushed) {
         lines.push(h("div", { class: "note sync-pending", role: "status", title: "Pushed to the main location at the interval set in Storage, and when this tab is hidden or closed." }, autoPending(s)));
@@ -506,6 +622,15 @@ export function createVaultUi(ctx) {
         h("button", { class: "folder-reconnect", onClick: reconnectAll }, ico("refresh-cw"), " Reconnect")
       ));
     }
+    for (const l of s.locations.filter((x) => x.state === "locked")) {
+      lines.push(h(
+        "div",
+        { class: "note enc-locked", role: "status" },
+        ico("lock-keyhole"), ` "${l.name}": ${/unlock to sync/.test(l.error) ? "Encrypted \u2014 unlock to sync." : l.error} `,
+        /unlock to sync/.test(l.error) ? h("button", { class: "loc-unlock", onClick: () => unlockLoc(l) }, ico("lock-keyhole-open"), " Unlock") : null
+      ));
+    }
+    if (s.job) lines.push(h("div", { class: "note", role: "status" }, `${s.job.target === "encrypted" ? "Encrypting" : "Decrypting"} "${s.job.name}": ${s.job.done} of ${s.job.total}\u2026`));
     for (const l of s.locations.filter((x) => x.state === "error")) {
       lines.push(h("div", { class: "note", role: "status" }, l.role === "main" ? `Sync with "${l.name}" stopped: ${l.error}. Your changes are kept in this browser.` : `Backup to "${l.name}" failed: ${l.error}.`));
     }

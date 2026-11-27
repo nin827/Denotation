@@ -4,7 +4,7 @@
 //
 // localStorage keys (all start with "denotion:", so a reset sweeps them):
 //   denotion:pin           { v: 1, length: 4|6, salt: <base64 16 bytes>, iterations, hash: <base64 32 bytes> }
-//   denotion:pin-attempts  { failures, until }   wrong tries in a row and the time the next try is allowed
+//   denotion:pin-attempts  (legacy, older versions only: removed on the next right PIN / PIN change; never written)
 //   denotion:lock-idle     minutes of inactivity before the app locks itself (0 = never)
 //
 // The verified PIN is handed to onUnlock() listeners and then dropped; a later step can derive an
@@ -17,8 +17,8 @@ export const PIN_LENGTHS = [4, 6];
 export const ITERATIONS = 600000;
 export const IDLE_CHOICES = [0, 1, 5, 15, 60];
 export const DEFAULT_IDLE = 5;
-export const FREE_TRIES = 3;
-export const MAX_DELAY_MS = 5 * 60 * 1000;
+/** Fixed block after a wrong PIN (no escalation, not persisted). */
+export const WRONG_WAIT_MS = 3000;
 export const RESET_PREFIXES = ["denotion", "denotation"];
 export const RESET_FLAG = "denotation:reset-pending";
 
@@ -127,45 +127,49 @@ export function removePin(storage = ls()) {
 }
 
 // ---------- wrong attempts ----------
-/** Wait after `failures` wrong tries in a row: none for the first FREE_TRIES - 1, then 2, 4, 8 ... s, capped at 5 min. */
-export function delayMs(failures) {
-  const n = Number(failures) || 0;
-  if (n < FREE_TRIES) return 0;
-  return Math.min(MAX_DELAY_MS, 2 ** (n - FREE_TRIES + 1) * 1000);
+/**
+ * After a wrong PIN, input is blocked for a fixed WRONG_WAIT_MS (3 s), then the next try is allowed.
+ * No escalation and nothing persisted: the block lives in memory only. A throttle is shared by every
+ * PIN prompt that uses it (the lock screen, Settings, the encrypted-folder prompt use the default one).
+ */
+export function createThrottle(waitMs = WRONG_WAIT_MS) {
+  let until = 0;
+  return {
+    /** Milliseconds until the next try is allowed (0 = now); never more than waitMs (clock set back). */
+    waitLeft: (now = Date.now()) => Math.max(0, Math.min(until - now, waitMs)),
+    fail: (now = Date.now()) => {
+      until = now + waitMs;
+      return waitMs;
+    },
+    clear: () => {
+      until = 0;
+    }
+  };
 }
-export function loadAttempts(storage = ls()) {
-  const a = readJson(storage, ATTEMPTS_KEY);
-  const failures = Math.max(0, Math.floor(Number(a?.failures) || 0));
-  const until = Math.max(0, Number(a?.until) || 0);
-  return { failures, until };
-}
+export const pinThrottle = createThrottle();
+/** Older versions persisted a growing delay here; it is only ever removed now. */
 export function clearAttempts(storage = ls()) {
   removeKey(storage, ATTEMPTS_KEY);
 }
-/** Milliseconds until the next try is allowed (0 = now). A clock set back can't extend it past the cap. */
-export function waitLeft(storage = ls(), now = Date.now()) {
-  const { until } = loadAttempts(storage);
-  return Math.max(0, Math.min(until - now, MAX_DELAY_MS));
-}
+/** Milliseconds until the next PIN try is allowed (0 = now). */
+export const waitLeft = (now = Date.now(), throttle = pinThrottle) => throttle.waitLeft(now);
 
 /**
- * One try at the PIN: honours the wait, verifies, and records the result.
- * -> { ok: true } | { ok: false, waitMs, failures, throttled? }
+ * One try at the PIN: honours the 3 s block, verifies, and records the result.
+ * -> { ok: true } | { ok: false, waitMs, throttled? }
  */
-export async function tryPin(pin, { storage = ls(), now = () => Date.now() } = {}) {
+export async function tryPin(pin, { storage = ls(), now = () => Date.now(), throttle = pinThrottle } = {}) {
   const record = loadRecord(storage);
   if (!record) return { ok: true, noPin: true };
-  const left = waitLeft(storage, now());
-  if (left > 0) return { ok: false, throttled: true, waitMs: left, failures: loadAttempts(storage).failures };
+  const left = throttle.waitLeft(now());
+  if (left > 0) return { ok: false, throttled: true, waitMs: left };
   const ok = await verifyPin(pin, record);
   if (ok) {
+    throttle.clear();
     clearAttempts(storage);
     return { ok: true };
   }
-  const failures = loadAttempts(storage).failures + 1;
-  const waitMs = delayMs(failures);
-  writeJson(storage, ATTEMPTS_KEY, { failures, until: now() + waitMs });
-  return { ok: false, waitMs, failures };
+  return { ok: false, waitMs: throttle.fail(now()) };
 }
 
 // ---------- idle ----------

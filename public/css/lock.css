@@ -49,8 +49,8 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .lock-dot { transition: none; } }
 
 /* Settings → Security */
-.security .pin-state { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
-.security .pin-state .icon-svg { width: 16px; height: 16px; flex: none; }
+.security .pin-state, .security .enc-state { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
+.security .pin-state .icon-svg, .security .enc-state .icon-svg { width: 16px; height: 16px; flex: none; }
 .sec-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .sec-actions button, .security .reset-open { display: inline-flex; align-items: center; gap: 4px; }
 .security .icon-svg { width: 16px; height: 16px; }
@@ -67,6 +67,23 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 .reset-code { font-family: var(--mono); font-size: 18px; letter-spacing: .12em; }
 .reset-input { font-family: var(--mono); letter-spacing: .12em; }
 
+/* Encryption: Settings, recovery key, unlock and ZIP password dialogs */
+.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 8px; font-size: var(--fs-ui, 14px); cursor: pointer; }
+.check-row input[type=checkbox] { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+.rk-code {
+  font-family: var(--mono); font-size: 17px; letter-spacing: .06em; line-height: 1.6; word-break: break-all;
+  padding: 10px 12px; margin: 8px 0 !important; border-radius: var(--radius); border: 1px dashed var(--border); background: var(--bg-soft);
+  user-select: all; -webkit-user-select: all;
+}
+.rk-copy, .enc-export { display: inline-flex; align-items: center; gap: 4px; }
+.rk-copy .icon-svg, .enc-result .icon-svg, .enc-chip .icon-svg, .enc-locked .icon-svg, .loc-unlock .icon-svg { width: 14px; height: 14px; vertical-align: -2px; }
+.enc-chip { display: inline-flex; align-items: center; gap: 3px; }
+.enc-progress { font-variant-numeric: tabular-nums; min-height: 1.5em; }
+.enc-result p { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; }
+.unlock-dialog input.unlock-secret, .zip-pw, .zip-pw-new, .zip-pw-again { font-family: var(--mono); }
+.zip-pw-fields label { display: block; }
+
 @media (pointer: coarse) {
   .sec-actions button, .security .reset-open, .reset-export { min-height: 44px; }
+  .check-row { min-height: 44px; align-items: center; }
 }

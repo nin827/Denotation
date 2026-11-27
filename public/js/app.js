@@ -17,9 +17,10 @@ import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./u
 import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
 import { openFeedback } from "./ui/feedback.js";
 import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
-import { hasPin } from "./lock.js";
+import { hasPin, onUnlock } from "./lock.js";
 import { createLockScreen } from "./ui/lock.js";
-import { securitySection, openResetDialog, finishPendingReset } from "./ui/security.js";
+import { securitySection, openResetDialog, finishPendingReset, openUnlockKeyDialog, runBrowserJob } from "./ui/security.js";
+import { createKeyring } from "./crypto.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");
@@ -35,6 +36,9 @@ let persistence = null;
 let env = null;
 let vaultUi = null;
 let prefs = loadPrefs();
+// Encryption: the data key is opened with the PIN at each unlock and dropped when the app locks.
+const keyring = createKeyring();
+onUnlock((pin) => keyring.unlock(pin));
 applyPrefs(prefs);
 const layout = createLayout({ appEl, getLocked: () => prefs.sidebarLocked, onChange: () => {
   if (ws) drawSidebar();
@@ -65,11 +69,13 @@ const lockUi = createLockScreen({
       console.error(e);
     }
     if (!lockUi.isLocked()) return;
+    keyring.lock();
     sidebarEl.replaceChildren();
     mainEl.replaceChildren();
   },
   onUnlocked: async () => {
     if (ws) await route();
+    if (ws) afterKeyReady();
   },
   onForgot: () => {
     const { getStatus, prepareReset } = resetCtx();
@@ -82,12 +88,18 @@ async function main() {
   if (hasPin()) await lockUi.lock(); // nothing is loaded or drawn before the PIN is entered
   lockUi.watchIdle();
   showMessage("Opening your workspace\u2026");
+  // The PIN opened the lock but not this browser's key file (should not happen): the recovery key opens it.
+  while (keyring.file() && !keyring.unlocked()) {
+    const ok = await openUnlockKeyDialog({ keyFile: keyring.file(), keyring, title: "Open the encryption key", intro: "Your PIN didn't open this browser's encryption key. Enter your recovery key." });
+    if (!ok) showMessage("The encrypted data stays locked. Reload to try again.");
+    if (!ok) return;
+  }
   try {
-    store = await createStore(config);
+    store = await createStore({ ...config, keyring });
   } catch (e) {
     return showFatal(e);
   }
-  if (folderSupported() && store.name === "local") store = createFolderAdapter(store);
+  if (folderSupported() && store.name === "local") store = createFolderAdapter(store, { keyring });
   if (store.auth) {
     store.auth.onChange((u) => u ? start(u) : showLogin());
   } else {
@@ -164,6 +176,7 @@ async function start(u) {
       await refresh();
       await route();
     },
+    keyring,
     afterImport: async (r) => {
       await refresh();
       if (r.rootId && r.format === "markdown") env.open(r.rootId);
@@ -186,6 +199,14 @@ async function start(u) {
   }
   await route();
   vaultUi.init().catch((e) => toast(`Folder sync: ${e.message}`, "error"));
+  runBrowserJob(keyring);
+}
+/** After an unlock: finish an interrupted browser-copy job and retry storage that waited for the key. */
+function afterKeyReady() {
+  if (!keyring.unlocked()) return;
+  runBrowserJob(keyring);
+  store?.retryLocked?.().catch(() => {});
+  store?.checkNow?.().catch(() => {});
 }
 async function route() {
   if (lockUi.isLocked() || !ws) return;
@@ -270,7 +291,7 @@ function drawSidebar() {
       prefs = p;
       layout.apply();
       drawSidebar();
-    }, extra: securitySection({ ...resetCtx(), onPinChange: drawSidebar, onIdleChange: () => lockUi.touch() }) }),
+    }, extra: securitySection({ ...resetCtx(), keyring, store, onPinChange: drawSidebar, onIdleChange: () => lockUi.touch() }) }),
     onLockNow: hasPin() ? lockNow : null,
     onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),
     onAiAccess: () => openAiAccess(env),

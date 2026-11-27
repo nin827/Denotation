@@ -495,11 +495,24 @@ It needs [Node.js](https://nodejs.org) on your computer. Other assistants and op
 Open **⋯ → Settings → Security** to set a 4- or 6-digit PIN for this browser.
 
 - With a PIN, Denotation opens on a lock screen, and locks itself after the idle time you choose (Never, 1, 5, 15 minutes or 1 hour; default 5). **⋯ → Lock now** locks at once.
-- The PIN hides the app on this device. **It doesn't encrypt your data.**
-- After 3 wrong tries you have to wait: 2 seconds, doubling up to 5 minutes. The wait survives reloads.
+- On its own, the PIN hides the app on this device; it doesn't encrypt anything. For that, turn on encryption (below).
+- After a wrong PIN, input is blocked for 3 seconds, then you can try again.
 - **There is no PIN reset.** If you forget it, choose **Forgot PIN? Reset this browser** on the lock screen.
 - **Reset local cache** (Settings → Security) deletes all Denotation data in this browser: pages and rows, preferences, the PIN, the AI access copy and storage-location links. Folders on disk are not touched. To confirm, type the 8-digit number shown (a new one each time). Export first if you have no main storage location or have unpushed changes.
 - Locking applies to the tab you're in; other open tabs don't lock.
+
+### Encryption
+
+**Settings → Security → Encryption** (needs a PIN):
+
+- **Encrypt storage locations…** encrypts every page and row file in your main location and backups with a key unlocked by your PIN. Folder and file names stay visible. Every location must be connected; you can export a backup first. Progress is shown, and an interrupted job continues on the next unlock.
+- When you turn it on, a **recovery key** (8 groups of 4 characters) is shown once. Save it: it's the only way back if you forget your PIN. Turn on **Keep recovery key in the app** to view it later under **Show recovery key** whenever the app is unlocked (changing this later makes a new recovery key).
+- **Also encrypt the browser copy** encrypts the pages kept in this browser too (off by default).
+- **Another device:** when you connect an encrypted folder, enter that folder's PIN or its recovery key; if it differs from this device's PIN, you're asked for this device's PIN too. Until then the folder shows **Encrypted — unlock to sync** and nothing is written to it.
+- **Changing the PIN** re-protects the key everywhere. **Removing the PIN** needs encryption turned off first. Turning encryption off decrypts every file safely, resuming if interrupted.
+- A 4–6 digit PIN can be guessed by someone who has a copy of the files, so keep the files private. If you forget the PIN and lose the recovery key, encrypted data can't be recovered. The AI access (MCP) server can't read encrypted folders.
+
+**Password-protected exports:** **Export → ZIP with options… → Protect with a password** makes a standard AES-256 ZIP (made for 7-Zip, WinRAR, Keka and macOS Archive Utility, though not yet tried in those apps; Windows Explorer may not open it). JSON exports are always plain. Importing a protected ZIP asks for the password.
 
 ## 8. Appearance
 

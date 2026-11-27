@@ -76,13 +76,21 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 - Keep each record under ~250 KB. Images are embedded as data URLs and shrunk to about 150 KB.
 - Preferences live in `localStorage["denotion:prefs"]`.
 - **Lock:** `js/lock.js` (pure; PBKDF2-SHA256, 600k iterations, 16-byte salt, constant-time compare) stores
-  `denotion:pin` `{ v, length, salt, iterations, hash }`, `denotion:pin-attempts` `{ failures, until }` and
-  `denotion:lock-idle` (minutes) in localStorage. `app.js main()` first finishes a pending reset
+  `denotion:pin` `{ v, length, salt, iterations, hash }`, `denotion:lock-idle` (minutes) in localStorage. `app.js main()` first finishes a pending reset
   (`sessionStorage["denotation:reset-pending"]`), then, with a PIN, awaits the lock screen (`ui/lock.js`) before
   `createStore`. Locking flushes persistence and the store, empties `#sidebar` / `#main`, sets `body.is-locked` and
   `#app[inert]`; `route()` / `drawSidebar()` do nothing while locked. `onUnlock(fn)` hands listeners the verified PIN
   (for the encryption key); it is never stored. Reset (`ui/security.js`) removes `denotion*` / `denotation*` localStorage
-  keys, sessionStorage and IndexedDB `denotation`, then reloads.
+  keys, sessionStorage and IndexedDB `denotation`, then reloads. After a wrong PIN every prompt blocks for a fixed 3 s (`WRONG_WAIT_MS`, in memory);
+  `denotion:pin-attempts` is legacy and only removed.
+- **Encryption:** `js/crypto.js`: a random AES-256-GCM data key, wrapped by a PIN key (PBKDF2-SHA256 600k, 16-byte salt)
+  and by a recovery key (160 bits, base32, HKDF); optional kept recovery key encrypted with the data key. Key file
+  `keys.json` in each encrypted location; this device's copy in `denotion:keys`, settings in `denotion:encryption`.
+  Records become `{ "denotation-enc":1, kid, iv, ct }` (fresh IV, AAD `<collection>/<id>`). `denotation.json` gains
+  `encrypted`, `keyId` and, during a job, `encryption: { state, startedAt }`; `permissions.json` stays plain. On/off is a
+  resumable, read-back-verified job per location (`adapters/folder.js`); locations without the key are `locked`.
+  `adapters/local.js` optionally encrypts the browser copy (`migrateBrowserCopy`). The data key lives in memory only while
+  unlocked. `js/zipcrypto.js`: WinZip AES-256 (AE-2) for password ZIPs. The MCP server refuses encrypted folders.
 - Export/Import (sidebar ⋯ menu) goes through `vault.js`: a JSON file, a ZIP or a folder, in **Denotation JSON**
   (`denotation.json` manifest + `pages/<id>.json` + `rows/<id>.json`, full fidelity) or **Markdown** (sibling-folder
   layout, `.csv` databases, `attachments/`, relative links; lossy). Import detects the format by the manifest.

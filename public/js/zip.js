@@ -1,5 +1,8 @@
 // In-house ZIP reader/writer. No dependencies. Methods 0 (store) and 8 (deflate).
 // Deflate uses the built-in CompressionStream / DecompressionStream("deflate-raw").
+// Optional password: WinZip AES-256 entries (AE-2, method 99 + extra field 0x9901, see zipcrypto.js). Reading
+// accepts AE-1 / AE-2 at any AES strength; old ZipCrypto ("traditional PKWARE") encryption is refused.
+import { AES_METHOD, encryptEntry, decryptEntry, aesExtra, parseAesExtra } from "./zipcrypto.js";
 
 const MAX_TOTAL = 512 * 1024 * 1024;
 const enc = new TextEncoder();
@@ -60,7 +63,8 @@ function dosDateTime(d) {
   return { time, date };
 }
 
-export async function createZip(files, { compress = true } = {}) {
+export async function createZip(files, { compress = true, password = null } = {}) {
+  const aes = typeof password === "string" && password.length > 0;
   const useDeflate = compress && canCompress();
   const parts = [];
   const central = [];
@@ -76,41 +80,55 @@ export async function createZip(files, { compress = true } = {}) {
       const z = await pipe(raw, new CompressionStream("deflate-raw"));
       if (z.length < raw.length) { method = 8; body = z; }
     }
+    let extra = new Uint8Array(0);
+    let crcField = crc;
+    let version = 20;
+    let flags = 0x0800;
+    if (aes) {
+      extra = aesExtra(method, { strength: 3, vendorVersion: 2 });
+      body = await encryptEntry(body, password, { strength: 3 });
+      method = AES_METHOD;
+      crcField = 0; // AE-2: the authentication code protects the data
+      version = 51;
+      flags |= 1;
+    }
     if (raw.length >= 0xffffffff || body.length >= 0xffffffff || offset >= 0xffffffff) {
       throw new Error("ZIP64 archives are not supported");
     }
     const { time, date } = dosDateTime(f.date);
-    const flags = 0x0800;
-    const lh = new Uint8Array(30 + nameBytes.length);
+    const lh = new Uint8Array(30 + nameBytes.length + extra.length);
     const lv = new DataView(lh.buffer);
     lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
+    lv.setUint16(4, version, true);
     lv.setUint16(6, flags, true);
     lv.setUint16(8, method, true);
     lv.setUint16(10, time, true);
     lv.setUint16(12, date, true);
-    lv.setUint32(14, crc, true);
+    lv.setUint32(14, crcField, true);
     lv.setUint32(18, body.length, true);
     lv.setUint32(22, raw.length, true);
     lv.setUint16(26, nameBytes.length, true);
-    lv.setUint16(28, 0, true);
+    lv.setUint16(28, extra.length, true);
     lh.set(nameBytes, 30);
+    lh.set(extra, 30 + nameBytes.length);
 
-    const ch = new Uint8Array(46 + nameBytes.length);
+    const ch = new Uint8Array(46 + nameBytes.length + extra.length);
     const cv = new DataView(ch.buffer);
     cv.setUint32(0, 0x02014b50, true);
-    cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true);
+    cv.setUint16(4, version, true);
+    cv.setUint16(6, version, true);
     cv.setUint16(8, flags, true);
     cv.setUint16(10, method, true);
     cv.setUint16(12, time, true);
     cv.setUint16(14, date, true);
-    cv.setUint32(16, crc, true);
+    cv.setUint32(16, crcField, true);
     cv.setUint32(20, body.length, true);
     cv.setUint32(24, raw.length, true);
     cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, extra.length, true);
     cv.setUint32(42, offset, true);
     ch.set(nameBytes, 46);
+    ch.set(extra, 46 + nameBytes.length);
     central.push(ch);
 
     parts.push(lh, body);
@@ -143,7 +161,22 @@ function cleanPath(name) {
   return p;
 }
 
-export async function readZip(input) {
+/** True when the archive has WinZip AES entries (so readZip needs a password). */
+export async function zipNeedsPassword(input) {
+  try {
+    await readZip(input, { listOnly: true });
+    return false;
+  } catch (e) {
+    if (e?.code === "password-required") return true;
+    throw e;
+  }
+}
+
+/**
+ * Read every file entry. opts.password: for WinZip AES entries; without it they throw code "password-required",
+ * a wrong one throws code "bad-password".
+ */
+export async function readZip(input, { password = null, listOnly = false } = {}) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   if (bytes.length < 22) throw new Error("Not a ZIP file (too small)");
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -177,13 +210,19 @@ export async function readZip(input) {
     const lho = v.getUint32(p + 42, true);
     if (p + 46 + nlen > bytes.length) throw new Error("Corrupt ZIP (truncated entry)");
     const rawName = dec.decode(bytes.subarray(p + 46, p + 46 + nlen));
+    if (p + 46 + nlen + xlen > bytes.length) throw new Error("Corrupt ZIP (truncated entry)");
+    const aes = flags & 1 && method === 99 ? parseAesExtra(bytes.subarray(p + 46 + nlen, p + 46 + nlen + xlen)) : null;
     p += 46 + nlen + xlen + clen;
     if (csize === 0xffffffff || usize === 0xffffffff || lho === 0xffffffff) throw new Error("ZIP64 archives are not supported");
-    if (flags & 1) throw new Error(`Encrypted ZIP entries are not supported: ${rawName}`);
+    if (flags & 1 && !aes) throw new Error(`Encrypted ZIP entries using old ZipCrypto aren't supported (only AES): ${rawName}`);
     total += usize;
     if (total > MAX_TOTAL) throw new Error("ZIP archive too large (uncompressed size exceeds 512 MB)");
-    entries.push({ rawName, flags, method, crc, csize, usize, lho });
+    entries.push({ rawName, flags, method: aes ? aes.method : method, crc, csize, usize, lho, aes });
   }
+  if (entries.some((e) => e.aes) && !password) {
+    throw Object.assign(new Error("This ZIP is protected with a password."), { code: "password-required" });
+  }
+  if (listOnly) return entries.map((e) => ({ path: e.rawName, encrypted: !!e.aes }));
 
   const out = [];
   for (const e of entries) {
@@ -194,7 +233,11 @@ export async function readZip(input) {
     if (q + 30 > bytes.length || v.getUint32(q, true) !== 0x04034b50) throw new Error(`Corrupt ZIP (bad local header): ${e.rawName}`);
     const start = q + 30 + v.getUint16(q + 26, true) + v.getUint16(q + 28, true);
     if (start + e.csize > bytes.length) throw new Error(`Corrupt ZIP (data out of range): ${e.rawName}`);
-    const body = bytes.subarray(start, start + e.csize);
+    let body = bytes.subarray(start, start + e.csize);
+    if (e.aes) {
+      if (e.aes.strength < 1 || e.aes.strength > 3) throw new Error(`Unsupported AES strength: ${e.rawName}`);
+      body = await decryptEntry(body, password, e.aes.strength);
+    }
     let data;
     if (e.method === 0) {
       data = body.slice();
@@ -203,7 +246,8 @@ export async function readZip(input) {
       data = await pipe(body, new DecompressionStream("deflate-raw"));
     }
     if (data.length !== e.usize) throw new Error(`Corrupt ZIP (size mismatch): ${e.rawName}`);
-    if (crc32(data) !== e.crc) throw new Error(`CRC32 mismatch (corrupt data): ${e.rawName}`);
+    // AE-2 entries store CRC 0 (the AES auth code covers them); AE-1 and plain entries are checked.
+    if (!(e.aes && e.aes.vendorVersion === 2) && crc32(data) !== e.crc) throw new Error(`CRC32 mismatch (corrupt data): ${e.rawName}`);
     out.push({ path, data });
   }
   return out;

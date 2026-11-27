@@ -875,3 +875,344 @@ test("backups with no main: copied on the push interval and on hide", () => with
   assert.equal(JSON.parse(bak.read("pages/p.json")).title, "P2");
   assert.equal(fs.status().state, "off");
 }));
+
+// ---------- encryption ----------
+import { createKeyFile, createKeyring, isEnvelope, unwrapWithPin, unwrapWithSecret, rewrapPin, decryptText, encryptRecord } from "../public/js/crypto.js";
+import { folderProvider } from "../public/js/adapters/locations.js";
+
+const FASTK = 1000;
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+async function encSetup({ pin = "1234", files = false } = {}) {
+  const storage = memStorage();
+  const keyring = createKeyring({ storage });
+  const { file, dek, recovery } = await createKeyFile({ pin, iterations: FASTK });
+  keyring.adopt(dek, file);
+  if (files) keyring.saveSettings({ files: true });
+  return { storage, keyring, dek, file, recovery };
+}
+/** A folder provider whose writes can fail: before the write ("before") or after it landed ("after"). */
+function faulty(dir) {
+  const p = folderProvider(dir);
+  const ctl = { failAt: -1, writes: 0, when: "before" };
+  const wrapped = {
+    ...p,
+    type: "folder",
+    name: dir.name,
+    handle: dir,
+    permission: async () => "granted",
+    async writeText(path, text) {
+      const n = ctl.writes++;
+      if (n === ctl.failAt && ctl.when === "before") throw new Error("disk went away");
+      await p.writeText(path, text);
+      if (n === ctl.failAt && ctl.when === "after") throw new Error("disk went away after writing");
+    }
+  };
+  return { provider: wrapped, ctl };
+}
+function folderFiles(dir) {
+  const out = {};
+  const walk = (d, prefix) => {
+    for (const [k, v] of d.tree) {
+      if (v.kind === "directory") walk(v, `${prefix}${k}/`);
+      else out[`${prefix}${k}`] = v.content;
+    }
+  };
+  walk(dir, "");
+  return out;
+}
+/** Every record file reads (plain or decrypted) as `expect` says. */
+async function assertRecords(dir, dek, expect) {
+  for (const [path, rec] of Object.entries(expect)) {
+    const text = dir.read(path);
+    assert.ok(text != null, `${path} missing`);
+    const v = JSON.parse(text);
+    const [d, f] = path.split("/");
+    const got = isEnvelope(v) ? JSON.parse(await decryptText(dek, d, f.replace(/\.json$/, ""), v)) : v;
+    assert.deepEqual(got, rec, path);
+  }
+}
+const encCount = (dir) => Object.entries(folderFiles(dir)).filter(([p, t]) => /^(pages|rows|tombstones)\//.test(p) && isEnvelope(JSON.parse(t))).length;
+
+async function seededFolder(n = 6) {
+  const dir = fakeDir("Vault");
+  const expect = {};
+  for (let i = 0; i < n; i++) {
+    const p = page(`p${i}`, `Page ${i}`, 100 + i);
+    dir.put(`pages/p${i}.json`, json(p));
+    expect[`pages/p${i}.json`] = p;
+  }
+  const row = { id: "r1", dbId: "p0", values: { a: 1 }, createdAt: 1, updatedAt: 2 };
+  dir.put("rows/r1.json", json(row));
+  expect["rows/r1.json"] = row;
+  const t = { id: "gone", collection: "pages", deletedAt: Date.now() };
+  dir.put("tombstones/gone.json", json(t));
+  expect["tombstones/gone.json"] = t;
+  dir.put("notes.txt", "mine");
+  return { dir, expect };
+}
+
+test("encryption on: every record file becomes an envelope, manifest says so, keys.json opens with the PIN", async () => {
+  const { storage, keyring, dek } = await encSetup();
+  const { dir, expect } = await seededFolder();
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  const results = await fs.setEncryption(true);
+  assert.equal(results[0].error, undefined);
+  assert.equal(results[0].changed, 8);
+  assert.equal(encCount(dir), 8);
+  const m = JSON.parse(dir.read("denotation.json"));
+  assert.equal(m.encrypted, true);
+  assert.equal(m.keyId, keyring.kid);
+  assert.equal(m.encryption, undefined, "marker cleared when done");
+  assert.ok(await unwrapWithPin(JSON.parse(dir.read("keys.json")), "1234"));
+  assert.equal(dir.read("notes.txt"), "mine");
+  assert.ok(!JSON.stringify(folderFiles(dir)).includes("Page 3"), "no titles in clear");
+  await assertRecords(dir, dek, expect);
+  assert.equal(keyring.settings().files, true);
+  // later writes are encrypted; the stamp keeps the encryption fields
+  await fs.set("pages", "new", page("new", "Fresh secret", 999));
+  await fs.flush();
+  await fs.syncNow();
+  assert.ok(isEnvelope(JSON.parse(dir.read("pages/new.json"))));
+  assert.equal(JSON.parse(dir.read("denotation.json")).encrypted, true);
+  // a fresh browser with the same key reads everything
+  const cache2 = createMemoryAdapter();
+  const fs2 = createFolderAdapter(cache2, { storage, keyring, registry: createLocationRegistry({ storage: memStorage(), handles: memoryHandles() }) });
+  await fs2.connect(dir);
+  assert.equal((await cache2.get("pages", "p3")).title, "Page 3");
+  assert.equal((await cache2.get("pages", "new")).title, "Fresh secret");
+});
+
+test("encryption off: everything back to plain, keys.json deleted last, manifest plain", async () => {
+  const { storage, keyring, dek } = await encSetup();
+  const { dir, expect } = await seededFolder();
+  const fs = createFolderAdapter(createMemoryAdapter(), { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  await fs.setEncryption(true);
+  const r = await fs.setEncryption(false);
+  assert.equal(r[0].error, undefined);
+  assert.equal(encCount(dir), 0);
+  assert.equal(dir.read("keys.json"), undefined);
+  const m = JSON.parse(dir.read("denotation.json"));
+  assert.equal(m.encrypted, undefined);
+  assert.equal(m.keyId, undefined);
+  await assertRecords(dir, dek, expect);
+  assert.equal(keyring.settings().files, false);
+});
+
+for (const when of ["before", "after"]) {
+  test(`interrupted encrypt / decrypt jobs (write fails ${when} landing, seeded) never lose or corrupt a record and resume`, async () => {
+    const next = seeded(when === "before" ? 1234 : 99);
+    for (let round = 0; round < 24; round++) {
+      const { storage, keyring, dek } = await encSetup();
+      const { dir, expect } = await seededFolder(5);
+      const { provider, ctl } = faulty(dir);
+      const cache = createMemoryAdapter();
+      const fs = createFolderAdapter(cache, { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+      await fs.connect(provider);
+      for (const r of await cache.list("pages")) expect[`pages/${r.id}.json`] = r;
+      const target = round % 3 === 2 ? "plain" : "encrypted";
+      if (target === "plain") await fs.setEncryption(true);
+      ctl.writes = 0;
+      ctl.when = when;
+      ctl.failAt = Math.floor(next() * 14);
+      const res = await fs.setEncryption(target === "encrypted");
+      ctl.failAt = -1;
+      await assertRecords(dir, dek, expect); // mixed state: every record still reads
+      const marker = JSON.parse(dir.read("denotation.json")).encryption;
+      const doneAlready = encCount(dir) === (target === "encrypted" ? 7 : 0);
+      if (res[0].error) assert.ok(marker || doneAlready || (target === "encrypted" && encCount(dir) === 0), "an unfinished job leaves its marker");
+      // resume: a later sync (another browser session) finishes the job
+      const fs2 = createFolderAdapter(createMemoryAdapter(), { storage, keyring, registry: createLocationRegistry({ storage: memStorage(), handles: memoryHandles() }) });
+      await fs2.connect(provider);
+      await assertRecords(dir, dek, expect);
+      assert.equal(encCount(dir), target === "encrypted" ? 7 : 0, `round ${round}: finished as ${target} (fail at ${res[0].error ?? "-"}) ${JSON.stringify(Object.keys(folderFiles(dir)))} ${Object.entries(folderFiles(dir)).filter(([p, t]) => /^(pages|rows|tomb)/.test(p) && !isEnvelope(JSON.parse(t))).map(([p]) => p)}`);
+      const m = JSON.parse(dir.read("denotation.json"));
+      assert.equal(m.encryption, undefined, `round ${round}: marker cleared`);
+      assert.equal(!!m.encrypted, target === "encrypted");
+      if (target === "encrypted") assert.ok(dir.read("keys.json"));
+      else if (!res[0].error) assert.equal(dir.read("keys.json"), undefined); // a stale one (failure after the last write) is harmless
+      assert.equal(keyring.settings().files, target === "encrypted");
+    }
+  });
+}
+
+test("mixed plain and encrypted files read during a job; swapped or tampered envelopes are skipped, never deleted", async () => {
+  const { storage, keyring, dek, file } = await encSetup();
+  const dir = fakeDir("Mixed");
+  const a = page("a", "Plain A", 10);
+  const b = page("b", "Secret B", 11);
+  const c = page("c", "Secret C", 12);
+  dir.put("keys.json", json(file));
+  dir.put("denotation.json", json({ app: "denotation", format: "json", version: 1, encrypted: true, keyId: file.kid, encryption: { state: "encrypting", startedAt: 1 } }));
+  dir.put("pages/a.json", json(a));
+  dir.put("pages/b.json", json(await encryptRecord(dek, file.kid, "pages", "b", b)));
+  dir.put("pages/x.json", json(await encryptRecord(dek, file.kid, "pages", "c", c))); // c's envelope copied to x
+  const tampered = await encryptRecord(dek, file.kid, "pages", "c", c);
+  tampered.ct = tampered.ct.slice(0, -4) + (tampered.ct.slice(-4) === "AAAA" ? "BBBB" : "AAAA");
+  dir.put("pages/c.json", json(tampered));
+  keyring.saveSettings({ files: true });
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  assert.equal((await cache.get("pages", "a")).title, "Plain A");
+  assert.equal((await cache.get("pages", "b")).title, "Secret B");
+  assert.equal(await cache.get("pages", "x"), null, "a swapped envelope does not decrypt");
+  assert.equal(await cache.get("pages", "c"), null, "a tampered envelope does not decrypt");
+  assert.ok(dir.read("pages/x.json"), "left alone");
+  assert.ok(dir.read("pages/c.json"), "left alone");
+  assert.equal(JSON.parse(dir.read("denotation.json")).encryption, undefined, "the resumed job finished");
+  assert.ok(isEnvelope(JSON.parse(dir.read("pages/a.json"))));
+});
+
+test("without the key the location is locked: nothing read as data, nothing written", async () => {
+  const owner = await encSetup();
+  const { dir } = await seededFolder();
+  const fsA = createFolderAdapter(createMemoryAdapter(), { storage: owner.storage, keyring: owner.keyring, registry: createLocationRegistry({ storage: owner.storage, handles: memoryHandles() }) });
+  await fsA.connect(dir);
+  await fsA.setEncryption(true);
+  const before = JSON.stringify(folderFiles(dir));
+  // another browser without the key, with its own pages
+  const storage = memStorage();
+  const keyring = createKeyring({ storage });
+  const cache = createMemoryAdapter();
+  await cache.set("pages", "mine", page("mine", "Only here", 5));
+  const fs = createFolderAdapter(cache, { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await assert.rejects(fs.connect(dir), (e) => e.code === "locked");
+  assert.equal(fs.status().state, "locked");
+  assert.match(fs.status().error, /unlock to sync/);
+  assert.equal(fs.status().locations[0].encrypted, true);
+  await fs.set("pages", "mine", page("mine", "Edited", 6));
+  await fs.flush();
+  assert.equal(JSON.stringify(folderFiles(dir)), before, "the encrypted folder was not touched");
+  assert.equal((await cache.list("pages")).length, 1, "no envelopes in the cache");
+  // a third browser holding a different key is refused too
+  const other = await encSetup();
+  const fs3 = createFolderAdapter(createMemoryAdapter(), { storage: other.storage, keyring: other.keyring, registry: createLocationRegistry({ storage: other.storage, handles: memoryHandles() }) });
+  await assert.rejects(fs3.connect(dir), /different key/);
+  assert.equal(JSON.stringify(folderFiles(dir)), before);
+  // unlock with the folder's PIN, keep the key for this browser's own PIN, then sync
+  const kf = await fs.locationKeyFile(fs.status().locations[0].id);
+  assert.equal(await unwrapWithSecret(kf, "0000"), null, "wrong PIN");
+  const { dek } = await unwrapWithSecret(kf, "1234");
+  keyring.adopt(dek, await rewrapPin(kf, dek, "5555", { iterations: FASTK }));
+  await fs.retryLocked();
+  assert.equal(fs.status().state, "synced");
+  assert.equal((await cache.get("pages", "p2")).title, "Page 2");
+  assert.ok(isEnvelope(JSON.parse(dir.read("pages/mine.json"))), "its own pages go in encrypted");
+  assert.equal(keyring.settings().files, true, "follows the main");
+  assert.ok(await unwrapWithPin(keyring.file(), "5555"), "this browser opens the key with its own PIN");
+});
+
+test("unlocking with the recovery key works the same way", async () => {
+  const owner = await encSetup();
+  const { dir } = await seededFolder(2);
+  const fsA = createFolderAdapter(createMemoryAdapter(), { storage: owner.storage, keyring: owner.keyring, registry: createLocationRegistry({ storage: owner.storage, handles: memoryHandles() }) });
+  await fsA.connect(dir);
+  await fsA.setEncryption(true);
+  const kf = JSON.parse(dir.read("keys.json"));
+  const r = await unwrapWithSecret(kf, owner.recovery);
+  assert.equal(r.via, "recovery");
+});
+
+test("PIN change re-wraps the key file in every encrypted location", async () => {
+  const { storage, keyring, dek } = await encSetup();
+  const { dir } = await seededFolder(2);
+  const backup = fakeDir("Backup");
+  const fs = createFolderAdapter(createMemoryAdapter(), { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  await fs.addLocation(backup, { role: "backup" });
+  await fs.setEncryption(true);
+  keyring.saveFile(await rewrapPin(keyring.file(), dek, "246810", { iterations: FASTK, now: Date.now() + 1000 }));
+  await fs.syncKeyFiles();
+  for (const d of [dir, backup]) {
+    const kf = JSON.parse(d.read("keys.json"));
+    assert.equal(await unwrapWithPin(kf, "1234"), null, `${d.name}: old PIN no longer opens it`);
+    assert.ok(await unwrapWithPin(kf, "246810"), `${d.name}: new PIN opens it`);
+  }
+});
+
+test("backups follow: encrypted with the main, copies stay encrypted, decrypted when turned off", async () => {
+  const { storage, keyring, dek } = await encSetup();
+  const { dir } = await seededFolder(3);
+  const backup = fakeDir("Backup");
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { storage, keyring, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  await fs.addLocation(backup, { role: "backup" });
+  const recFiles = (d) => Object.keys(folderFiles(d)).filter((p) => /^(pages|rows|tombstones)\//.test(p)).length;
+  assert.equal(encCount(backup), 0);
+  assert.ok(recFiles(backup) >= 4);
+  const r = await fs.setEncryption(true);
+  assert.deepEqual(r.map((x) => x.error), [undefined, undefined]);
+  assert.equal(encCount(backup), recFiles(backup));
+  await fs.set("pages", "later", page("later", "Later", 500));
+  await fs.flush();
+  await fs.syncNow();
+  assert.ok(isEnvelope(JSON.parse(backup.read("pages/later.json"))));
+  assert.equal(JSON.parse(backup.read("denotation.json")).encrypted, true);
+  const back = await fs.readBackup(fs.status().locations.find((l) => l.role === "backup").id);
+  assert.equal(back.count, 5);
+  assert.ok(back.files.some((f) => f.data.includes("Later")), "restore decrypts");
+  await fs.setEncryption(false);
+  assert.equal(encCount(backup), 0);
+  assert.equal(JSON.parse(backup.read("pages/later.json")).title, "Later");
+  assert.equal(backup.read("keys.json"), undefined);
+  void dek;
+});
+
+test("another device turning encryption on or off is followed; a new empty main follows this device", async () => {
+  const a = await encSetup();
+  const { dir } = await seededFolder(2);
+  const reg = () => createLocationRegistry({ storage: memStorage(), handles: memoryHandles() });
+  const fsA = createFolderAdapter(createMemoryAdapter(), { storage: a.storage, keyring: a.keyring, registry: reg() });
+  await fsA.connect(dir);
+  // B shares the key (adopted earlier) and has synced the plain folder
+  const bStorage = memStorage();
+  const bRing = createKeyring({ storage: bStorage });
+  bRing.adopt(a.dek, a.keyring.file());
+  const fsB = createFolderAdapter(createMemoryAdapter(), { storage: bStorage, keyring: bRing, registry: reg() });
+  await fsB.connect(dir);
+  await fsA.setEncryption(true);
+  await fsB.syncNow();
+  assert.equal(bRing.settings().files, true, "B follows A turning it on");
+  await fsA.setEncryption(false);
+  await fsB.syncNow();
+  assert.equal(bRing.settings().files, false, "B follows A turning it off");
+  assert.equal(encCount(dir), 0);
+  // a brand-new folder as main on a device with encryption on is encrypted
+  const fresh = fakeDir("Fresh");
+  a.keyring.saveSettings({ files: true });
+  const fsC = createFolderAdapter(createMemoryAdapter(), { storage: a.storage, keyring: a.keyring, registry: reg() });
+  await fsC.set("pages", "z", page("z", "Zed", 1));
+  await fsC.connect(fresh);
+  assert.ok(isEnvelope(JSON.parse(fresh.read("pages/z.json"))));
+  assert.equal(JSON.parse(fresh.read("denotation.json")).encrypted, true);
+});
+
+test("locked app (key dropped): automatic syncs wait, the folder is untouched", () => withClock(async () => {
+  const { storage, keyring } = await encSetup();
+  const { dir } = await seededFolder(2);
+  const win = fakeWin();
+  const cache = createMemoryAdapter();
+  const fs = createFolderAdapter(cache, { storage, keyring, win, registry: createLocationRegistry({ storage, handles: memoryHandles() }) });
+  await fs.connect(dir);
+  await fs.setEncryption(true);
+  await fs.set("pages", "q", page("q", "Q", Date.now()));
+  keyring.lock();
+  const before = JSON.stringify(folderFiles(dir));
+  await advance(6 * MIN);
+  win.emit("focus");
+  await advance(31_000);
+  assert.equal(JSON.stringify(folderFiles(dir)), before);
+}));

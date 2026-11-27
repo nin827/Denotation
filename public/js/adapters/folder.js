@@ -33,6 +33,18 @@
 //   when the page is hidden, the app writes changed records, tombstones and permissions.json to each backup.
 //   A backup is never read back automatically and never loses a record file the app didn't delete.
 //
+// Encryption (optional, see ../crypto.js): an encrypted location holds keys.json (the DEK wrapped by a PIN and by
+//   the recovery key) and its record files (pages/, rows/, tombstones/) are envelopes { "denotation-enc": 1, kid,
+//   iv, ct } (AES-256-GCM, AAD "<dir>/<id>"). denotation.json stays plain and says { encrypted: true, keyId } plus,
+//   while a job runs, encryption: { state: "encrypting" | "decrypting", startedAt }. permissions.json stays plain.
+//   Readers accept plain and encrypted files (mixed state during a job). Without the key a location is "locked":
+//   it is never read as data and nothing is written to it. Turning encryption on / off is a resumable job per
+//   location (transform below): marker first, then every file read -> transformed -> written (the provider's write
+//   replaces the file atomically: File System Access writes a swap file and swaps it in on close) -> read back and
+//   verified; the marker is cleared only when every file is done, and on decrypt keys.json is deleted last.
+//   The main decides: a main another device encrypted (or decrypted) is followed; a main connected for the first
+//   time from this device follows this device's setting. Backups follow the setting.
+//
 // Deletions: the cache keeps tombstones ({ id: "<col>:<id>", col, rid, deletedAt, synced }). Unsynced
 // ones are this device's deletes the main hasn't seen; synced ones mirror the main's tombstones so
 // backups get them too. Tombstones older than 90 days are pruned.
@@ -41,6 +53,9 @@ import { PERMISSIONS_FILE } from "../permissions.js";
 import { syncPermissions, loadLocalPermissions } from "./folderPermissions.js";
 import { planSync, applyPlan, summarize, conflictCount, keyOf, stamp, isNoop, TOMBSTONE_TTL_MS, manifestStamp, sameStamp, bumpManifest } from "../sync.js";
 import { createLocationRegistry, asProvider, loadSyncSettings, saveSyncSettings, clampPushMinutes, loadWriterId } from "./locations.js";
+import { KEYS_FILE, isEnvelope, encryptText, decryptText, sanitizeKeyFile, encFields, manifestEncrypted } from "../crypto.js";
+
+export { encFields, manifestEncrypted };
 
 export { loadSyncMode, saveSyncMode, loadSyncSettings, saveSyncSettings, PUSH_MINUTES, clampPushMinutes } from "./locations.js";
 /** Shared by pulls / merges, manual Pull / Push and the auto checks: at most one per this window. */
@@ -60,16 +75,35 @@ const tombPath = (id) => `${TOMBS}/${id}.json`;
 const tombKey = (col, id) => `${col}:${id}`;
 const fromCacheTomb = (t) => ({ collection: t.col, id: t.rid, deletedAt: Number(t.deletedAt) || 0 });
 const manifestText = () => JSON.stringify({ app: "denotation", format: "json", version: 1, exportedAt: new Date().toISOString() }, null, 2);
+const ENC_DIRS = [...COLS, TOMBS];
+const lockedError = (msg) => Object.assign(new Error(msg), { code: "locked" });
+/** Parse a record file: plain JSON, or an envelope decrypted with `dek`. null = unreadable / can't decrypt. */
+async function decodeText(text, dir, id, dek) {
+  let v;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isEnvelope(v)) return v;
+  if (!dek) return null;
+  try {
+    return JSON.parse(await decryptText(dek, dir, id, v));
+  } catch {
+    return null;
+  }
+}
 
 // ---------- reading a location ----------
-async function readRecords(p, col) {
+async function readRecords(p, col, dek = null) {
   const out = new Map();
   for (const ent of await p.list(col)) {
     const m = FILE_RE.exec(ent.name);
     if (!m || ent.kind !== "file") continue;
     try {
-      const rec = JSON.parse(await p.readText(recPath(col, m[1])));
-      if (valid(col, rec) && rec.id === m[1]) out.set(rec.id, rec);
+      const text = await p.readText(recPath(col, m[1]));
+      const rec = text == null ? null : await decodeText(text, col, m[1], dek);
+      if (rec && valid(col, rec) && rec.id === m[1]) out.set(rec.id, rec);
     } catch {
       // unreadable or not JSON: leave the file alone
     }
@@ -77,7 +111,7 @@ async function readRecords(p, col) {
   return out;
 }
 /** tombstones/<id>.json plus the legacy rows/.deleted.json ({ deleted: { <id>: deletedAt } }). */
-async function readTombs(p, now = Date.now()) {
+async function readTombs(p, now = Date.now(), dek = null) {
   const out = [];
   const legacyOnly = new Set();
   const cutoff = now - TOMBSTONE_TTL_MS;
@@ -85,7 +119,8 @@ async function readTombs(p, now = Date.now()) {
     const m = FILE_RE.exec(ent.name);
     if (!m || ent.kind !== "file") continue;
     try {
-      const t = JSON.parse(await p.readText(tombPath(m[1])));
+      const text = await p.readText(tombPath(m[1]));
+      const t = text == null ? null : await decodeText(text, TOMBS, m[1], dek);
       if (t?.id === m[1] && COLS.includes(t.collection) && Number(t.deletedAt) > 0) out.push({ collection: t.collection, id: t.id, deletedAt: Number(t.deletedAt) });
     } catch {
       // ignore
@@ -126,7 +161,8 @@ export function createFolderAdapter(cache, {
   pushMinutes: initialPushMinutes,
   storage = globalThis.localStorage,
   writer = loadWriterId(storage ?? undefined),
-  registry = createLocationRegistry({ storage: storage ?? undefined })
+  registry = createLocationRegistry({ storage: storage ?? undefined }),
+  keyring = null
 } = {}) {
   const settings = loadSyncSettings(storage);
   let mode = initialMode === "manual" || initialMode === "auto" ? initialMode : settings.mode;
@@ -151,10 +187,13 @@ export function createFolderAdapter(cache, {
 
   const main = () => locs.find((l) => l.role === "main") ?? null;
   const backups = () => locs.filter((l) => l.role === "backup");
-  const ready = (l) => !!l && l.state !== "needs-permission";
+  const ready = (l) => !!l && l.state !== "needs-permission" && l.state !== "locked";
+  const paused = () => !!keyring?.paused?.();
+  const dek = () => keyring?.key ?? null;
+  let job = null; // { id, name, target, done, total } while an encryption job runs
   const hidden = () => win?.document?.visibilityState === "hidden";
   const pushMs = () => pushMinutes * MINUTE;
-  const publicLoc = (l) => ({ id: l.id, type: l.type, name: l.name, role: l.role, state: l.state, error: l.error, addedAt: l.addedAt, lastSyncAt: l.lastSyncAt });
+  const publicLoc = (l) => ({ id: l.id, type: l.type, name: l.name, role: l.role, state: l.state, error: l.error, addedAt: l.addedAt, lastSyncAt: l.lastSyncAt, encrypted: !!l.mode && l.mode !== "plain", encMode: l.mode ?? null });
   const unpushedCount = () => (mode === "auto" ? dirty.size : new Set([...pending, ...planUnpushed]).size);
   const status = () => {
     const m = main();
@@ -169,6 +208,7 @@ export function createFolderAdapter(cache, {
       nextPushAt: m && mode === "auto" ? nextPushAt : 0,
       cooldownUntil: m ? cooldownUntil() : 0,
       lastSyncAt: m?.lastSyncAt ?? 0,
+      job: job ? { ...job } : null,
       locations: locs.map(publicLoc)
     };
   };
@@ -188,7 +228,8 @@ export function createFolderAdapter(cache, {
     notify();
   };
   const failLoc = (l, e) => {
-    if (isPermission(e)) setLoc(l, "needs-permission");
+    if (e?.code === "locked") setLoc(l, "locked", e.message);
+    else if (isPermission(e)) setLoc(l, "needs-permission");
     else setLoc(l, "error", e?.message ?? String(e));
   };
   const persist = () => registry.save(locs.map(({ id, type, name, role, addedAt, lastSyncAt, seen }) => ({ id, type, name, role, addedAt, lastSyncAt, seen })));
@@ -198,7 +239,7 @@ export function createFolderAdapter(cache, {
     lock = next.catch(() => {});
     return next.finally(() => running--);
   };
-  const makeLoc = (cfg, provider, state) => ({ ...cfg, seen: manifestStamp(cfg.seen), name: cfg.name || provider.name, provider, state, error: "", chains: new Map(), known: null, manifestOk: false, permsAt: 0 });
+  const makeLoc = (cfg, provider, state) => ({ ...cfg, seen: manifestStamp(cfg.seen), name: cfg.name || provider.name, provider, state, error: "", chains: new Map(), known: null, manifestOk: false, permsAt: 0, mode: null, keyFile: null });
 
   // ---------- file IO on a location (serialised per file) ----------
   const serial = (l, path, job) => {
@@ -212,8 +253,15 @@ export function createFolderAdapter(cache, {
   };
   const writeFile = (l, path, text) => serial(l, path, () => l.provider.writeText(path, text));
   const removeFile = (l, path) => serial(l, path, () => l.provider.remove(path));
-  const writeRec = (l, col, rec) => writeFile(l, recPath(col, rec.id), JSON.stringify(rec, null, 2));
-  const writeTomb = (l, t) => writeFile(l, tombPath(t.id), JSON.stringify({ id: t.id, collection: t.collection, deletedAt: t.deletedAt }, null, 2));
+  const wantsEnc = (l) => l.mode === "encrypted" || l.mode === "encrypting";
+  /** File text for a record / tombstone on `l`: plain JSON, or an envelope when the location is encrypted. */
+  const encode = async (l, dir, id, obj) => {
+    if (!wantsEnc(l)) return JSON.stringify(obj, null, 2);
+    if (!dek()) throw lockedError("Encrypted storage is locked. Unlock the app to sync.");
+    return JSON.stringify(await encryptText(dek(), keyring.kid, dir, id, JSON.stringify(obj)));
+  };
+  const writeRec = async (l, col, rec) => writeFile(l, recPath(col, rec.id), await encode(l, col, rec.id, rec));
+  const writeTomb = async (l, t) => writeFile(l, tombPath(t.id), await encode(l, TOMBS, t.id, { id: t.id, collection: t.collection, deletedAt: t.deletedAt }));
   /** Backups: write a plain manifest once if the location has none. */
   const ensureManifest = async (l) => {
     if (l.manifestOk) return;
@@ -226,11 +274,195 @@ export function createFolderAdapter(cache, {
    */
   const stampManifest = async (l, before) => {
     const cur = await readManifestFile(l.provider);
-    const next = bumpManifest(cur, writer, Date.now());
+    const next = { ...bumpManifest(cur, writer, Date.now()), ...encFields(cur) };
     await writeFile(l, MANIFEST, JSON.stringify(next, null, 2));
     l.seen = sameStamp(manifestStamp(cur), manifestStamp(before)) ? manifestStamp(next) : manifestStamp(before);
     l.manifestOk = true;
   };
+
+  // ---------- encryption ----------
+  /** Bump the manifest and set (value) / delete (undefined) encryption fields. Main: `seen` follows if no one else wrote. */
+  const markManifest = async (l, patch) => {
+    const cur = await readManifestFile(l.provider);
+    const base = cur && Object.keys(cur).length ? cur : JSON.parse(manifestText());
+    const next = { ...bumpManifest(base, writer, Date.now()), ...encFields(cur) };
+    if (typeof base.exportedAt === "string") next.exportedAt = base.exportedAt.slice(0, 40);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete next[k];
+      else next[k] = v;
+    }
+    await writeFile(l, MANIFEST, JSON.stringify(next, null, 2));
+    if (l.role === "main" && sameStamp(manifestStamp(cur), l.seen)) l.seen = manifestStamp(next);
+    l.manifestOk = true;
+    return next;
+  };
+  const readKeyFile = async (l) => {
+    try {
+      return sanitizeKeyFile(JSON.parse((await l.provider.readText(KEYS_FILE)) ?? "null"));
+    } catch (e) {
+      if (isPermission(e)) throw e;
+      return null;
+    }
+  };
+  /**
+   * Read the location's encryption state from its manifest (and keys.json when encrypted). Sets l.mode
+   * ("plain" | "encrypted" | "encrypting" | "decrypting"). Throws code "locked" when it is encrypted and this
+   * browser doesn't hold its key; nothing may be read or written then.
+   */
+  async function inspect(l, manifest) {
+    const f = encFields(manifest);
+    if (!manifestEncrypted(manifest)) {
+      l.mode = "plain";
+      l.keyFile = null;
+      return;
+    }
+    l.mode = f.encryption?.state ?? "encrypted";
+    l.keyFile = await readKeyFile(l);
+    const mineNow = keyring?.file?.() ?? null;
+    // An encrypt job of ours stopped between its marker and keys.json: it resumes and writes the key file.
+    if (!l.keyFile && l.mode === "encrypting" && mineNow && f.keyId === mineNow.kid && dek()) return;
+    if (!l.keyFile) throw lockedError("This location is encrypted but its key file (keys.json) is missing or damaged.");
+    const mine = keyring?.file?.() ?? null;
+    if (mine && mine.kid !== l.keyFile.kid) throw lockedError("Encrypted with a different key than this browser uses. Turn encryption off on one of them first.");
+    if (!mine || !dek()) throw lockedError("Encrypted \u2014 unlock to sync.");
+    await reconcileKeyFile(l);
+  }
+  /** Same key on both sides: the newer key file wins (a PIN change or a new recovery key on some device). */
+  async function reconcileKeyFile(l) {
+    const mine = keyring?.file?.();
+    const there = l.keyFile;
+    if (!mine || !there || mine.kid !== there.kid || mine.updatedAt === there.updatedAt) return;
+    if (mine.updatedAt > there.updatedAt) {
+      await writeFile(l, KEYS_FILE, JSON.stringify(mine, null, 2));
+      l.keyFile = mine;
+    } else {
+      // Another device changed the recovery key: take it; this browser keeps its own PIN wrap.
+      const next = { ...mine, recoveryWrap: there.recoveryWrap, updatedAt: there.updatedAt };
+      delete next.savedRecovery;
+      if (there.savedRecovery) next.savedRecovery = there.savedRecovery;
+      keyring.saveFile(next);
+    }
+  }
+  /**
+   * Encrypt (target "encrypted") or decrypt (target "plain") every record file of `l` in place. Resumable:
+   * files already in the target form are verified and skipped. Never deletes a record file.
+   * -> { changed, skipped, failed: [path] }
+   */
+  async function transform(l, target, onProgress) {
+    const key = dek();
+    if (!keyring || !key) throw lockedError("Unlock the app first.");
+    const kid = keyring.kid;
+    const mine = keyring.file();
+    if (!mine) throw new Error("No encryption key on this device.");
+    const startedAt = Date.now();
+    job = { id: l.id, name: l.name, target, done: 0, total: 0 };
+    notify();
+    try {
+      if (target === "encrypted") {
+        // inspect() ran first: the location is plain (any keys.json is stale) or already uses this key.
+        const there = await readKeyFile(l);
+        // Marker first (other writers stop writing plain records), then the key file, then the records.
+        await markManifest(l, { encrypted: true, keyId: kid, encryption: { state: "encrypting", startedAt } });
+        l.mode = "encrypting";
+        if (!there || there.kid !== kid || there.updatedAt < mine.updatedAt) await writeFile(l, KEYS_FILE, JSON.stringify(mine, null, 2));
+        const back = await readKeyFile(l);
+        if (back?.kid !== kid) throw new Error("Couldn't write the key file (keys.json).");
+        l.keyFile = back;
+      } else {
+        await markManifest(l, { encrypted: true, keyId: kid, encryption: { state: "decrypting", startedAt } });
+        l.mode = "decrypting";
+      }
+      const files = [];
+      for (const dir of ENC_DIRS) {
+        for (const ent of await l.provider.list(dir)) {
+          const m = FILE_RE.exec(ent.name);
+          if (m && ent.kind === "file") files.push([dir, m[1]]);
+        }
+      }
+      job.total = files.length;
+      const result = { changed: 0, skipped: 0, failed: [] };
+      for (const [dir, id] of files) {
+        job.done++;
+        onProgress?.({ ...job });
+        if (job.done % 25 === 0) notify();
+        const path = `${dir}/${id}.json`;
+        const text = await l.provider.readText(path);
+        if (text == null) continue;
+        let v;
+        try {
+          v = JSON.parse(text);
+        } catch {
+          result.skipped++; // not JSON: not ours, left alone
+          continue;
+        }
+        const enc = isEnvelope(v);
+        let plain;
+        try {
+          plain = enc ? await decryptText(key, dir, id, v) : text;
+        } catch {
+          result.failed.push(path); // can't be decrypted with this key: left as it is
+          continue;
+        }
+        if ((target === "encrypted") === enc || !v || typeof v !== "object") {
+          result.skipped++;
+          continue;
+        }
+        const next = target === "encrypted" ? JSON.stringify(await encryptText(key, kid, dir, id, plain)) : plain;
+        await writeFile(l, path, next);
+        let ok = false;
+        try {
+          const back = await l.provider.readText(path);
+          const pv = JSON.parse(back);
+          ok = isEnvelope(pv) === (target === "encrypted") && (isEnvelope(pv) ? await decryptText(key, dir, id, pv) : back) === plain;
+        } catch (e) {
+          if (isPermission(e)) throw e;
+          ok = false;
+        }
+        if (!ok) {
+          await writeFile(l, path, text);
+          throw new Error(`Couldn't verify ${path} after writing it; the original was put back.`);
+        }
+        result.changed++;
+      }
+      if (target === "encrypted") {
+        await markManifest(l, { encryption: undefined });
+        l.mode = "encrypted";
+      } else {
+        await markManifest(l, { encrypted: undefined, keyId: undefined, encryption: undefined });
+        l.mode = "plain";
+        if (!result.failed.length) await removeFile(l, KEYS_FILE); // last: without it nothing encrypted could be read
+        l.keyFile = null;
+      }
+      return result;
+    } finally {
+      job = null;
+      notify();
+    }
+  }
+  /** The mode this device wants for its locations. */
+  const wantedMode = () => (keyring?.settings().files ? "encrypted" : "plain");
+  /**
+   * Main, at the start of a sync: inspect, resume an unfinished job, follow another device's change, or bring a
+   * newly connected main to this device's setting. Returns the manifest to use as `before`.
+   */
+  async function settleMain(l, before) {
+    await inspect(l, before);
+    if (!keyring) return before;
+    let target = null;
+    if (l.mode === "encrypting") target = "encrypted";
+    else if (l.mode === "decrypting") target = "plain";
+    else if (l.mode !== wantedMode()) {
+      const fresh = before == null || !l.lastSyncAt;
+      // This device's own turn on / off that hasn't finished yet, or a main connected for the first time.
+      if (keyring.settings().filesJob || (fresh && wantedMode() === "encrypted")) target = wantedMode();
+      else keyring.saveSettings({ files: l.mode === "encrypted" }); // the main was changed by another device: follow it
+    }
+    if (!target) return before;
+    if (!dek()) throw lockedError("Unlock the app first.");
+    await transform(l, target);
+    keyring.saveSettings({ files: target === "encrypted", filesJob: false });
+    return readManifestFile(l.provider);
+  }
 
   // ---------- local tombstones ----------
   const localTombs = () => cache.list(TOMBS);
@@ -257,10 +489,10 @@ export function createFolderAdapter(cache, {
     const remote = {};
     for (const col of COLS) {
       local[col] = await cache.list(col);
-      remote[col] = [...(await readRecords(l.provider, col)).values()];
+      remote[col] = [...(await readRecords(l.provider, col, dek())).values()];
     }
     const lt = await localTombs();
-    const { tombs, legacyOnly } = await readTombs(l.provider);
+    const { tombs, legacyOnly } = await readTombs(l.provider, Date.now(), dek());
     return { local, remote, localTombstones: lt.filter((t) => !t.synced).map(fromCacheTomb), remoteTombstones: tombs, legacyOnly };
   }
   const mainIo = (l, snap) => ({
@@ -314,7 +546,8 @@ export function createFolderAdapter(cache, {
       const taken = takeDirty(); // the snapshot already holds every pending local edit
       let applied = false;
       try {
-        const before = await readManifestFile(l.provider);
+        if (paused()) throw lockedError("Encrypted storage is locked. Unlock the app to sync.");
+        const before = await settleMain(l, await readManifestFile(l.provider));
         const snap = await snapshot(l);
         const plan = planSync({ ...snap, direction, now: Date.now() });
         if (direction !== "merge" && conflictCount(plan) && !force) {
@@ -354,6 +587,7 @@ export function createFolderAdapter(cache, {
       const l = main();
       if (!ready(l)) return { unpushed: 0, incoming: 0 };
       try {
+        await inspect(l, await readManifestFile(l.provider));
         const snap = await snapshot(l);
         const plan = planSync({ ...snap, direction: "merge" });
         planUnpushed = new Set([...plan.toRemote, ...plan.deleteRemote].map((c) => keyOf(c.collection, c.id)));
@@ -378,7 +612,7 @@ export function createFolderAdapter(cache, {
   /** Auto check: read the stamp; pull (full merge) only if another writer changed the folder. */
   async function autoCheck() {
     const l = main();
-    if (!ready(l) || mode !== "auto") return { pulled: false };
+    if (!ready(l) || mode !== "auto" || paused()) return { pulled: false };
     const changed = await exclusive(async () => {
       try {
         return await folderChanged(l);
@@ -402,7 +636,8 @@ export function createFolderAdapter(cache, {
     // Don't delete a copy edited in the main after this delete; the next merge pulls it back.
     let there = null;
     try {
-      there = JSON.parse((await l.provider.readText(recPath(col, id))) ?? "null");
+      const text = await l.provider.readText(recPath(col, id));
+      there = text == null ? null : await decodeText(text, col, id, dek());
     } catch (e) {
       if (isPermission(e)) throw e;
       there = null;
@@ -418,7 +653,7 @@ export function createFolderAdapter(cache, {
    */
   async function autoPush() {
     const l = main();
-    if (!ready(l) || mode !== "auto" || !dirty.size) return null;
+    if (!ready(l) || mode !== "auto" || !dirty.size || paused()) return null;
     const r = await exclusive(async () => {
       if (main() !== l || !dirty.size) return { done: true };
       let before;
@@ -464,7 +699,9 @@ export function createFolderAdapter(cache, {
     pushTimer = setTimeout(onPushTick, pushMs());
     pushTimer.unref?.();
     const l = main();
-    if (l) {
+    if (paused()) {
+      // locked with encryption in use: wait for the unlock
+    } else if (l) {
       if (mode === "auto" && dirty.size && ready(l)) autoPush().catch(() => {});
     } else if (backupDirty) runBackups().catch(() => {});
     notify();
@@ -487,12 +724,18 @@ export function createFolderAdapter(cache, {
     return l.busy;
   }
   async function backupOnce(l) {
-    if (l.role !== "backup" || !ready(l)) return;
+    if (l.role !== "backup" || !ready(l) || paused()) return;
+    // Backups follow this device's setting (which follows the main); resume or start a job first.
+    await inspect(l, await readManifestFile(l.provider));
+    if (keyring && l.mode !== wantedMode()) {
+      await transform(l, wantedMode());
+      l.known = null;
+    }
     const now = Date.now();
     if (!l.known) {
       const records = new Map();
-      for (const col of COLS) for (const r of (await readRecords(l.provider, col)).values()) records.set(keyOf(col, r.id), { collection: col, id: r.id, at: stamp(r) });
-      const tombs = new Map((await readTombs(l.provider, now)).tombs.map((t) => [keyOf(t.collection, t.id), t]));
+      for (const col of COLS) for (const r of (await readRecords(l.provider, col, dek())).values()) records.set(keyOf(col, r.id), { collection: col, id: r.id, at: stamp(r) });
+      const tombs = new Map((await readTombs(l.provider, now, dek())).tombs.map((t) => [keyOf(t.collection, t.id), t]));
       l.known = { records, tombs };
     }
     if (!main()) for (const t of await localTombs()) if (t.deletedAt < now - TOMBSTONE_TTL_MS) await cache.remove(TOMBS, t.id);
@@ -590,7 +833,7 @@ export function createFolderAdapter(cache, {
     if (pollTimer || !pollMs) return;
     pollTimer = setInterval(() => {
       const l = main();
-      if (!l || l.state !== "synced" || mode !== "auto" || running || hidden()) return;
+      if (!l || l.state !== "synced" || mode !== "auto" || running || hidden() || paused()) return;
       if (clock() - Math.max(lastSyncEnd, lastCheckEnd) < Math.max(cooldownMs, pollMs * 0.9)) return;
       autoCheck().catch(() => {});
     }, Math.max(10, Math.floor(Math.min(pollMs, Math.max(cooldownMs, 1)) / 3)));
@@ -674,7 +917,7 @@ export function createFolderAdapter(cache, {
         m = await addLoc(handle, "main", "syncing");
       }
       if (!m) throw new Error("No folder chosen.");
-      if (m.state === "needs-permission") setLoc(m, "syncing");
+      if (m.state === "needs-permission" || m.state === "locked") setLoc(m, "syncing");
       ensurePoll();
       startPushTimer();
       let counts = { pulled: 0, pushed: 0, deleted: 0 };
@@ -800,7 +1043,7 @@ export function createFolderAdapter(cache, {
     /** Ask for access to every location that needs it (call from a user gesture). Returns the names still without access. */
     async requestPermissions() {
       const failed = [];
-      for (const l of locs.filter((x) => !ready(x))) {
+      for (const l of locs.filter((x) => x.state === "needs-permission")) {
         let p = "denied";
         try {
           p = await l.provider.permission(true);
@@ -830,12 +1073,16 @@ export function createFolderAdapter(cache, {
     async readBackup(id, { restamp = true } = {}) {
       const l = locs.find((x) => x.id === id);
       if (!l) throw new Error("Unknown storage location.");
+      await inspect(l, await readManifestFile(l.provider)).catch((e) => {
+        failLoc(l, e);
+        throw e;
+      });
       const now = Date.now();
       const files = [{ path: MANIFEST, data: manifestText() }];
       let newest = 0;
       let count = 0;
       for (const col of COLS) {
-        for (const r of (await readRecords(l.provider, col)).values()) {
+        for (const r of (await readRecords(l.provider, col, dek())).values()) {
           newest = Math.max(newest, stamp(r));
           count++;
           files.push({ path: recPath(col, r.id), data: JSON.stringify(restamp ? { ...r, updatedAt: now } : r) });
@@ -877,6 +1124,75 @@ export function createFolderAdapter(cache, {
       }
     },
     /**
+     * Turn file encryption on (true) or off (false) for every location: the main first, then the backups, each
+     * as a resumable job (see transform). Needs the key in memory and every location reachable. Auto sync waits
+     * while a job runs. -> [{ id, name, changed, skipped, failed, error? }]
+     */
+    async setEncryption(on, { onProgress } = {}) {
+      if (!keyring) throw new Error("Encryption isn't available here.");
+      if (!dek()) throw lockedError("Unlock the app first.");
+      const blocked = locs.filter((l) => l.state === "needs-permission" || l.state === "locked");
+      if (blocked.length) throw new Error(`Reconnect or unlock ${blocked.map((l) => `"${l.name}"`).join(", ")} first.`);
+      await adapter.flush();
+      const target = on ? "encrypted" : "plain";
+      keyring.saveSettings({ files: !!on, filesJob: true });
+      const results = [];
+      for (const l of [main(), ...backups()].filter(Boolean)) {
+        const run = async () => {
+          await inspect(l, await readManifestFile(l.provider));
+          if (l.mode === target) return { changed: 0, skipped: 0, failed: [] };
+          const r = await transform(l, target, onProgress);
+          l.known = null;
+          return r;
+        };
+        try {
+          const r = l.role === "main" ? await exclusive(run) : await (l.busy = (l.busy ?? Promise.resolve()).catch(() => {}).then(run));
+          results.push({ id: l.id, name: l.name, ...r });
+          if (l.state !== "synced") setLoc(l, "synced");
+        } catch (e) {
+          failLoc(l, e);
+          results.push({ id: l.id, name: l.name, changed: 0, skipped: 0, failed: [], error: e?.message ?? String(e) });
+        }
+      }
+      if (!results.some((r) => r.error)) keyring.saveSettings({ filesJob: false });
+      notify();
+      return results;
+    },
+    /** keys.json of a location (to unlock it with its PIN or recovery key), or null. */
+    async locationKeyFile(id) {
+      const l = locs.find((x) => x.id === id);
+      return l ? readKeyFile(l) : null;
+    },
+    /** After the key became available (unlock, adopt): try the locked locations again. */
+    async retryLocked() {
+      for (const l of locs.filter((x) => x.state === "locked")) {
+        if (l.role === "main") {
+          setLoc(l, "syncing");
+          await adapter.connect().catch(() => {});
+        } else {
+          setLoc(l, "synced");
+          await runBackup(l);
+        }
+      }
+    },
+    /** Write this browser's key file to every reachable encrypted location if it is newer (PIN change, new recovery key). */
+    async syncKeyFiles() {
+      for (const l of locs.filter((x) => ready(x) && x.mode && x.mode !== "plain")) {
+        const run = async () => {
+          l.keyFile = await readKeyFile(l);
+          await reconcileKeyFile(l);
+        };
+        try {
+          if (l.role === "main") await exclusive(run);
+          else await (l.busy = (l.busy ?? Promise.resolve()).catch(() => {}).then(run));
+        } catch (e) {
+          failLoc(l, e);
+        }
+      }
+    },
+    /** Locations that are encrypted (or mid-job), for Settings. */
+    encryptedLocations: () => locs.filter((l) => l.mode && l.mode !== "plain").map(publicLoc),
+    /**
      * Final push: write everything still waiting now (auto-mode edits to the main, then the backups),
      * ignoring the interval and the cooldown, and wait for all file writes. Called on hide / close and
      * before disconnect, remove, make main, switching to manual, Pull and Push.
@@ -896,7 +1212,7 @@ export function createFolderAdapter(cache, {
   const focusAction = () => (mode === "auto" ? autoCheck() : check()).catch(() => {});
   const onFocus = () => {
     const l = main();
-    if (!l || l.state !== "synced" || running || hidden()) return;
+    if (!l || l.state !== "synced" || running || hidden() || paused()) return;
     const t = clock();
     if (t - lastFocus < FOCUS_MERGE_MS) return;
     lastFocus = t;

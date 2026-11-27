@@ -87,7 +87,7 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
           return;
         }
         setDisabled(true);
-        msg.textContent = `Too many wrong tries. Try again in ${formatWait(left)}.`;
+        msg.textContent = `Wrong PIN. Try again in ${formatWait(left)}.`;
       };
       tick();
       if (waitLeft() > 0) countdown = setInterval(tick, 1000);

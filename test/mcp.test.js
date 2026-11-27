@@ -388,3 +388,28 @@ test("embedded images survive a read -> update round trip", async (t) => {
   assert.equal(img.src, png);
   assert.equal(img.caption, "Cat");
 });
+
+test("an encrypted folder is refused clearly; nothing is read as data or written", async (t) => {
+  const dir = fixture({ ...PERMS, broad: { read: "yes", create: "yes", edit: "yes", delete: "yes" } });
+  const s = startServer(dir);
+  t.after(() => s.stop());
+  const ok = await s.call("list_pages");
+  assert.equal(ok.error, false, "plain folder works");
+  // the app turns encryption on while the server runs: marker first, then envelopes
+  const man = JSON.parse(fs.readFileSync(path.join(dir, "denotation.json"), "utf8"));
+  fs.writeFileSync(path.join(dir, "denotation.json"), JSON.stringify({ ...man, encrypted: true, keyId: "a".repeat(24), encryption: { state: "encrypting", startedAt: NOW } }));
+  fs.writeFileSync(path.join(dir, "pages", "doc-shared.json"), JSON.stringify({ "denotation-enc": 1, kid: "a".repeat(24), iv: "AAAAAAAAAAAAAAAA", ct: "AAAA" }));
+  const snapshot = () => JSON.stringify(fs.readdirSync(dir, { recursive: true }).sort().map((f) => [f, fs.statSync(path.join(dir, f)).isFile() ? fs.readFileSync(path.join(dir, f), "utf8") : ""]));
+  const before = snapshot();
+  for (const [name, args] of [["list_pages", {}], ["search", { query: "Hello" }], ["read_page", { id: "doc-shared" }], ["create_page", { parentId: "repo-open", title: "Leak" }], ["update_row", { id: "row-milk", values: { Qty: 3 } }], ["delete_row", { id: "row-eggs" }]]) {
+    const r = await s.call(name, args);
+    assert.equal(r.error, true, name);
+    assert.match(r.text, /folder is encrypted; the AI server can't read it/, name);
+  }
+  assert.equal(snapshot(), before, "nothing written");
+  // marker cleared but still encrypted: still refused; an envelope without a manifest flag is never read as data
+  fs.writeFileSync(path.join(dir, "denotation.json"), JSON.stringify({ ...man, encrypted: true }));
+  assert.match((await s.call("list_pages")).text, /encrypted/);
+  fs.writeFileSync(path.join(dir, "denotation.json"), JSON.stringify(man));
+  assert.match((await s.call("list_pages")).text, /encrypted/);
+});

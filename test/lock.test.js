@@ -6,7 +6,8 @@ import {
   ATTEMPTS_KEY,
   IDLE_KEY,
   DEFAULT_IDLE,
-  MAX_DELAY_MS,
+  WRONG_WAIT_MS,
+  createThrottle,
   validPin,
   constantTimeEqual,
   createPinRecord,
@@ -17,9 +18,7 @@ import {
   hasPin,
   loadRecord,
   tryPin,
-  delayMs,
   waitLeft,
-  loadAttempts,
   loadIdle,
   saveIdle,
   randomCode,
@@ -122,45 +121,38 @@ test("setPin / removePin with storage; idle defaults to 5 when a PIN is first se
   assert.equal(s.getItem(PIN_KEY), null);
 });
 
-test("delay schedule: 3 wrong -> 2 s, doubling, capped at 5 min", () => {
-  assert.deepEqual([0, 1, 2].map(delayMs), [0, 0, 0]);
-  assert.equal(delayMs(3), 2000);
-  assert.equal(delayMs(4), 4000);
-  assert.equal(delayMs(5), 8000);
-  assert.equal(delayMs(10), 256000);
-  assert.equal(delayMs(11), MAX_DELAY_MS);
-  assert.equal(delayMs(50), MAX_DELAY_MS);
-});
-
-test("tryPin: counts failures, persists the wait, refuses during it, resets on success", async () => {
-  const s = memStorage();
+test("wrong PIN: fixed 3 s block, no escalation, nothing persisted, right PIN after the wait", async () => {
+  assert.equal(WRONG_WAIT_MS, 3000);
+  const s = memStorage({ [ATTEMPTS_KEY]: JSON.stringify({ failures: 20, until: 10 ** 13 }) }); // left by an older version
   await setPin("9090", 4, { storage: s, iterations: FAST });
+  assert.equal(s.getItem(ATTEMPTS_KEY), null, "setPin drops the legacy counter");
+  s.setItem(ATTEMPTS_KEY, JSON.stringify({ failures: 20, until: 10 ** 13 }));
+  const throttle = createThrottle();
   let t = 1_000_000;
   const now = () => t;
-  for (let i = 1; i <= 2; i++) {
-    const r = await tryPin("0000", { storage: s, now });
-    assert.deepEqual([r.ok, r.failures, r.waitMs], [false, i, 0]);
+  for (let i = 0; i < 6; i++) {
+    const r = await tryPin("0000", { storage: s, now, throttle });
+    assert.deepEqual([r.ok, r.waitMs, !!r.throttled], [false, 3000, false], `try ${i + 1}: always 3 s`);
+    // during the block even the right PIN is refused
+    const blocked = await tryPin("9090", { storage: s, now, throttle });
+    assert.deepEqual([blocked.ok, blocked.throttled], [false, true]);
+    assert.equal(waitLeft(t, throttle), 3000);
+    t += 1000;
+    assert.equal(waitLeft(t, throttle), 2000);
+    t += 2000;
+    assert.equal(waitLeft(t, throttle), 0);
   }
-  const third = await tryPin("0000", { storage: s, now });
-  assert.equal(third.waitMs, 2000);
-  assert.equal(JSON.parse(s.getItem(ATTEMPTS_KEY)).failures, 3, "persisted (survives a reload)");
-  // during the wait even the right PIN is refused, without counting
-  const blocked = await tryPin("9090", { storage: s, now });
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.throttled, true);
-  assert.equal(loadAttempts(s).failures, 3);
-  assert.equal(waitLeft(s, t), 2000);
-  t += 2000;
-  const fourth = await tryPin("1111", { storage: s, now });
-  assert.equal(fourth.waitMs, 4000);
-  t += 4000;
-  assert.equal((await tryPin("9090", { storage: s, now })).ok, true);
-  assert.equal(s.getItem(ATTEMPTS_KEY), null);
+  for (const k of s.map.keys()) assert.ok(k !== ATTEMPTS_KEY || s.getItem(k).includes("10000000000000"), "no attempt counter is written");
+  assert.equal((await tryPin("9090", { storage: s, now, throttle })).ok, true);
+  assert.equal(s.getItem(ATTEMPTS_KEY), null, "a right PIN removes the legacy key");
 });
 
-test("waitLeft never exceeds the cap (clock set back)", () => {
-  const s = memStorage({ [ATTEMPTS_KEY]: JSON.stringify({ failures: 20, until: 10 ** 13 }) });
-  assert.equal(waitLeft(s, 0), MAX_DELAY_MS);
+test("throttle never exceeds 3 s (clock set back) and clears", () => {
+  const th = createThrottle();
+  th.fail(10 ** 13);
+  assert.equal(th.waitLeft(0), 3000);
+  th.clear();
+  assert.equal(th.waitLeft(0), 0);
 });
 
 test("tryPin without a PIN opens", async () => {

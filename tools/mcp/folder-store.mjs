@@ -6,12 +6,18 @@
 //   - never writes permissions.json (or anything else)
 //   - never follows symlinks; pages/ and rows/ must be real directories inside the folder
 //   - writes go to a temp file in the same directory, then rename
+//   - an encrypted folder (denotation.json says encrypted, or an encryption job is running) is refused for every
+//     read and write: the server can't decrypt it and must never write plain records into it
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { validPage, validRow } from "../../public/js/vault.js";
 import { sanitize, PERMISSIONS_FILE } from "../../public/js/permissions.js";
 import { bumpManifest } from "../../public/js/sync.js";
+import { manifestEncrypted, isEnvelope } from "../../public/js/crypto.js";
+
+export const ENCRYPTED_MESSAGE = "Denotation: this folder is encrypted; the AI server can't read it. " +
+  "To use AI access, turn encryption off in the app (Settings \u2192 Security).";
 
 export const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
 const FILE_RE = /^([A-Za-z0-9-]{1,100})\.json$/;
@@ -41,6 +47,15 @@ export class FolderStore {
       throw new Error(`No Denotation workspace in ${this.folder} (expected denotation.json or pages/). Connect this folder in the app first.`);
     }
     return this;
+  }
+
+  /** True when the folder is encrypted (or being encrypted / decrypted). Checked again on every call. */
+  async isEncrypted() {
+    const manifest = await this.readJson(path.join(this.root, MANIFEST_FILE));
+    return manifestEncrypted(manifest);
+  }
+  async assertPlain() {
+    if (await this.isEncrypted()) throw new Error(ENCRYPTED_MESSAGE);
   }
 
   /** Resolve <col>/<name> inside the folder, refusing anything that could escape it. */
@@ -85,6 +100,7 @@ export class FolderStore {
       const m = FILE_RE.exec(ent.name);
       if (!m || !ent.isFile()) continue; // skips symlinks and folders
       const rec = await this.readJson(path.join(dir, ent.name));
+      if (isEnvelope(rec)) throw new Error(ENCRYPTED_MESSAGE); // never read an envelope as data
       if (rec && valid(rec) && rec.id === m[1]) out.push(rec);
     }
     return out;
@@ -92,6 +108,7 @@ export class FolderStore {
 
   /** A fresh snapshot of the workspace (re-read on every call). */
   async load() {
+    await this.assertPlain();
     const [pages, rows] = await Promise.all([this.readCol("pages"), this.readCol("rows")]);
     const byCreated = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0);
     return { pages: pages.sort(byCreated), rows: rows.sort(byCreated) };
@@ -126,6 +143,7 @@ export class FolderStore {
     if (!ok || !ID_RE.test(rec.id)) throw new Error("Denotation: refused to write an invalid record.");
     const text = JSON.stringify(rec, null, 2);
     if (Buffer.byteLength(text) > RECORD_MAX) throw new Error(`Denotation: that ${col === "pages" ? "page" : "row"} would be larger than ${RECORD_MAX / 1024} KB.`);
+    await this.assertPlain();
     const file = await this.safePath(col, `${rec.id}.json`, { forWrite: true });
     await this.writeAtomic(file, text);
     await this.bumpStamp();
@@ -142,6 +160,7 @@ export class FolderStore {
     const st = await fs.lstat(file).catch(() => null);
     if (st && (st.isSymbolicLink() || !st.isFile())) throw new Error("Denotation: denotation.json is not a plain file; refusing to use it.");
     const prev = st ? await this.readJson(file) : null;
+    if (manifestEncrypted(prev)) throw new Error(ENCRYPTED_MESSAGE);
     await this.writeAtomic(file, JSON.stringify(bumpManifest(prev, this.writer, Date.now()), null, 2));
   }
 
@@ -152,6 +171,7 @@ export class FolderStore {
   async deleteRow(id) {
     this.assertWritable();
     if (!ID_RE.test(id)) throw new Error("Denotation: invalid id.");
+    await this.assertPlain();
     const tomb = await this.safePath(TOMBS_DIR, `${id}.json`, { forWrite: true });
     await this.writeAtomic(tomb, JSON.stringify({ id, collection: "rows", deletedAt: Date.now() }, null, 2));
     const file = await this.safePath("rows", `${id}.json`, { forWrite: true });
