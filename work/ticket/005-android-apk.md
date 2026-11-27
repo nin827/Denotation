@@ -27,3 +27,6 @@ check) or load it from GitHub Pages (auto-updates, needs network the first time)
 Deploy to GitHub Pages first and try the installed web app on Android. Build the loader APK only if the folder picker
 falls short. If built, the APK **loads the app from GitHub Pages** (auto-updates; cached after the first run) and
 bridges the Storage Access Framework folder.
+
+## Check-in (2026-11-27)
+Not tried on Android yet; keep waiting.

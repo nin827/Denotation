@@ -28,3 +28,8 @@ Request: a flowchart block.
 - Right-click / long-press on a box opens the box menu; the block menu opens from the empty chart area. Keep?
 - Edge labels can overlap boxes, and grid-layout edges can pass behind boxes: worth nudging?
 - Link to a single box from other pages later (box ids are stable)?
+
+## Owner decisions (2026-11-27)
+- Add a **Fill** control for `bg` (12 hues or grey), separate from the outline/text colour.
+- Do all three follow-ups: nudge edge labels off boxes; route grid-layout edges around boxes; links to a box
+  (`[[Page#box]]`-style) that jump to and highlight it.
