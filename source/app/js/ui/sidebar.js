@@ -213,6 +213,8 @@ export function renderSidebar(el, props) {
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
     { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
     { label: "Archive", icon: ico("archive"), onSelect: onOpenArchive },
+    // Locking open only exists on wide screens (see ui/layout.js).
+    matchMedia("(max-width: 700px)").matches ? null : { label: locked ? "Unlock sidebar" : "Lock sidebar open", icon: ico(locked ? "lock-open" : "lock"), onSelect: onToggleLock },
     { separator: true },
     ...P.vaultItems(),
     { separator: true },
@@ -231,7 +233,6 @@ export function renderSidebar(el, props) {
         onClose();
         onSearch();
       }, "act-search"),
-      iconBtn(locked ? "lock" : "lock-open", locked ? "Sidebar is locked open. Click to unlock." : "Lock sidebar open", onToggleLock, `act-lock${locked ? " on" : ""}`),
       h("button", { class: "icon act-more", title: "Workspace menu", "aria-label": "Workspace menu", "aria-haspopup": "menu", onClick: workspaceMenu }, ico("ellipsis")),
       iconBtn("panel-left-close", locked ? "Unlock the sidebar to close it" : "Close sidebar", onClose, locked ? "disabled" : "")
     ),

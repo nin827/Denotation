@@ -91,7 +91,8 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 :is(.page-title, .blk-ta, .caption):focus-visible { outline: none; }
 
 /* layout: the sidebar is pinned (locked open), an overlay (opened on demand) or closed; see ui/layout.js */
-#app { display: grid; grid-template-columns: 304px minmax(0, 1fr); height: 100%; }
+/* One sidebar width for pinned and overlay, so locking or unlocking never resizes it. */
+#app { --side-w: 304px; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; }
 #sidebar { background: var(--bg-soft); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 #main {
   overflow: auto; min-width: 0; min-height: 0;
@@ -102,7 +103,7 @@ input:where([type="checkbox"], [type="radio"], [type="range"]) { accent-color: v
 #app[data-side="closed"], #app[data-side="overlay"] { grid-template-columns: minmax(0, 1fr); }
 #app[data-side="closed"] #sidebar { display: none; }
 #app[data-side="overlay"] #sidebar {
-  position: fixed; z-index: 25; top: 0; bottom: 0; left: 0; width: min(340px, 90vw);
+  position: fixed; z-index: 25; top: 0; bottom: 0; left: 0; width: min(var(--side-w), 90vw);
   box-shadow: var(--shadow-overlay); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 #app:not([data-side="pinned"]) #main { padding-top: 60px; }
@@ -673,7 +674,6 @@ body { overscroll-behavior-y: none; }
   #main.doc-small { font-size: 16px; }
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(.page-title), select, textarea):not(.blk-ta) { font-size: 16px; }
   .code-box .blk-ta { font-size: 16px; }
-  .brand .act-lock { display: none; }          /* locking the sidebar open only exists on wide screens */
   .brand button.icon.disabled { opacity: 1; cursor: pointer; }
   .row-prop { grid-template-columns: 1fr; gap: var(--sp-2); }
   .cal-title { min-width: 0; flex: 1; }

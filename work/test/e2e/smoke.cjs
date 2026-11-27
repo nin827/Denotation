@@ -624,6 +624,27 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
       await page.evaluate(async ([k]) => (await import("./js/ui/dialogs.js")).toast(`smoke ${k}`, k), [kind]);
       if ((await page.locator(`.toast.${kind} .icon-svg`).count()) !== n) errs.push(`toast: ${kind} has no icon`);
     }
+    // sidebar lock lives in the workspace menu and never changes the sidebar's width
+    {
+      const w0 = await page.evaluate(() => document.querySelector("#sidebar").getBoundingClientRect().width);
+      await page.locator(".act-more").click();
+      const lockItem = page.locator(".menu-item", { hasText: /Lock sidebar open|Unlock sidebar/ });
+      if (!(await lockItem.count())) errs.push("sidebar: no lock item in the workspace menu");
+      await lockItem.first().click().catch(() => {});
+      await page.waitForTimeout(150);
+      if (await page.locator("#sidebar").isVisible()) {
+        const w1 = await page.evaluate(() => document.querySelector("#sidebar").getBoundingClientRect().width);
+        if (Math.abs(w1 - w0) > 1) errs.push(`sidebar: width changed when toggling the lock (${w0} -> ${w1})`);
+      }
+      // toggle back to how it was
+      if (!(await page.locator("#sidebar").isVisible())) await page.locator("#side-open").click();
+      await page.waitForSelector("#sidebar .act-more", { state: "visible" });
+      await page.locator(".act-more").click();
+      await page.locator(".menu-item", { hasText: /Lock sidebar open|Unlock sidebar/ }).first().click();
+      await page.waitForTimeout(150);
+      if (!(await page.locator("#sidebar").isVisible())) await page.locator("#side-open").click();
+      await page.waitForSelector("#sidebar .act-more", { state: "visible" });
+    }
     // workspace menu always offers Install app (instructions when the browser gives no prompt)
     await page.locator(".act-more").click();
     if (!(await page.locator(".menu-item", { hasText: "Install app" }).count())) errs.push("install: no Install app in the workspace menu");

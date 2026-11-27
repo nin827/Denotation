@@ -66,13 +66,13 @@ The sidebar is on the left. From top to bottom:
 |---|---|
 | **New** button | Opens a menu to create a page, database, sheet, or a database from a CSV file |
 | Search icon | Opens quick find |
-| Lock / close icons | Lock the sidebar open, or close it when it is unlocked |
-| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Archive**, **Export ▸**, **Import ▸**, **Storage…** (Chrome or Edge, plus **Pull** / **Push** when a main location is connected) and **AI access…** |
+| Close icon | Close the sidebar when it is unlocked |
+| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Archive**, **Lock sidebar open** / **Unlock sidebar** (wide screens), **Install app**, **Export ▸**, **Import ▸**, **Storage…** (Chrome or Edge, plus **Pull** / **Push** when a main location is connected) and **AI access…** |
 | **Favorites** | Pages you starred (only shown when you have some) |
 | **Repositories** | Your top-level folders, with their pages nested underneath |
 | Footer | Where your data is stored (this browser, or the connected folder) |
 
-On a wide screen the sidebar is **locked open** by default. Unlock it with the padlock icon if you want more room: it then slides in over the page when you open it, and out of the way when you pick a page. On a phone it starts closed, and a small button on the left edge opens it. **Ctrl/Cmd + \\** also opens and closes the sidebar once it is unlocked.
+On a wide screen the sidebar is **locked open** by default. Unlock it from **⋯ → Unlock sidebar** (and lock it again with **⋯ → Lock sidebar open**) if you want more room; its width stays the same either way: it then slides in over the page when you open it, and out of the way when you pick a page. On a phone it starts closed, and a small button on the left edge opens it. **Ctrl/Cmd + \\** also opens and closes the sidebar once it is unlocked.
 
 ### On a phone or tablet
 
