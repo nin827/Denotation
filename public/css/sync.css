@@ -1,32 +1,32 @@
 /* Storage dialog (main location + backups) and sync warnings. Uses tokens from style.css. */
-.storage-dialog .loc-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
-.loc-row { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; display: grid; gap: 6px; }
+.storage-dialog .loc-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: var(--sp-8); }
+.loc-row { border: 1px solid var(--border-ctl); border-radius: var(--radius); padding: 10px; display: grid; gap: var(--sp-6); }
 .loc-row.main { border-color: var(--accent); }
-.loc-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.loc-head .icon-svg { width: 16px; height: 16px; flex: none; }
+.loc-head { display: flex; align-items: center; gap: var(--sp-6); min-width: 0; }
+.loc-head .icon-svg { width: var(--ico-md); height: var(--ico-md); flex: none; }
 .loc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.loc-row .hint { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.loc-row .hint { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .loc-mode { margin: 0; max-width: 220px; }
-.loc-mode button { padding: 4px 6px; font-size: 13px; }
-.loc-push { display: grid; gap: 2px; }
-.loc-push .set-row { margin: 0; gap: 8px; }
-.loc-push .set-row > label { flex: none; font-size: 13px; }
+.loc-mode button { padding: var(--sp-4) var(--sp-6); font-size: var(--fs-md); }
+.loc-push { display: grid; gap: var(--sp-2); }
+.loc-push .set-row { margin: 0; gap: var(--sp-8); }
+.loc-push .set-row > label { flex: none; font-size: var(--fs-md); }
 .loc-push select { flex: 0 1 auto; max-width: 160px; }
-.loc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.loc-actions .chip-btn { display: inline-flex; align-items: center; gap: 4px; }
-.loc-actions .icon-svg { width: 14px; height: 14px; }
-.sync-warn-list { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; }
-.sync-warn-list li { display: grid; gap: 1px; padding: 6px 8px; border-radius: var(--radius); background: var(--bg-hover); min-width: 0; }
+.loc-actions { display: flex; flex-wrap: wrap; gap: var(--sp-6); }
+.loc-actions .chip-btn { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.loc-actions .icon-svg { width: var(--ico-sm); height: var(--ico-sm); }
+.sync-warn-list { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: var(--sp-6); }
+.sync-warn-list li { display: grid; gap: 1px; padding: var(--sp-6) var(--sp-8); border-radius: var(--radius); background: var(--bg-hover); min-width: 0; }
 .sync-warn-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sync-warn-list .hint { margin: 0; font-size: 12px; }
+.sync-warn-list .hint { margin: 0; font-size: var(--fs-sm); }
 .sync-warn .hint:last-child { margin-bottom: 0; }
-.side-footer .sync-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.side-footer .sync-pending { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6); }
 @media (max-width: 480px) {
-  .loc-actions .chip-btn { font-size: 14px; padding: 4px 10px; }
+  .loc-actions .chip-btn { font-size: var(--fs-ui); padding: 4px 10px; }
 }
 @media (pointer: coarse) {
   .loc-actions .chip-btn, .loc-mode button { min-height: 44px; }
-  .loc-actions { gap: 8px; }
+  .loc-actions { gap: var(--sp-8); }
 }
 @media (max-width: 480px) {
   .loc-mode { max-width: none; }

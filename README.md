@@ -23,7 +23,8 @@ There's no account and no server. Your workspace stays on your device unless you
 | I want to… | Do this |
 |---|---|
 | Run it on my computer | Run `npm start` in this folder, then open http://localhost:8080 |
-| Use it as an app on my phone or computer | Coming soon: GitHub Pages hosting with **Install Denotation** |
+| Use it online | Open `https://<user>.github.io/<repo>/` in any modern browser. Nothing to install, no account. |
+| Install it as an app | Chrome, Edge, Android: **⋯ → Settings → App → Install app**. iPhone/iPad: **Share → Add to Home Screen**. It then opens in its own window and works offline. |
 
 ## Guides
 

@@ -1,6 +1,7 @@
 import { h, debounce } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
+import { currentInstallMode, onInstallChange, promptInstall } from "../pwa.js";
 import {
   sanitizePrefs,
   sanitizeFamily,
@@ -227,6 +228,27 @@ export function openSettings({ prefs: prefs, onChange, extra = null }) {
       })
     );
   }
+  /** "Install app" row: a button where the browser offers one, a how-to on iOS, a note once installed, nothing otherwise. */
+  function installSection() {
+    const mode = currentInstallMode();
+    if (mode === "none") return null;
+    const text = {
+      installed: "Denotation is installed on this device.",
+      prompt: "Install Denotation as an app: its own window, a launcher icon and offline use.",
+      ios: "On iPhone and iPad: tap Share, then Add to Home Screen."
+    }[mode];
+    return h(
+      "section",
+      { class: "install" },
+      h("h4", {}, "App"),
+      h("p", { class: "hint", role: "status" }, mode === "installed" ? ico("check") : null, mode === "installed" ? " " : null, text),
+      mode === "prompt" ? h("button", { type: "button", class: "install-btn", onClick: () => promptInstall() }, ico("download"), " Install app") : null
+    );
+  }
+  const offInstall = onInstallChange(() => {
+    if (!body.isConnected) return offInstall();
+    draw();
+  });
   function draw() {
     drawPreview();
     const sizeLabel = h("label", { for: "set-size" }, `Size: ${cur.fontSize}px`);
@@ -279,7 +301,7 @@ export function openSettings({ prefs: prefs, onChange, extra = null }) {
           " Keep the sidebar locked open (unlock it to open and close it as needed)"
         )
       ),
-      ...[extra].filter(Boolean)
+      ...[installSection(), extra].filter(Boolean)
     );
   }
   draw();

@@ -344,15 +344,15 @@ export function createWorkspace(store) {
   };
   const getRow = (id) => store.get("rows", id);
   const exportAll = async () => ({
-    app: "denotion",
+    app: "denotation",
     version: 1,
     exportedAt: (new Date()).toISOString(),
     pages: await store.list("pages"),
     rows: await store.list("rows")
   });
   const importAll = async (data) => {
-    if (!data || data.app !== "denotion" || !Array.isArray(data.pages) || !Array.isArray(data.rows)) {
-      throw new Error("Not a Denotion export file");
+    if (!data || data.app !== "denotation" && data.app !== "denotion" || !Array.isArray(data.pages) || !Array.isArray(data.rows)) {
+      throw new Error("Not a Denotation export file");
     }
     for (const p of data.pages) await put("pages", p.id, p);
     for (const r of data.rows) await put("rows", r.id, r);

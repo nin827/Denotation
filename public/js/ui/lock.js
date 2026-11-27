@@ -55,7 +55,7 @@ export function createLockScreen({ onLocking, onUnlocked, onForgot } = {}) {
       "div",
       { class: "lock-card" },
       h("div", { class: "lock-icon" }, ico("lock-keyhole")),
-      h("h1", { id: "lock-title" }, "Denotion is locked"),
+      h("h1", { id: "lock-title" }, "Denotation is locked"),
       h("p", { class: "hint lock-sub" }, `Enter your ${length}-digit PIN`),
       h("label", { class: "lock-entry", for: "lock-input" }, dots, input),
       msg,

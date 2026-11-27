@@ -89,12 +89,14 @@ export function validPage(p) {
 export function validRow(r) {
   return isObj(r) && ID_RE.test(r.id) && typeof r.dbId === "string" && isObj(r.values) && (r.blocks == null || Array.isArray(r.blocks));
 }
-/** Shape-check a legacy single-file export ({ app: "denotion", pages, rows }). Throws if it isn't one. */
+/** Both spellings of the app name count on import: "denotation" (current) and "denotion" (older exports). */
+export const isAppName = (v) => v === "denotation" || v === "denotion";
+/** Shape-check a legacy single-file export ({ app: "denotation" | "denotion", pages, rows }). Throws if it isn't one. */
 export function checkLegacy(data) {
-  if (!data || data.app !== "denotion" || !Array.isArray(data.pages) || !Array.isArray(data.rows)) throw new Error("Not a Denotion export file");
+  if (!data || !isAppName(data.app) || !Array.isArray(data.pages) || !Array.isArray(data.rows)) throw new Error("Not a Denotation export file");
   const pages = data.pages.filter(validPage);
   const rows = data.rows.filter(validRow);
-  return { app: "denotion", pages, rows, skipped: data.pages.length + data.rows.length - pages.length - rows.length };
+  return { app: "denotation", pages, rows, skipped: data.pages.length + data.rows.length - pages.length - rows.length };
 }
 
 // ---------- JSON format ----------
@@ -133,7 +135,7 @@ export function fromJsonFiles(files) {
 const readManifest = (f) => {
   try {
     const m = JSON.parse(asText(f.data));
-    return isObj(m) && m.app === "denotation" && m.format === "json" ? m : null;
+    return isObj(m) && isAppName(m.app) && m.format === "json" ? m : null;
   } catch {
     return null;
   }
@@ -290,7 +292,7 @@ export function detectFormat(files) {
   if (!content.length) {
     for (const f of files.filter((x) => extOf(x.path) === "json")) {
       try {
-        if (JSON.parse(asText(f.data))?.app === "denotion") return { format: "legacy", file: f };
+        if (isAppName(JSON.parse(asText(f.data))?.app)) return { format: "legacy", file: f };
       } catch {
         // not JSON: ignored
       }
@@ -311,7 +313,7 @@ export async function importFiles(ws, rawFiles, { name = "Imported", parentId = 
     const pre = fmt.prefix ? `${fmt.prefix}/` : "";
     const inside = files.filter((f) => f.path.startsWith(pre)).map((f) => ({ path: f.path.slice(pre.length), data: f.data }));
     const { pages, rows, skipped } = fromJsonFiles(inside);
-    const r = await ws.importAll({ app: "denotion", pages, rows });
+    const r = await ws.importAll({ app: "denotation", pages, rows });
     return { format: "json", ...r, skipped: skipped + rejected };
   }
   if (fmt.format === "legacy") {

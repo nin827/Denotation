@@ -438,6 +438,56 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     console.log(`${ok ? "ok  " : "FAIL"} phone 390x844 touch${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
     await phone.close();
   }
+  {
+    // PWA: manifest, service worker, offline reload, install row, toast icons
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    await page.goto(`http://127.0.0.1:${PORT}/public/index.html`);
+    await page.waitForSelector(".side-item");
+    const man = await page.evaluate(async () => {
+      const href = document.querySelector('link[rel=manifest]')?.getAttribute("href");
+      const r = await fetch(href);
+      return { href, ok: r.ok, json: await r.json() };
+    });
+    if (!man.ok || man.json.start_url !== "./" || !man.json.icons?.length) errs.push("pwa: manifest not served or invalid");
+    if (/^\//.test(man.href || "/")) errs.push("pwa: manifest link is not relative");
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(async () => (await caches.keys()).some((k) => k.startsWith("denotation-")) && (await (await caches.open((await caches.keys())[0])).keys()).length > 50, null, { timeout: 15000 }).catch(() => errs.push("pwa: app shell was not precached"));
+    await page.reload();
+    await page.waitForSelector(".side-item");
+    if (!(await page.evaluate(() => !!navigator.serviceWorker.controller))) errs.push("pwa: page is not controlled by the service worker after reload");
+    await ctx.setOffline(true);
+    await page.reload();
+    await page.waitForSelector(".side-item", { timeout: 8000 }).catch(() => errs.push("pwa: offline reload did not show the app"));
+    await ctx.setOffline(false);
+    // toasts carry an icon by kind
+    for (const [kind, n] of [["error", 1], ["success", 1], ["info", 1]]) {
+      await page.evaluate(async ([k]) => (await import("./js/ui/dialogs.js")).toast(`smoke ${k}`, k), [kind]);
+      if ((await page.locator(`.toast.${kind} .icon-svg`).count()) !== n) errs.push(`toast: ${kind} has no icon`);
+    }
+    // install row: hidden without a prompt, shown (and working) once the browser offers one
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item", { hasText: "Settings" }).click();
+    await page.waitForSelector(".modal");
+    if (await page.locator(".settings .install").count()) errs.push("install: row shown although the browser offered no install");
+    await page.evaluate(() => {
+      const e = new Event("beforeinstallprompt", { cancelable: true });
+      e.prompt = async () => {};
+      e.userChoice = Promise.resolve({ outcome: "dismissed" });
+      window.dispatchEvent(e);
+    });
+    await page.waitForSelector(".settings .install .install-btn", { timeout: 3000 }).catch(() => errs.push("install: no Install button after beforeinstallprompt"));
+    await page.locator(".install-btn").click().catch(() => {});
+    await page.waitForSelector(".settings .install", { state: "detached", timeout: 3000 }).catch(() => errs.push("install: row still shown after the prompt was used"));
+    await page.keyboard.press("Escape");
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} pwa: manifest, service worker, offline, install row${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await ctx.close();
+  }
   await browser.close();
   server.kill();
   process.exit(failed ? 1 : 0);

@@ -4,8 +4,6 @@ This guide covers everything from opening Denotation for the first time to build
 
 Denotation is a personal workspace that runs entirely in your browser: pages made of blocks, databases with many kinds of views, formulas, and a few tools to keep it all tidy. There is no account and no server.
 
-> **A note on the name:** the app itself still shows "Denotion" in its sidebar and in the files it exports. It is the same app.
-
 **Contents**
 
 1. [Running Denotation](#1-running-denotation)
@@ -44,7 +42,12 @@ To stop it, press Ctrl+C in the terminal. Your pages stay in the browser and wil
 
 ### B. Install it as an app
 
-*Coming soon.* Denotation will be hosted on GitHub Pages so you can install it like an app on your phone or computer. This is not available yet.
+Denotation is published on GitHub Pages (`https://<user>.github.io/<repo>/`), so you can use it straight from the web address, with nothing to install and no account.
+
+- **Install.** In Chrome, Edge or on Android, open **⋯ → Settings → App → Install app** (the button appears when your browser allows it), or use the browser's install icon. On iPhone and iPad, tap **Share → Add to Home Screen**. An installed app has its own window and icon.
+- **Offline.** After the first visit the whole app is saved on your device, so it opens and works with no connection. Your data stays on your device (or in the folder you chose) either way.
+- **Updates.** When a new version is published, an **Update available · Reload** message appears. Pending edits are saved first, then the app reloads on the new version. Nothing changes until you tap Reload.
+- **Keeping your data.** The app asks the browser to keep its data. Safari may still clear it after about 7 days without use unless the app is added to the Home Screen.
 
 ### C. Inside a Claude artifact
 

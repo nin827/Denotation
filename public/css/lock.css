@@ -11,7 +11,7 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 }
 .lock-card { width: min(320px, 100%); display: grid; justify-items: center; gap: 10px; text-align: center; }
 .lock-icon { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); }
-.lock-icon .icon-svg { width: 24px; height: 24px; display: block; }
+.lock-icon .icon-svg { width: 24px; height: 24px; display: block; } /* 24px: hero icon, above the --ico scale */
 .lock-icon svg { width: 100%; height: 100%; display: block; }
 #lock h1 { margin: 0; font-size: 20px; }
 .lock-sub { margin: 0; }
@@ -19,14 +19,14 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 /* The real input sits over the dots: tapping the dots opens the phone's number keyboard. */
 .lock-entry { position: relative; display: block; padding: 8px 12px; margin: 4px 0 0; cursor: text; }
 .lock-dots { display: flex; gap: 14px; justify-content: center; }
-.lock-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); transition: background .1s, border-color .1s; }
+.lock-dot { width: var(--ico-sm); height: var(--ico-sm); border-radius: 50%; border: 2px solid var(--muted); transition: background .1s, border-color .1s; }
 .lock-dot.on { background: var(--accent); border-color: var(--accent); }
 .lock-input {
   position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0;
   font-size: 16px; color: transparent; background: transparent; caret-color: transparent;
 }
 .lock-entry:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
-.lock-msg { min-height: 1.5em; margin: 0; font-size: 14px; color: var(--danger); }
+.lock-msg { min-height: 1.5em; margin: 0; font-size: var(--fs-ui); color: var(--danger); }
 
 .lock-pad { display: grid; grid-template-columns: repeat(3, 64px); gap: 14px; justify-content: center; margin: 4px 0 6px; }
 .lock-key {
@@ -38,7 +38,7 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 .lock-back { background: transparent; border-color: transparent; color: var(--muted); }
 .lock-key .icon-svg { width: 22px; height: 22px; display: block; }
 .lock-key svg { width: 100%; height: 100%; display: block; }
-.lock-forgot { background: transparent; border: 0; color: var(--muted); text-decoration: underline; font-size: 14px; padding: 10px 8px; min-height: 44px; }
+.lock-forgot { background: transparent; border: 0; color: var(--muted); text-decoration: underline; font-size: var(--fs-ui); padding: 10px 8px; min-height: 44px; }
 .lock-forgot:hover { background: transparent; color: var(--text); }
 
 @media (max-height: 560px) {
@@ -49,37 +49,37 @@ body.is-locked > :not(#lock):not(.over-lock) { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .lock-dot { transition: none; } }
 
 /* Settings → Security */
-.security .pin-state, .security .enc-state { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
-.security .pin-state .icon-svg, .security .enc-state .icon-svg { width: 16px; height: 16px; flex: none; }
-.sec-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
-.sec-actions button, .security .reset-open { display: inline-flex; align-items: center; gap: 4px; }
-.security .icon-svg { width: 16px; height: 16px; }
-.security .sec-sub { margin: 14px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.pin-dialog .set-label { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
-.pin-dialog .seg .icon-svg { width: 14px; height: 14px; }
+.security .pin-state, .security .enc-state { display: flex; align-items: center; gap: var(--sp-6); margin: 0 0 4px; }
+.security .pin-state .icon-svg, .security .enc-state .icon-svg { width: var(--ico-md); height: var(--ico-md); flex: none; }
+.sec-actions { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin: 0 0 10px; }
+.sec-actions button, .security .reset-open { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.security .icon-svg { width: var(--ico-md); height: var(--ico-md); }
+.security .sec-sub { margin: 14px 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
+.pin-dialog .set-label { margin: 0 0 var(--sp-4); font-size: var(--fs-md); color: var(--muted); }
+.pin-dialog .seg .icon-svg { width: var(--ico-sm); height: var(--ico-sm); }
 
 /* Reset dialog */
-.reset-warn { display: flex; gap: 6px; align-items: flex-start; padding: 8px 10px; margin: 8px 0 !important; border-radius: var(--radius); border: 1px solid var(--danger); color: var(--text); }
-.reset-warn .icon-svg { width: 16px; height: 16px; flex: none; margin-top: 3px; color: var(--danger); }
-.reset-export { display: inline-flex; align-items: center; gap: 4px; margin: 2px 0 10px; }
-.reset-export .icon-svg { width: 16px; height: 16px; }
+.reset-warn { display: flex; gap: var(--sp-6); align-items: flex-start; padding: var(--sp-8) 10px; margin: var(--sp-8) 0 !important; border-radius: var(--radius); border: 1px solid var(--danger); color: var(--text); }
+.reset-warn .icon-svg { width: var(--ico-md); height: var(--ico-md); flex: none; margin-top: 3px; color: var(--danger); }
+.reset-export { display: inline-flex; align-items: center; gap: var(--sp-4); margin: 2px 0 10px; }
+.reset-export .icon-svg { width: var(--ico-md); height: var(--ico-md); }
 .reset-code-line { margin-top: 10px !important; }
 .reset-code { font-family: var(--mono); font-size: 18px; letter-spacing: .12em; }
 .reset-input { font-family: var(--mono); letter-spacing: .12em; }
 
 /* Encryption: Settings, recovery key, unlock and ZIP password dialogs */
-.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 8px; font-size: var(--fs-ui, 14px); cursor: pointer; }
+.check-row { display: flex; align-items: flex-start; gap: var(--sp-8); margin: var(--sp-6) 0 var(--sp-8); font-size: var(--fs-ui); cursor: pointer; }
 .check-row input[type=checkbox] { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
 .rk-code {
   font-family: var(--mono); font-size: 17px; letter-spacing: .06em; line-height: 1.6; word-break: break-all;
-  padding: 10px 12px; margin: 8px 0 !important; border-radius: var(--radius); border: 1px dashed var(--border); background: var(--bg-soft);
+  padding: 10px 12px; margin: 8px 0 !important; border-radius: var(--radius); border: 1px dashed var(--border-ctl); background: var(--bg-soft);
   user-select: all; -webkit-user-select: all;
 }
-.rk-copy, .enc-export { display: inline-flex; align-items: center; gap: 4px; }
-.rk-copy .icon-svg, .enc-result .icon-svg, .enc-chip .icon-svg, .enc-locked .icon-svg, .loc-unlock .icon-svg { width: 14px; height: 14px; vertical-align: -2px; }
-.enc-chip { display: inline-flex; align-items: center; gap: 3px; }
+.rk-copy, .enc-export { display: inline-flex; align-items: center; gap: var(--sp-4); }
+.rk-copy .icon-svg, .enc-result .icon-svg, .enc-chip .icon-svg, .enc-locked .icon-svg, .loc-unlock .icon-svg { width: var(--ico-sm); height: var(--ico-sm); vertical-align: -2px; }
+.enc-chip { display: inline-flex; align-items: center; gap: var(--sp-4); }
 .enc-progress { font-variant-numeric: tabular-nums; min-height: 1.5em; }
-.enc-result p { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; }
+.enc-result p { display: flex; gap: var(--sp-6); align-items: flex-start; margin: var(--sp-4) 0; }
 .unlock-dialog input.unlock-secret, .zip-pw, .zip-pw-new, .zip-pw-again { font-family: var(--mono); }
 .zip-pw-fields label { display: block; }
 

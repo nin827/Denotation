@@ -168,7 +168,7 @@ export function renderSidebar(el, props) {
     h(
       "div",
       { class: "brand" },
-      h("span", { class: "brand-name" }, "Denotion"),
+      h("span", { class: "brand-name" }, "Denotation"),
       h("button", { class: "act-new primary", title: "New page or database", "aria-haspopup": "menu", onClick: newMenu }, ico("plus"), h("span", {}, "New"), ico("chevron-down")),
       iconBtn("search", "Search (Ctrl/Cmd+K)", () => {
         onClose();

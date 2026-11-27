@@ -95,7 +95,7 @@ test("legacy single-file JSON is accepted", async () => {
   const r = await importFiles(fresh, [{ path: "denotion-2026-01-01.json", data: JSON.stringify(legacy) }]);
   assert.equal(r.format, "json");
   assert.equal(r.pages, legacy.pages.length);
-  await assert.rejects(importFiles(fresh, [{ path: "x.json", data: JSON.stringify({ app: "denotion", pages: 1 }) }]), /Not a Denotion/);
+  await assert.rejects(importFiles(fresh, [{ path: "x.json", data: JSON.stringify({ app: "denotion", pages: 1 }) }]), /Not a Denotation/);
 });
 
 test("Markdown export: layout, sanitising, duplicates, attachments, links", async () => {
@@ -213,4 +213,15 @@ test("front-matter and H1 title rules", () => {
   assert.deepEqual(readMarkdownFile("a/b.md", "---\ntitle: \"T\"\n---\n# H\nx"), { title: "T", body: "# H\nx" });
   assert.deepEqual(readMarkdownFile("a/b.md", "\n# H1 here\nbody"), { title: "H1 here", body: "body" });
   assert.equal(readMarkdownFile("a/b.md", "## not h1").title, "b");
+});
+test("legacy export written under either app name is accepted", async () => {
+  const ws = createWorkspace(createMemoryAdapter());
+  await ws.ensureRepository();
+  const data = await ws.exportAll();
+  assert.equal(data.app, "denotation");
+  for (const app of ["denotation", "denotion"]) {
+    const fresh = createWorkspace(createMemoryAdapter());
+    const r = await importFiles(fresh, [{ path: "x.json", data: JSON.stringify({ ...data, app }) }]);
+    assert.equal(r.pages, data.pages.length);
+  }
 });

@@ -21,6 +21,7 @@ import { hasPin, onUnlock } from "./lock.js";
 import { createLockScreen } from "./ui/lock.js";
 import { securitySection, openResetDialog, finishPendingReset, openUnlockKeyDialog, runBrowserJob } from "./ui/security.js";
 import { createKeyring } from "./crypto.js";
+import { registerServiceWorker, requestPersistence } from "./pwa.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");
@@ -109,12 +110,12 @@ async function main() {
 function showMessage(text) {
   appEl.hidden = true;
   loginEl.hidden = false;
-  loginEl.replaceChildren(h("h1", {}, "Denotion"), h("p", { class: "hint" }, text));
+  loginEl.replaceChildren(h("h1", {}, "Denotation"), h("p", { class: "hint" }, text));
 }
 function showFatal(e) {
   appEl.hidden = true;
   loginEl.hidden = false;
-  loginEl.replaceChildren(h("h1", {}, "Denotion"), h("pre", {}, e.message));
+  loginEl.replaceChildren(h("h1", {}, "Denotation"), h("pre", {}, e.message));
   console.error(e);
 }
 function showLogin() {
@@ -123,7 +124,7 @@ function showLogin() {
   appEl.hidden = true;
   loginEl.hidden = false;
   loginEl.replaceChildren(
-    h("h1", {}, "Denotion"),
+    h("h1", {}, "Denotation"),
     h("p", {}, "Sign in to open your workspace."),
     ...store.auth.providers.map((p) => h("button", {
       class: "primary",
@@ -401,7 +402,7 @@ function buildFooter() {
 async function seed() {
   const N = newBlock;
   const repo = await ws.createPage({ type: "repo", title: "My repository" });
-  const welcome = await ws.createPage({ title: "Welcome to Denotion", parentId: repo.id });
+  const welcome = await ws.createPage({ title: "Welcome to Denotation", parentId: repo.id });
   welcome.icon = "icon:hand";
   const sub = await ws.createPage({ title: "A sub-page", parentId: welcome.id });
   sub.blocks = [N("p", { text: "Sub-pages live inside their parent. Use the breadcrumb above to go back." })];
@@ -417,7 +418,7 @@ async function seed() {
   cols.children[1].children = [N("h4", { text: "Right column" }), N("todo", { text: "Try a to-do" })];
   welcome.blocks = [
     N("h1", { text: "Welcome" }),
-    N("p", { text: "Denotion is a small Notion-style workspace you can bend to your needs. Hover a block and use the three-line handle at its left to change type, move, copy, link or delete it. Type `/` for every block type." }),
+    N("p", { text: "Denotation is a small Notion-style workspace you can bend to your needs. Hover a block and use the three-line handle at its left to change type, move, copy, link or delete it. Type `/` for every block type." }),
     N("callout", { text: "Select text and press Ctrl/Cmd+B, I, E or K for bold, italic, code or link. Or just type the markdown.", icon: "icon:lightbulb" }),
     N("toc"),
     N("h2", { text: "Blocks" }),
@@ -468,3 +469,12 @@ window.addEventListener("keydown", (e) => {
   }
 });
 main();
+// Offline shell + install: relative sw.js. A waiting new version shows "Update available" and only swaps on the tap.
+registerServiceWorker({
+  onUpdate: (apply) => toast("Update available", "info", { action: { label: "Reload", run: apply } }),
+  beforeApply: async () => {
+    await persistence?.flush();
+    await store?.flush?.();
+  }
+});
+requestPersistence();

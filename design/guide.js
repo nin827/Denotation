@@ -92,7 +92,7 @@ function build() {
     h("div", { class: "modal-actions" }, h("button", {}, "Cancel"), h("button", { class: "primary" }, "Save"))));
   $("toasts").append(h("div", { class: "toast", role: "status" }, "Block copied"), h("div", { class: "toast error", role: "alert" }, "That page no longer exists."));
   $("side").append(h("div", { class: "side-box" },
-    h("div", { class: "brand" }, h("span", { class: "brand-name" }, "Denotion"), h("button", { class: "act-new primary" }, I("plus"), h("span", {}, "New"), I("chevron-down")), h("button", { class: "icon", "aria-label": "Search", title: "Search" }, I("search")), h("button", { class: "icon", "aria-label": "Workspace menu", title: "Workspace menu" }, I("ellipsis"))),
+    h("div", { class: "brand" }, h("span", { class: "brand-name" }, "Denotation"), h("button", { class: "act-new primary" }, I("plus"), h("span", {}, "New"), I("chevron-down")), h("button", { class: "icon", "aria-label": "Search", title: "Search" }, I("search")), h("button", { class: "icon", "aria-label": "Workspace menu", title: "Workspace menu" }, I("ellipsis"))),
     h("div", { class: "side-section" }, "Pages"),
     h("div", { class: "side-item active", tabindex: "0" }, h("span", { class: "twist-gap" }), h("span", { class: "side-icon" }, I("file-text")), h("span", { class: "side-title" }, "Active page")),
     h("div", { class: "side-item", tabindex: "0" }, h("button", { class: "icon twist open", "aria-label": "Collapse" }, I("chevron-right")), h("span", { class: "side-icon" }, I("folder-open")), h("span", { class: "side-title" }, "Folder with children")),
