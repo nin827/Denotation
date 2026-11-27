@@ -22,3 +22,14 @@ the right of the text (default: none). Terms can be categorised and subcategoris
 - Icon picker: Lucide icons from the app's set (and emoji), default blank.
 - Search sees term text and definitions. Markdown export writes the term text (bold), definition dropped.
 - Delete shows how many chips use the term.
+
+## Owner request: branching terms
+"Long Branch, Short Branch, both are still grouped under Branch."
+- A term can have a **parent term**: `parentId` on the term record. `Branch` is the base; `Long Branch` and
+  `Short Branch` are its branches. Each branch is still its own term (own id, text, definition, chips).
+- Branches **inherit** hue, icon and category from the parent unless set themselves.
+- One level only (a branch can't have branches), like the simple-first default; deeper nesting later if asked.
+- Terms dialog shows each base term with its branches indented under it; "Add branch" on a term's menu.
+- The hover/tap card on a branch shows "Branch of **Branch**" (with the parent's definition below its own).
+- Finding uses of a term (and the delete count) can include its branches.
+- Deleting a parent asks: also delete branches, or keep them as plain terms.
