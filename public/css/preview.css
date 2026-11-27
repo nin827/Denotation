@@ -117,3 +117,15 @@ a.ichip:hover, a.ichip:focus-visible { background: var(--bg-hover); }
 .ip-empty { color: var(--muted); font-size: 14px; padding: 8px 4px; }
 .ip-crumb { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
 .ip-back { display: inline-flex; align-items: center; min-height: 32px; padding: 2px 8px; }
+
+.ip-row { display: flex; align-items: stretch; gap: 2px; }
+.ip-row .ip-item { flex: 1; min-width: 0; }
+.ip-act, .ip-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 40px; min-height: 40px; padding: 4px 10px; flex: none; }
+.ip-new { align-self: flex-start; }
+.ip-act .icon-svg, .ip-new .icon-svg, .ip-btns .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.ip-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.ip-field input, .ip-field select { font-size: 16px; color: var(--text); }
+.ip-check { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; font-size: 14px; }
+.ip-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.ip-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.ip-btns button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }

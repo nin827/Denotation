@@ -14,7 +14,7 @@ export function detectShortcut(text) {
 }
 // ---------- inline tokens: {{kind:arg|arg|...}} ----------
 // Args escape \\, | and } with a backslash. Unknown kinds or invalid args are not tokens (they stay literal text).
-export const TOKEN_KINDS = ["value", "date"];
+export const TOKEN_KINDS = ["value", "date", "preset"];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_MAX = 600;
 export const isTokenId = (s) => typeof s === "string" && ID_RE.test(s);
@@ -36,6 +36,14 @@ function checkToken(kind, args) {
     const k = String(key ?? "").trim();
     if (args.length !== 3 || !isTokenId(db) || !isTokenId(col) || !k || k.length > 200 || /[\r\n]/.test(k)) return null;
     return { t: "inline", kind, args: [db, k, col] };
+  }
+  if (kind === "preset") {
+    // {{preset:<presetId>}} (fixed key) or {{preset:<presetId>|<key>}}
+    if (args.length < 1 || args.length > 2 || !isTokenId(args[0])) return null;
+    if (args.length === 1) return { t: "inline", kind, args: [args[0]] };
+    const k = String(args[1] ?? "").trim();
+    if (!k || k.length > 200 || /[\r\n]/.test(k)) return null;
+    return { t: "inline", kind, args: [args[0], k] };
   }
   if (kind === "date") {
     return args.length === 1 && isIsoDate(args[0]) ? { t: "inline", kind, args: [args[0]] } : null;
@@ -121,8 +129,8 @@ export function replaceTokens(s, fn) {
   }
   return out + s.slice(last);
 }
-/** Plain text for a token with no database access: dates as ISO, values as their key. */
-export const tokenFallback = (n) => n.kind === "date" ? n.args[0] : n.args[1];
+/** Plain text for a token with no database access: dates as ISO, values as their key, presets as key or "Preset". */
+export const tokenFallback = (n) => n.kind === "date" ? n.args[0] : n.kind === "preset" ? n.args[1] ?? "Preset" : n.args[1];
 const DELIMS = [["**", "b"], ["~~", "s"], ["*", "i"], ["_", "i"]];
 const isWord = (ch) => ch !== void 0 && /[A-Za-z0-9]/.test(ch);
 function findClose(s, d, from) {

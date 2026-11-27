@@ -27,7 +27,8 @@ import { h } from "./dom.js";
 import { ico, iconNode, pageIcon } from "../icons/index.js";
 import { openMenu } from "./popover.js";
 import { toast } from "./dialogs.js";
-import { parseArgs, filterCatalog, labelFor } from "../blocks/catalog.js";
+import { parseArgs, filterCatalog, labelFor, CATALOG, presetEntries } from "../blocks/catalog.js";
+import { listChipPresets } from "../preview.js";
 import { renderInline } from "./inlineView.js";
 import { specialBody, shrink } from "./blockTypes.js";
 import { openBlockMenu } from "./blockMenu.js";
@@ -360,11 +361,12 @@ export function createBlockEditor(container, ctx) {
       }));
     }
     const args = parseArgs(q);
-    return filterCatalog(q).filter((e) => !(e.inline && b.type === "code")).map((entry) => entry.inline ? {
+    const entries = [...CATALOG, ...presetEntries(listChipPresets(ctx.livePages()))];
+    return filterCatalog(q, entries).filter((e) => !(e.inline && b.type === "code")).map((entry) => entry.inline ? {
       label: entry.label,
       icon: ico(entry.icon),
       hint: entry.group,
-      onSelect: () => openPicker(b, ta, entry.inline, start, caret)
+      onSelect: () => openPicker(b, ta, entry.inline, start, caret, entry.presetId)
     } : ({
       label: labelFor(entry, args),
       icon: ico(entry.icon),
@@ -373,7 +375,7 @@ export function createBlockEditor(container, ctx) {
     }));
   }
   // Open the inline picker and put the chosen token in place of text[start, end).
-  function openPicker(b, ta, kind, start, end) {
+  function openPicker(b, ta, kind, start, end, presetId) {
     const id = b.id;
     const refocus = (pos) => {
       const el = root.querySelector(`textarea[data-id="${id}"]`);
@@ -384,6 +386,7 @@ export function createBlockEditor(container, ctx) {
       fit(el);
     };
     openInlinePicker(kind, ctx, {
+      presetId,
       onPick: (token) => {
         const cur = b.text ?? "";
         b.text = cur.slice(0, start) + token + cur.slice(end);

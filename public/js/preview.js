@@ -4,6 +4,7 @@ import { toText } from "./dbviews.js";
 import { summarize } from "./schema.js";
 import { formatResult } from "./formula.js";
 import { newId } from "./ids.js";
+import { scanTokens } from "./blocks/inline.js";
 
 export const WIDTH_MIN = 40;
 export const WIDTH_MAX = 800;
@@ -272,4 +273,63 @@ export function keyList(db, rows) {
     out.push(k);
   }
   return out;
+}
+
+// ---------- chip presets ({{preset:presetId|key}}, stored on the database page as chipPresets) ----------
+
+/** Sanitise a chipPresets list: [{ id, name, colId, key? }]. Drops bad or duplicate ids; unknown columns when `columns` is given. */
+export function cleanChipPresets(list, columns = null) {
+  const out = [];
+  const ids = new Set();
+  const known = columns ? new Set(columns.map((c) => c.id)) : null;
+  for (const p of Array.isArray(list) ? list : []) {
+    if (!isObj(p) || typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(p.id) || ids.has(p.id)) continue;
+    if (typeof p.colId !== "string" || !p.colId || (known && !known.has(p.colId))) continue;
+    ids.add(p.id);
+    const name = typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 80) : "Preset";
+    const key = typeof p.key === "string" ? p.key.trim().slice(0, 200) : "";
+    out.push(key && !/[\r\n]/.test(key) ? { id: p.id, name, colId: p.colId, key } : { id: p.id, name, colId: p.colId });
+  }
+  return out;
+}
+
+export const newChipPreset = (name, colId, key = "") => cleanChipPresets([{ id: newId(), name: String(name ?? "").trim() || "Preset", colId, key }])[0] ?? null;
+
+/** Every chip preset across the (live) pages: [{ preset, db }], sorted by name. Linked views are skipped (presets live on the data page). */
+export function listChipPresets(pages) {
+  const out = [];
+  for (const db of pages ?? []) {
+    if (db?.type !== "database" || db.sourceId) continue;
+    for (const preset of Array.isArray(db.chipPresets) ? db.chipPresets : []) out.push({ preset, db });
+  }
+  return out.sort((a, b) => a.preset.name.localeCompare(b.preset.name));
+}
+
+/** The preset with this id and the database page holding it, or null. */
+export const findChipPreset = (pages, presetId) => listChipPresets(pages).find((x) => x.preset.id === presetId) ?? null;
+
+/** The key a preset token uses: its own argument, else the preset's fixed key, else "". */
+export const presetKey = (node, preset) => node.args[1] ?? preset?.key ?? "";
+
+/** Resolve a preset token node against its database and rows: like resolveValue, but a missing key is "norow". */
+export function resolvePreset(db, preset, rows, node) {
+  if (!db || !preset) return { state: "nodb", text: "", col: null, row: null };
+  const key = presetKey(node, preset);
+  if (!key) return { state: "norow", text: "", col: null, row: null };
+  return resolveValue(db, rows, key, preset.colId);
+}
+
+/** Number of {{preset:id...}} chips (anywhere in the given block trees, nested blocks included) using a preset. */
+export function countChipPresetUsers(blockLists, presetId) {
+  let n = 0;
+  const walk = (list) => {
+    for (const b of Array.isArray(list) ? list : []) {
+      if (typeof b?.text === "string" && b.text.includes("{{")) {
+        for (const t of scanTokens(b.text)) if (t.node.kind === "preset" && t.node.args[0] === presetId) n++;
+      }
+      if (b?.children) walk(b.children);
+    }
+  };
+  for (const l of blockLists) walk(l);
+  return n;
 }

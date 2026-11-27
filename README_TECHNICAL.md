@@ -125,6 +125,10 @@ Details: `tools/mcp/README.md`.
   `{t:"inline", kind, args}`; `preview.js` `resolveValue(db, rows, key, colId)` does the primary-key lookup;
   `ui/inlineChips.js` renders chips and the picker. Markdown export takes `ctx.inline(node)` (fallback: ISO date / key).
   Catalogue entries with `inline` insert tokens instead of blocks.
+- **Chip presets:** `chipPresets: [{ id, name, colId, key? }]` on the data database page (`cleanChipPresets` in `preview.js`).
+  Token `{{preset:<presetId>}}` or `{{preset:<presetId>|<key>}}`; resolved by `findChipPreset` → `resolvePreset` (reuses
+  `resolveValue`). Slash entries are built per open by `presetEntries(...)`, not in `CATALOG`. Chips refresh on the
+  `denotion:chip-presets` document event. Export: value → key → preset name.
 - **Block colours:** `block.color` = hue (0–330, step 30) or absent; `block.bg` = hue, `"grey"` or absent. `normColor` /
   `normBg` in `blocks/model.js` map legacy names to the nearest hue. CSS: `.has-color` / `.has-bg` / `.bg-grey` with inline
   `--blk-h` / `--blk-bg-h`; lightness and chroma per mode via `--blk-fg` / `--blk-tint` / `--blk-grey`.

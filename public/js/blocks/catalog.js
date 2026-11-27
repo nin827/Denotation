@@ -43,6 +43,17 @@ export const CATALOG = [
 ];
 const ICON_OF = { "p": "pilcrow", "h1": "heading-1", "h2": "heading-2", "h3": "heading-3", "h4": "heading-4", "bullet": "list", "numbered": "list-ordered", "todo": "list-checks", "toggle": "list-collapse", "toggleh1": "chevron-right", "toggleh2": "chevron-right", "toggleh3": "chevron-right", "toggleh4": "chevron-right", "quote": "quote", "callout": "lightbulb", "code": "code", "divider": "minus", "table": "table", "image": "image", "bookmark": "bookmark", "toc": "table-of-contents", "breadcrumb": "route", "pivot": "table-properties", "preview": "scan-search", "synced": "refresh-cw", "page": "file-text", "database": "database", "ivalue": "database", "idate": "calendar" };
 for (const e of CATALOG) e.icon = ICON_OF[e.id] ?? (e.id.startsWith("columns") ? `columns-${Math.min(4, Math.max(2, Number(e.id.slice(7))))}` : "square");
+/** Dynamic slash entries, one per chip preset ([{ preset, db }]). They carry `inline: "preset"` so block listings skip them. */
+export const presetEntries = (list) => (list ?? []).map(({ preset, db }) => ({
+  id: `preset:${preset.id}`,
+  label: `Preset: ${preset.name}`,
+  group: "Inline",
+  keywords: `preset chip inline value ${preset.name} ${db?.title ?? ""}`.toLowerCase(),
+  make: () => null,
+  inline: "preset",
+  presetId: preset.id,
+  icon: "database"
+}));
 export function parseArgs(query) {
   const a = {};
   const dim = /(\d{1,3})\s*[x×*]\s*(\d{1,3})/i.exec(query);

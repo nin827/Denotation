@@ -96,3 +96,96 @@ test("resolveValue and keyList", () => {
   assert.equal(resolveValue(db, rows, "Gadget", "zz").state, "nocol");
   assert.equal(resolveValue(null, rows, "Gadget", "p").state, "nodb");
 });
+
+// ---------- preset chips ----------
+import { cleanChipPresets, newChipPreset, listChipPresets, findChipPreset, resolvePreset, countChipPresetUsers, presetKey } from "../public/js/preview.js";
+import { presetEntries, CATALOG, filterCatalog } from "../public/js/blocks/catalog.js";
+
+test("preset token with and without key", () => {
+  assert.deepEqual(parseInline("{{preset:p-1|Widget}}")[0], { t: "inline", kind: "preset", args: ["p-1", "Widget"] });
+  assert.deepEqual(parseInline("{{preset:p-1}}")[0], { t: "inline", kind: "preset", args: ["p-1"] });
+  assert.equal(buildToken("preset", ["p-1"]), "{{preset:p-1}}");
+  assert.equal(buildToken("preset", ["p-1", " A|B "]), "{{preset:p-1|A\\|B}}");
+  for (const s of ["{{preset:}}", "{{preset:a b}}", "{{preset:a|}}", "{{preset:a|k|x}}", "{{preset:a/b|k}}", "{{preset:a|k\n}}"]) {
+    assert.ok(parseInline(s).every((x) => x.t === "text"), s);
+  }
+  assert.equal(buildToken("preset", ["bad id", "k"]), null);
+});
+test("preset fallback and stripInline", () => {
+  assert.equal(stripInline("{{preset:p|Key}}"), "Key");
+  assert.equal(stripInline("{{preset:p}}"), "Preset");
+  assert.equal(tokenFallback({ kind: "preset", args: ["p"] }), "Preset");
+});
+test("fuzz: preset token round-trips any key", () => {
+  const r = rng(99);
+  for (let i = 0; i < 2000; i++) {
+    const key = randStr(r, 20);
+    const tok = buildToken("preset", ["pid-1", key]);
+    if (key.trim() === "") { assert.equal(tok, null); continue; }
+    const hit = scanTokens(`x${tok}y`)[0];
+    assert.ok(hit, key);
+    assert.deepEqual(hit.node.args, ["pid-1", key.trim()]);
+  }
+  const pieces = ["{{", "}}", "preset:", "p1", "|", "k", "\\", "`", ":"];
+  for (let i = 0; i < 2000; i++) {
+    const s = Array.from({ length: Math.floor(r() * 12) }, () => pieces[Math.floor(r() * pieces.length)]).join("");
+    stripInline(s);
+    replaceTokens(s, tokenFallback);
+  }
+});
+const pdb = () => ({
+  id: "db1", type: "database", title: "Products",
+  columns: [{ id: "n", name: "Name", type: "text" }, { id: "p", name: "Price", type: "number" }, { id: "s", name: "Stock", type: "number" }],
+  chipPresets: [{ id: "pr1", name: "Price", colId: "p" }, { id: "pr2", name: "Widget stock", colId: "s", key: "Widget" }]
+});
+const prows = [{ id: "r1", values: { n: "Widget", p: 5, s: 3 } }, { id: "r2", values: { n: "Gadget", p: 7, s: 0 } }];
+test("resolve via preset, fixed key and column edits", () => {
+  const db = pdb();
+  const pages = [db, { id: "x", type: "doc" }];
+  const hit = findChipPreset(pages, "pr1");
+  assert.equal(hit.db.id, "db1");
+  const node = (args) => ({ kind: "preset", args });
+  assert.equal(resolvePreset(db, hit.preset, prows, node(["pr1", "gadget"])).text, "7");
+  const fixed = findChipPreset(pages, "pr2");
+  assert.equal(presetKey(node(["pr2"]), fixed.preset), "Widget");
+  assert.equal(resolvePreset(db, fixed.preset, prows, node(["pr2"])).text, "3");
+  assert.equal(resolvePreset(db, hit.preset, prows, node(["pr1"])).state, "norow");
+  assert.equal(resolvePreset(db, hit.preset, prows, node(["pr1", "Nope"])).state, "norow");
+  hit.preset.colId = "s"; // editing the preset changes every chip
+  assert.equal(resolvePreset(db, hit.preset, prows, node(["pr1", "Widget"])).text, "3");
+  hit.preset.colId = "gone";
+  assert.equal(resolvePreset(db, hit.preset, prows, node(["pr1", "Widget"])).state, "nocol");
+  assert.equal(findChipPreset(pages, "deleted"), null);
+  assert.equal(resolvePreset(null, null, prows, node(["pr1", "k"])).state, "nodb");
+});
+test("cleanChipPresets and newChipPreset", () => {
+  const cols = pdb().columns;
+  const out = cleanChipPresets([{ id: "a", name: "  ", colId: "p" }, { id: "a", name: "dup", colId: "p" }, { id: "b c", colId: "p" }, { id: "d", name: "D", colId: "zz" }, { id: "e", name: "E", colId: "n", key: " K " }, null, "x"], cols);
+  assert.deepEqual(out, [{ id: "a", name: "Preset", colId: "p" }, { id: "e", name: "E", colId: "n", key: "K" }]);
+  const p = newChipPreset("  My ", "p", "");
+  assert.equal(p.name, "My");
+  assert.ok(!("key" in p));
+  assert.match(p.id, /^[A-Za-z0-9_-]+$/);
+  assert.equal(listChipPresets([pdb(), { ...pdb(), id: "v", sourceId: "db1" }]).length, 2);
+});
+test("counting preset users across nested blocks", () => {
+  const a = [{ id: "1", type: "p", text: "{{preset:pr1|A}} and {{preset:pr1|B}} {{preset:pr2}}" }, { id: "2", type: "toggle", text: "", children: [{ id: "3", type: "p", text: "{{preset:pr1|C}} `{{preset:pr1|D}}` \\{{preset:pr1|E}}" }] }];
+  const b = [{ id: "4", type: "p", text: "{{value:db1|k|p}}" }];
+  assert.equal(countChipPresetUsers([a, b], "pr1"), 3);
+  assert.equal(countChipPresetUsers([a, b], "pr2"), 1);
+  assert.equal(countChipPresetUsers([a, b], "none"), 0);
+});
+test("preset slash entries are inline-only and searchable", () => {
+  const es = presetEntries(listChipPresets([pdb()]));
+  assert.equal(es.length, 2);
+  assert.ok(es.every((e) => e.inline === "preset" && e.label.startsWith("Preset: ")));
+  assert.ok(!CATALOG.some((e) => e.presetId));
+  assert.deepEqual(filterCatalog("widget", [...CATALOG, ...es]).map((e) => e.presetId), ["pr2"]);
+  assert.ok(filterCatalog("preset", [...CATALOG, ...es]).length >= 2);
+});
+test("markdown export of preset chips", () => {
+  const blocks = [{ id: "1", type: "p", text: "A {{preset:pr1|Widget}} B {{preset:pr2}} C {{preset:gone}}" }];
+  const inline = (n) => n.kind === "preset" ? (n.args[0] === "pr1" ? "5" : null) : null;
+  assert.equal(blocksToMarkdown(blocks, { inline }), "A 5 B Preset C Preset");
+  assert.equal(blocksToMarkdown(blocks), "A Widget B Preset C Preset");
+});

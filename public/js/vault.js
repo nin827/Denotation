@@ -14,7 +14,7 @@
 // Names are sanitised (no characters illegal on Windows/macOS, max 80 characters, no reserved
 // names) and made unique per folder, case-insensitively ("Notes", "Notes 2"). Trashed pages are left out.
 // Links between pages become relative links to the target .md (or .csv for databases).
-import { previewMarkdown, resolveValue } from "./preview.js";
+import { previewMarkdown, resolveValue, findChipPreset, resolvePreset, presetKey } from "./preview.js";
 import { blocksToMarkdown, markdownToBlocks } from "./blocks/markdown.js";
 import { newBlock } from "./blocks/model.js";
 import { databaseToCsv } from "./csv.js";
@@ -173,6 +173,12 @@ export function toMarkdownFiles({ pages, rows }) {
     syncBlocks: (id) => (byId.get(id)?.blocks ?? []).filter((b) => b.type !== "synced"),
     inline: (n) => {
       if (n.kind === "date") return n.args[0];
+      if (n.kind === "preset") {
+        const hit = findChipPreset(pages.filter((x) => liveIds.has(x.id)), n.args[0]);
+        if (!hit) return null;
+        const res = resolvePreset(hit.db, hit.preset, rowsByDb.get(hit.db.id) ?? [], n);
+        return res.state === "ok" ? res.text : presetKey(n, hit.preset) || hit.preset.name;
+      }
       const p = byId.get(n.args[0]);
       const data = p?.sourceId ? byId.get(p.sourceId) : p;
       if (!data || !liveIds.has(data.id)) return null;

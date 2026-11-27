@@ -250,6 +250,8 @@ Missing keys say "No row with key …", and keys used by more than one row are m
 
 In any text block, type `/` and choose **Database value** or **Date**, or type `{{`. For a value, pick a database, then the row's key (its primary key, the same one Record preview uses), then a column. The chip shows that cell's current value and updates when you edit the row; click it to open the row. If the database, row or column is gone, the chip says **Not found**. In edit mode you see the raw token, `{{value:<db>|<key>|<column>}}`; Backspace right after a token deletes it whole. Markdown export writes the current value as plain text; Denotation JSON keeps the token.
 
+**Preset chips.** A preset saves a database and column (and optionally a fixed key) so you can drop in the same kind of chip quickly. To make one, type `{{`, pick a database, row and column, then choose **Save as preset…**, name it and optionally tick **Always use this key**. To use one, type `/` and pick **Preset: <name>** (then choose the key), or pick it from the Presets list after `{{`. Editing a preset (name, column, fixed key) updates every chip using it; press the pencil next to it in the `{{` picker. Deleting a preset shows how many chips use it, and those chips then show **Not found**.
+
 ### Locking a page
 
 **Lock page** in the page options makes the whole page read-only: no handles, no typing. Unlock it the same way. Pages in the trash are read-only too.
