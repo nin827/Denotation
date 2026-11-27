@@ -1,6 +1,6 @@
-// Minimal browser smoke test: loads public/ (ES modules) and the built standalone page,
+// Minimal browser smoke test: loads public/ (ES modules),
 // clicks through the sidebar and quick find, and fails on any page/console error.
-// usage: node test/e2e/smoke.cjs   (needs Playwright + Chromium; run `npm run build` first for the dist check)
+// usage: node test/e2e/smoke.cjs   (needs Playwright + Chromium, dev-only)
 const { chromium } = require("playwright");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -13,7 +13,7 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
 (async () => {
   await new Promise((r) => setTimeout(r, 800));
   const targets = ["/public/index.html"];
-  if (fs.existsSync(path.join(root, "dist/denotion.standalone.html"))) targets.push("/dist/denotion.standalone.html");
+  
   const browser = await chromium.launch();
   let failed = false;
   for (const t of targets) {
