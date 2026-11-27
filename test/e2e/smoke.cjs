@@ -79,6 +79,132 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     failed ||= !ok;
     console.log(`${ok ? "ok  " : "FAIL"} ${t} (${n} sidebar items)${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
   }
+  // PIN lock: set a 4-digit PIN, reload -> lock screen with no titles, wrong PIN refused, right PIN unlocks,
+  // Lock now, then "Forgot PIN?" resets the browser with the shown 8-digit number. Settings reset needs the number too.
+  {
+    const t = targets[0];
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    const openMenuItem = async (re) => {
+      await page.locator(".act-more").click();
+      await page.locator(".menu-item", { hasText: re }).click();
+    };
+    const noTitles = async (label) => {
+      const leak = await page.evaluate(() => ({
+        items: document.querySelectorAll(".side-item").length,
+        main: document.getElementById("main").childElementCount,
+        text: document.body.innerText.includes("Welcome") || document.body.innerText.includes("Column type demo")
+      }));
+      if (leak.items || leak.main || leak.text) errs.push(`${label}: workspace content visible while locked ${JSON.stringify(leak)}`);
+    };
+    await page.goto(`http://127.0.0.1:${PORT}${t}`);
+    await page.waitForSelector(".side-item");
+    await openMenuItem("Settings");
+    await page.locator(".pin-set").click();
+    await page.locator(".pin-length button", { hasText: "4 digits" }).click();
+    await page.fill(".pin-new", "1357");
+    await page.fill(".pin-again", "1357");
+    await page.locator(".pin-go").click();
+    await page.waitForFunction(() => document.querySelectorAll(".modal").length === 1);
+    if (!/on \(4 digits\)/.test(await page.locator(".pin-state").textContent())) errs.push("lock: Settings does not show the PIN as on");
+    if (!(await page.locator("#set-idle").count())) errs.push("lock: no idle auto-lock choice");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    const stored = await page.evaluate(() => localStorage.getItem("denotion:pin"));
+    if (!stored || stored.includes("1357") || JSON.parse(stored).iterations < 600000) errs.push("lock: stored PIN record is wrong");
+    await page.reload();
+    await page.waitForSelector("#lock");
+    await page.waitForTimeout(200);
+    await noTitles("after reload");
+    await page.keyboard.type("0000");
+    await page.waitForFunction(() => /Wrong PIN/.test(document.querySelector(".lock-msg")?.textContent || ""), null, { timeout: 8000 }).catch(() => errs.push("lock: wrong PIN was not refused"));
+    if (!(await page.locator("#lock").count())) errs.push("lock: wrong PIN unlocked");
+    for (const d of "1357") await page.locator(`.lock-key[data-key="${d}"]`).click();
+    await page.waitForSelector("#lock", { state: "detached", timeout: 8000 }).catch(() => errs.push("lock: right PIN did not unlock"));
+    await page.waitForSelector(".side-item");
+    // Lock now: hides the page, unlock restores it
+    await page.locator(".side-item", { hasText: "Welcome" }).first().click();
+    await page.waitForSelector(".blk-row");
+    const welcomeId = await page.evaluate(() => location.hash.replace("#page-", ""));
+    await openMenuItem("Lock now");
+    await page.waitForSelector("#lock");
+    await page.waitForTimeout(200);
+    await noTitles("after Lock now");
+    await page.keyboard.type("1357");
+    await page.waitForSelector("#lock", { state: "detached", timeout: 8000 }).catch(() => errs.push("lock: unlock after Lock now failed"));
+    await page.waitForSelector(".blk-row", { timeout: 5000 }).catch(() => errs.push("lock: the page was not restored after unlock"));
+    // Settings reset: the button stays disabled until the shown number is typed; export is offered
+    await openMenuItem("Settings");
+    await page.locator(".reset-open").click();
+    await page.waitForSelector(".reset-code");
+    const code1 = (await page.locator(".reset-code").textContent()).trim();
+    if (!/^[0-9]{8}$/.test(code1)) errs.push(`reset: code is not 8 digits (${code1})`);
+    if (!(await page.locator(".reset-export").count())) errs.push("reset: no Export button when unlocked");
+    if (!(await page.locator(".reset-go").isDisabled())) errs.push("reset: button enabled before typing the number");
+    await page.fill(".reset-input", code1 === "12345678" ? "87654321" : "12345678");
+    if (!(await page.locator(".reset-go").isDisabled())) errs.push("reset: wrong number enabled the button");
+    await page.fill(".reset-input", code1);
+    if (await page.locator(".reset-go").isDisabled()) errs.push("reset: right number did not enable the button");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    await openMenuItem("Settings");
+    await page.locator(".reset-open").click();
+    const code2 = (await page.locator(".reset-code").textContent()).trim();
+    if (code2 === code1) errs.push("reset: the number did not change between openings");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".modal", { state: "detached" });
+    // Forgot PIN on the lock screen: dialog above the lock, no export, reset clears everything
+    await openMenuItem("Lock now");
+    await page.waitForSelector("#lock");
+    await page.locator(".lock-forgot").click();
+    await page.waitForSelector(".modal-overlay.over-lock .reset-code");
+    if (await page.locator(".reset-export").count()) errs.push("reset: Export offered while locked");
+    const code3 = (await page.locator(".reset-code").textContent()).trim();
+    await page.fill(".reset-input", code3);
+    await Promise.all([page.waitForNavigation(), page.locator(".reset-go").click()]);
+    await page.waitForSelector(".side-item");
+    if (await page.locator("#lock").count()) errs.push("reset: still locked after reset");
+    const left = await page.evaluate(() => Object.keys(localStorage).filter((k) => /^deno(tion|tation)/.test(k) && !/^denotion:(pages|rows):/.test(k)));
+    if (left.includes("denotion:pin") || left.includes("denotion:pin-attempts")) errs.push(`reset: PIN keys survived: ${left.join(", ")}`);
+    if (await page.evaluate((id) => localStorage.getItem(`denotion:pages:${id}`), welcomeId)) errs.push("reset: old pages survived");
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} PIN lock + reset${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await ctx.close();
+  }
+  // Phone lock screen: keypad sized for touch, 16px input, no overflow, tapping the keys unlocks
+  {
+    const t = targets[0];
+    const phone = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    const page = await phone.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    await page.goto(`http://127.0.0.1:${PORT}${t}`);
+    await page.waitForSelector(".side-item", { state: "attached" });
+    await page.evaluate(async () => (await import("./js/lock.js")).setPin("2580", 4));
+    await page.reload();
+    await page.waitForSelector("#lock");
+    const w = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+    if (w[0] > w[1]) errs.push(`phone lock: horizontal overflow ${w.join("/")}`);
+    const keyBox = await page.locator(".lock-key").first().boundingBox();
+    if (keyBox.width < 44 || keyBox.height < 44) errs.push(`phone lock: keys are ${keyBox.width}x${keyBox.height} (< 44)`);
+    const inFont = await page.locator(".lock-input").evaluate((el) => [parseFloat(getComputedStyle(el).fontSize), el.inputMode]);
+    if (inFont[0] < 16 || inFont[1] !== "numeric") errs.push(`phone lock: input is ${inFont[0]}px / inputmode ${inFont[1]}`);
+    if (await page.locator(".side-item").count()) errs.push("phone lock: sidebar rendered while locked");
+    for (const d of "2580") await page.locator(`.lock-key[data-key="${d}"]`).tap();
+    await page.waitForSelector("#lock", { state: "detached", timeout: 8000 }).catch(() => errs.push("phone lock: tapping the PIN did not unlock"));
+    await page.waitForSelector(".side-item", { state: "attached" });
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} phone lock screen 360x740${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await phone.close();
+  }
   // Phone pass (390x844, touch): overlay sidebar, menus, typing, a database, dialogs above everything, no horizontal overflow
   {
     const t = targets[0];

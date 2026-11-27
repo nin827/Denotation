@@ -488,6 +488,17 @@ It needs [Node.js](https://nodejs.org) on your computer. Other assistants and op
 
 ---
 
+## Security and PIN lock
+
+Open **⋯ → Settings → Security** to set a 4- or 6-digit PIN for this browser.
+
+- With a PIN, Denotation opens on a lock screen, and locks itself after the idle time you choose (Never, 1, 5, 15 minutes or 1 hour; default 5). **⋯ → Lock now** locks at once.
+- The PIN hides the app on this device. **It doesn't encrypt your data.**
+- After 3 wrong tries you have to wait: 2 seconds, doubling up to 5 minutes. The wait survives reloads.
+- **There is no PIN reset.** If you forget it, choose **Forgot PIN? Reset this browser** on the lock screen.
+- **Reset local cache** (Settings → Security) deletes all Denotation data in this browser: pages and rows, preferences, the PIN, the AI access copy and storage-location links. Folders on disk are not touched. To confirm, type the 8-digit number shown (a new one each time). Export first if you have no main storage location or have unpushed changes.
+- Locking applies to the tab you're in; other open tabs don't lock.
+
 ## 8. Appearance
 
 Click **Settings** in the sidebar to open **Appearance**. Changes apply immediately and are remembered in your browser.

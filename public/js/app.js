@@ -17,6 +17,9 @@ import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./u
 import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
 import { openFeedback } from "./ui/feedback.js";
 import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
+import { hasPin } from "./lock.js";
+import { createLockScreen } from "./ui/lock.js";
+import { securitySection, openResetDialog, finishPendingReset } from "./ui/security.js";
 
 const appEl = document.getElementById("app");
 const loginEl = document.getElementById("login");
@@ -43,7 +46,41 @@ const parseHash = () => {
   return location.hash === "#trash" ? { kind: "trash" } : null;
 };
 const firstLive = () => pages.find((p) => p.type !== "sync" && !isTrashed(pages, p));
+// PIN lock: locking flushes saves and clears the rendered workspace; unlocking renders the current page again.
+const resetCtx = () => ({
+  getStatus: () => store?.status?.() ?? null,
+  onExport: () => vaultUi?.exportJsonFile(),
+  prepareReset: async () => {
+    persistence?.dispose?.(); // pending edits are discarded with everything else
+    persistence = null;
+    ws = null;
+  }
+});
+const lockUi = createLockScreen({
+  onLocking: async () => {
+    try {
+      await persistence?.flush();
+      await store?.flush?.();
+    } catch (e) {
+      console.error(e);
+    }
+    if (!lockUi.isLocked()) return;
+    sidebarEl.replaceChildren();
+    mainEl.replaceChildren();
+  },
+  onUnlocked: async () => {
+    if (ws) await route();
+  },
+  onForgot: () => {
+    const { getStatus, prepareReset } = resetCtx();
+    openResetDialog({ locked: true, getStatus, prepare: prepareReset });
+  }
+});
+const lockNow = () => lockUi.lock();
 async function main() {
+  await finishPendingReset();
+  if (hasPin()) await lockUi.lock(); // nothing is loaded or drawn before the PIN is entered
+  lockUi.watchIdle();
   showMessage("Opening your workspace\u2026");
   try {
     store = await createStore(config);
@@ -151,6 +188,7 @@ async function start(u) {
   vaultUi.init().catch((e) => toast(`Folder sync: ${e.message}`, "error"));
 }
 async function route() {
+  if (lockUi.isLocked() || !ws) return;
   layout.afterNavigate();
   const target = parseHash();
   const known = target?.kind === "page" && pages.find((p) => p.id === target.id && p.type !== "sync");
@@ -211,10 +249,12 @@ async function route() {
   }
 }
 async function refresh() {
+  if (!ws) return;
   pages = await ws.listPages();
   drawSidebar();
 }
 function drawSidebar() {
+  if (lockUi.isLocked() || !ws) return;
   renderSidebar(sidebarEl, {
     pages,
     currentId,
@@ -230,7 +270,8 @@ function drawSidebar() {
       prefs = p;
       layout.apply();
       drawSidebar();
-    } }),
+    }, extra: securitySection({ ...resetCtx(), onPinChange: drawSidebar, onIdleChange: () => lockUi.touch() }) }),
+    onLockNow: hasPin() ? lockNow : null,
     onFeedback: () => openFeedback({ env, onFile: (t) => ws.fileFeedback(t), onOpen: (id) => env.open(id) }),
     onAiAccess: () => openAiAccess(env),
     onPageAiAccess: (p) => openPageAiAccess(env, p),
@@ -399,7 +440,7 @@ window.addEventListener("hashchange", () => {
   if (ws) route();
 });
 window.addEventListener("keydown", (e) => {
-  if (ws && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !e.shiftKey) {
+  if (ws && !lockUi.isLocked() && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !e.shiftKey) {
     if (e.target?.classList?.contains("blk-ta")) return;
     e.preventDefault();
     openQuickFind(env);

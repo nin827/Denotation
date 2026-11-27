@@ -75,6 +75,14 @@ All storage goes through `js/store.js`. Each adapter has the same small interfac
 - Collections: `pages` and `rows`. Every record carries `updatedAt` or `createdAt`.
 - Keep each record under ~250 KB. Images are embedded as data URLs and shrunk to about 150 KB.
 - Preferences live in `localStorage["denotion:prefs"]`.
+- **Lock:** `js/lock.js` (pure; PBKDF2-SHA256, 600k iterations, 16-byte salt, constant-time compare) stores
+  `denotion:pin` `{ v, length, salt, iterations, hash }`, `denotion:pin-attempts` `{ failures, until }` and
+  `denotion:lock-idle` (minutes) in localStorage. `app.js main()` first finishes a pending reset
+  (`sessionStorage["denotation:reset-pending"]`), then, with a PIN, awaits the lock screen (`ui/lock.js`) before
+  `createStore`. Locking flushes persistence and the store, empties `#sidebar` / `#main`, sets `body.is-locked` and
+  `#app[inert]`; `route()` / `drawSidebar()` do nothing while locked. `onUnlock(fn)` hands listeners the verified PIN
+  (for the encryption key); it is never stored. Reset (`ui/security.js`) removes `denotion*` / `denotation*` localStorage
+  keys, sessionStorage and IndexedDB `denotation`, then reloads.
 - Export/Import (sidebar ⋯ menu) goes through `vault.js`: a JSON file, a ZIP or a folder, in **Denotation JSON**
   (`denotation.json` manifest + `pages/<id>.json` + `rows/<id>.json`, full fidelity) or **Markdown** (sibling-folder
   layout, `.csv` databases, `attachments/`, relative links; lossy). Import detects the format by the manifest.

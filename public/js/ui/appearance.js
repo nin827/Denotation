@@ -98,7 +98,7 @@ async function loadLocalFonts() {
   return localFonts;
 }
 const MODE_ICONS = { neutral: ["Neutral", "contrast"], light: ["Light", "sun"], dark: ["Dark", "moon"], variable: ["Variable", "sun-moon"] };
-export function openSettings({ prefs: prefs, onChange }) {
+export function openSettings({ prefs: prefs, onChange, extra = null }) {
   let cur = { ...prefs };
   const commit = debounce(() => savePrefs(cur), 200);
   const set = (patch, redraw = true) => {
@@ -278,12 +278,13 @@ export function openSettings({ prefs: prefs, onChange }) {
           h("input", { type: "checkbox", checked: cur.sidebarLocked, onChange: (e) => set({ sidebarLocked: e.target.checked }) }),
           " Keep the sidebar locked open (unlock it to open and close it as needed)"
         )
-      )
+      ),
+      ...[extra].filter(Boolean)
     );
   }
   draw();
   return openModal({
-    title: "Appearance",
+    title: "Settings",
     content: body,
     actions: [
       { label: "Reset all", run: () => {

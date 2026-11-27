@@ -30,6 +30,7 @@ export function renderSidebar(el, {
   onPageAiAccess,
   vaultItems,
   onToggleLock,
+  onLockNow,
   onClose,
   footer
 }) {
@@ -140,14 +141,16 @@ export function renderSidebar(el, {
     return it.onSelect();
   } } : it);
   const workspaceMenu = (e) => openMenu(e.currentTarget, stepAside([
-    { label: "Settings", icon: ico("settings-2"), hint: "Appearance", onSelect: onSettings },
+    { label: "Settings", icon: ico("settings-2"), onSelect: onSettings },
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
     { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
     { separator: true },
     ...vaultItems(),
     { separator: true },
-    { label: "AI access…", icon: ico("bot"), onSelect: onAiAccess }
-  ]), { width: 240 });
+    { label: "AI access…", icon: ico("bot"), onSelect: onAiAccess },
+    onLockNow ? { separator: true } : null,
+    onLockNow ? { label: "Lock now", icon: ico("lock-keyhole"), onSelect: onLockNow } : null
+  ].filter(Boolean)), { width: 240 });
   el.replaceChildren(
     h(
       "div",
