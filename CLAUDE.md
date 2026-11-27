@@ -45,7 +45,8 @@ installable PWA with optional Google Drive / OneDrive sync. Sibling project and 
   and pause to let them switch models.
 - **Don't block on questions.** Put open questions in `ticket/NNN-slug.md` (see `ticket/README.md`), carry on with a
   sensible default, and walk through them when the owner says "clear tickets".
-- **Commits:** one coherent, tested unit of work per commit, then push as a checkpoint. Never commit files an agent still owns.
+- **Commits:** group related, tested work into one commit (e.g. a feature with its docs, tests and follow-up fixes)
+  instead of many small ones, so history stays readable. Push after each. Never commit files an agent still owns.
 - **Delivery** is the repo and GitHub Pages. Don't publish Claude artifacts.
 
 ## Docs
