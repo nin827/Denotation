@@ -19,6 +19,7 @@ import { groupHeaderCell } from "./dbGroups.js";
 import { toast } from "./dialogs.js";
 import { bindContextMenu } from "./contextMenu.js";
 import { bindRowMenu } from "./dbMenus.js";
+import { rowHeightAttrs } from "../sizes.js";
 import { frozenClass, wrapClass, displayClass, cellStyle, tableWidth, resizeHandle } from "./dbCols.js";
 import { windowedRows } from "./bigLists.js";
 
@@ -364,9 +365,10 @@ export function renderSheet(a) {
     c.style.width = `${colWidth(a.view, col)}px`;
     return c;
   });
+  const rh = rowHeightAttrs(a.view);
   const table = h(
     "table",
-    { class: "sheet-table fixed", style: `width:${tableWidth(a, RN)}px` },
+    { class: `sheet-table fixed${rh.cls}`, style: `width:${tableWidth(a, RN)}px;${rh.style}` },
     h(
       "thead",
       {},

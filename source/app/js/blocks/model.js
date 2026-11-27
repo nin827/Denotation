@@ -2,6 +2,7 @@ import { newId } from "../ids.js";
 import { stripInline } from "./inline.js";
 import { cleanBlock as cleanPreviewBlock } from "../preview.js";
 import { cleanCallout } from "./callout.js";
+import { normSizeList, normSizeOrConst, SIZE_RANGES } from "../sizes.js";
 
 const BLOCK_TYPES = [
   "p",
@@ -95,7 +96,7 @@ export function newBlock(type = "p", props = {}) {
         { length: clampInt(rows ?? 3, 1, TABLE_LIMITS.maxRows) },
         () => Array(clampInt(cols ?? 3, 1, TABLE_LIMITS.maxCols)).fill("")
       );
-      b.header ?? (b.header = true);
+      b.headerRow ?? (b.headerRow = true);
       b.headerCol ?? (b.headerCol = false);
       break;
     case "columns":
@@ -284,10 +285,10 @@ export function tocEntries(blocks) {
   });
   return out;
 }
-export function plainText(blocks) {
+export function plainText(blocks, resolve = null) {
   const lines = [];
   walk(blocks, (b) => {
-    if (isTexty(b)) lines.push(stripInline(b.text || ""));
+    if (isTexty(b)) lines.push(stripInline(b.text || "", resolve));
     else if (b.type === "code") lines.push(b.text || "");
     else if (b.type === "table") lines.push(...b.cells.map((r) => r.join(" ")));
     else if (b.type === "image") lines.push(b.caption || "");
@@ -299,6 +300,32 @@ export function tableResize(b, rows, cols) {
   const r = clampInt(rows, 1, TABLE_LIMITS.maxRows);
   const c = clampInt(cols, 1, TABLE_LIMITS.maxCols);
   b.cells = Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_2, j) => b.cells[i]?.[j] ?? ""));
+  for (const [key, n] of [["colWidths", c], ["rowHeights", r]]) {
+    const list = normSizeList(b[key], n, key === "colWidths" ? SIZE_RANGES.column : SIZE_RANGES.row);
+    if (list) b[key] = list;
+    else delete b[key];
+  }
+}
+/** Table sizing and header flags: `header` (legacy) becomes `headerRow`; `colWidths` / `rowHeights` align to the grid. */
+export function cleanTable(b) {
+  b.headerRow = !!(b.headerRow ?? b.header);
+  delete b.header;
+  b.headerCol = !!b.headerCol;
+  for (const [key, n, range] of [["colWidths", b.cells[0].length, SIZE_RANGES.column], ["rowHeights", b.cells.length, SIZE_RANGES.row]]) {
+    const list = normSizeList(b[key], n, range);
+    if (list) b[key] = list;
+    else delete b[key];
+  }
+}
+export const IMAGE_ALIGNS = ["left", "center", "right"];
+/** Image sizing: `width` / `height` are "320px" / "20em" / { const: id }; `align` is left (default, not stored), center or right. */
+export function cleanImage(b) {
+  for (const k of ["width", "height"]) {
+    const v = normSizeOrConst(b[k]);
+    if (v === null) delete b[k];
+    else b[k] = v;
+  }
+  if (b.align === "left" || !IMAGE_ALIGNS.includes(b.align)) delete b.align;
 }
 export function columnsSetCount(b, count) {
   const n = clampInt(count, COLUMN_LIMITS.min, COLUMN_LIMITS.max);
@@ -354,7 +381,9 @@ export function normalizeBlocks(blocks) {
         if (!Array.isArray(b.cells) || !b.cells.length || !Array.isArray(b.cells[0])) b.cells = [[""]];
         const w = Math.max(...b.cells.map((r) => Array.isArray(r) ? r.length : 0), 1);
         b.cells = b.cells.map((r) => Array.from({ length: w }, (_, j) => String(r?.[j] ?? "")));
+        cleanTable(b);
       }
+      if (b.type === "image") cleanImage(b);
       if (b.type === "columns") {
         b.children = (b.children || []).filter((c) => c?.type === "column");
         while (b.children.length < COLUMN_LIMITS.min) b.children.push(newBlock("column", { children: [newBlock("p")] }));

@@ -5,13 +5,15 @@ import { numbering, hasChildren, newBlock, normalizeBlocks } from "./model.js";
 const indentLines = (s, n) => s.split("\n").map((l) => l ? " ".repeat(n) + l : l).join("\n");
 function renderTable(b) {
   const esc = (c) => String(c).replace(/\|/g, "\\|").replace(/\n/g, " ");
-  const [head, ...body] = b.cells;
+  // Markdown needs a header row: the header row when there is one, else an empty one (the importer drops it again)
   const row = (r) => `| ${r.map(esc).join(" | ")} |`;
+  const [head, ...body] = b.headerRow || b.header ? b.cells : [b.cells[0].map(() => ""), ...b.cells];
   return [row(head), `| ${head.map(() => "---").join(" | ")} |`, ...body.map(row)].join("\n");
 }
 export function blocksToMarkdown(blocks, ctx = {}) {
   const nums = numbering(blocks);
-  const inl = (s) => replaceTokens(s ?? "", (n) => ctx.inline?.(n) ?? tokenFallback(n));
+  // an inline image exports as ![alt](src) with its size dropped (an embedded data URL cannot be written out)
+  const inl = (s) => replaceTokens(s ?? "", (n) => n.kind === "img" ? `![${(n.args[3] || "").replace(/[\[\]]/g, "")}](${n.args[0].startsWith("data:") ? "embedded-image" : n.args[0]})` : ctx.inline?.(n) ?? tokenFallback(n));
   const chunks = [];
   for (const b of blocks) {
     let text;
@@ -139,6 +141,10 @@ export function markdownToBlocks(md) {
       const width = Math.max(...rows.map((r) => r.length));
       const t = newBlock("table", { rows: rows.length, cols: width });
       t.cells = rows.map((r) => Array.from({ length: width }, (_, j) => r[j] ?? ""));
+      if (t.cells.length > 1 && t.cells[0].every((c) => !c)) {
+        t.cells.shift();
+        t.headerRow = false;
+      }
       push(t);
       continue;
     }

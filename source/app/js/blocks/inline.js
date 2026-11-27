@@ -23,6 +23,7 @@ export const EMBED_MAX_BLOCKS = 12;
 export const FORMULA_MAX = 500;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_MAX = 600;
+const IMG_TOKEN_MAX = 300400; // {{img:…}} may carry a data URL; checkToken caps its src at 300000 characters
 export const isTokenId = (s) => typeof s === "string" && ID_RE.test(s);
 export function isIsoDate(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
@@ -88,7 +89,7 @@ function checkToken(kind, args) {
 /** Read a token starting at s[i] ("{{"). Returns { end, node } or null. */
 export function readToken(s, i) {
   if (s[i] !== "{" || s[i + 1] !== "{") return null;
-  const limit = Math.min(s.length, i + TOKEN_MAX);
+  const limit = Math.min(s.length, i + (s.startsWith("{{img:", i) ? IMG_TOKEN_MAX : TOKEN_MAX));
   let j = i + 2;
   const parts = [""];
   let kind = null;

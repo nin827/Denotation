@@ -1,6 +1,6 @@
 # 018: Table block sizing and headers; image sizes (number or variable)
 
-Status: queued (after the page batch, which owns blockTypes.js right now)
+Status: resolved (built; see commit "Table and image sizing")
 Raised: 2026-11-27
 
 ## Table block (`/table`)

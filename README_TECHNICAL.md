@@ -194,6 +194,13 @@ and search also matches page property values. Details: `source/mcp/README.md`.
   Token `{{preset:<presetId>}}` or `{{preset:<presetId>|<key>}}`; resolved by `findChipPreset` → `resolvePreset` (reuses
   `resolveValue`). Slash entries are built per open by `presetEntries(...)`, not in `CATALOG`. Chips refresh on the
   `denotion:chip-presets` document event. Export: value → key → preset name.
+- **Sizes** (`js/sizes.js`, pure): px / em / rem only, bare number = px. `parseSize`, `formatSize`, `clampSize`,
+  `resolveSize(value, constants, range)` → `{ css, reason }` (number, size string, `{ const: id }` or constant name),
+  `rowHeightInfo` / `rowHeightAttrs`; ranges `SIZE_RANGES` (image 8–4000, column 40–1600, row 20–800 px). Table block:
+  `headerRow` (was `header`), `headerCol`, `colWidths`, `rowHeights`; image: `width`, `height`, `align`. UI:
+  `ui/tableBlock.js`, `ui/imageBlock.js`, `ui/sizing.js`, `ui/imageUtil.js`. Inline image `{{img:<src>|<w>|<h>|<alt>}}`
+  (`ui/plugins/images.js`; tokens up to `IMG_TOKEN_MAX`). Database views: `view.rowHeight` (`compact` | `tall` | size),
+  applied as `rh-*` class / `--db-rh` (CSS in `css/sizing.css`).
 - **Terms:** `repo.terms: [{ id, text, definition?, category?, subcategory?, hue?, icon?, parentId? }]` and
   `repo.termCategories: [{ name, hue?, icon? }]` on the repository page (limits: 500 terms, text 80, definition 500,
   category 40). Token `{{term:<id>}}`. Pure logic (clean/validate, one-level branches, inheritance own → parent →

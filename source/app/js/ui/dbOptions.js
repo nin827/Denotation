@@ -4,6 +4,7 @@ import { DISPLAY_MODES, DISPLAY_LABEL, columnDisplay, setViewDisplay } from "../
 import { h } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
+import { ROW_HEIGHT_MODES, rowHeightInfo, parseSizeField, SIZE_RANGES } from "../sizes.js";
 
 export function openDbOptions(kind, a, { onDone, redraw }) {
   const { db, view: view } = a;
@@ -188,9 +189,49 @@ export function openDbOptions(kind, a, { onDone, redraw }) {
       ))
     );
   }
-  ({ filter: drawFilter, sort: drawSort, props: drawProps })[kind]();
+  function drawRowHeight() {
+    const cur = rowHeightInfo(view);
+    const label = { compact: "Compact", normal: "Normal", tall: "Tall" };
+    const set = (v, refocus = false) => {
+      if (v === "normal" || v === null) delete view.rowHeight;
+      else view.rowHeight = v;
+      redraw();
+      drawRowHeight();
+      if (refocus) box.querySelector("[aria-pressed=true]")?.focus();
+    };
+    const err = h("p", { class: "hint", role: "alert" });
+    const custom = h("input", {
+      type: "text",
+      class: "size-input",
+      "aria-label": "Custom row height",
+      placeholder: "for example 48 or 3em",
+      autocomplete: "off",
+      value: cur.css ?? "",
+      style: "font-size:16px",
+      onChange: (e) => {
+        const r = parseSizeField(e.target.value, { range: SIZE_RANGES.row });
+        err.textContent = r.error ?? "";
+        if (r.error) return;
+        set(r.value);
+      }
+    });
+    fill(h(
+      "div",
+      { class: "rowh-dialog" },
+      h("p", { class: "hint" }, "Row height for this view (table and sheet views). Tall rows are taller, not wrapped; use Wrap in the Layout menu for long text."),
+      h("div", { class: "seg", role: "group", "aria-label": "Row height" }, ROW_HEIGHT_MODES.map((m) => h(
+        "button",
+        { type: "button", "aria-pressed": String(cur.mode === m), onClick: () => set(m, true) },
+        cur.mode === m ? ico("check") : null,
+        label[m]
+      ))),
+      h("label", {}, "Or a size (px, em or rem; a bare number is px)", custom),
+      err
+    ));
+  }
+  ({ filter: drawFilter, sort: drawSort, props: drawProps, rowheight: drawRowHeight })[kind]();
   return openModal({
-    title: { filter: "Filter rows", sort: "Sort rows", props: "Properties" }[kind],
+    title: { filter: "Filter rows", sort: "Sort rows", props: "Properties", rowheight: "Row height" }[kind],
     content: box,
     actions: [
       ...kind === "filter" ? [{ label: "Clear filters", run: () => {

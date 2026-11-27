@@ -20,6 +20,7 @@ import { renderCell } from "./cellEditors.js";
 import { toast, confirmDialog } from "./dialogs.js";
 import { openColumnEditor } from "./columnEditor.js";
 import { openDbOptions } from "./dbOptions.js";
+import { rowHeightAttrs, rowHeightInfo } from "../sizes.js";
 import {
   groupSections,
   renderBoard,
@@ -267,7 +268,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
   }
   function viewMenu(anchor, v, { layout = false } = {}) {
     openMenu(anchor, [
-      ...layout && ["table", "sheet"].includes(v.type) ? [{ label: "Layout settings", icon: ico("move-horizontal"), onSelect: () => openLayoutMenu(anchor, api()) }] : [],
+      ...layout && ["table", "sheet"].includes(v.type) ? [{ label: "Layout settings", icon: ico("move-horizontal"), onSelect: () => openLayoutMenu(anchor, api()) }, { label: "Row height", icon: ico("rows-3"), hint: rowHeightInfo(v).css ?? rowHeightInfo(v).mode, onSelect: () => openRowHeight() }] : [],
       { label: "Rename", icon: ico("pencil"), onSelect: () => renameView(v) },
       { label: "Duplicate", icon: ico("copy"), onSelect: async () => {
         const c = { ...JSON.parse(JSON.stringify(v)), id: newView("table", db).id, name: `${v.name} copy` };
@@ -292,6 +293,12 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
         draw();
       } }] : []
     ], { width: 220 });
+  }
+  function openRowHeight() {
+    openDbOptions("rowheight", api(), { onDone: async () => {
+      await saveViews();
+      draw();
+    }, redraw: drawBody });
   }
   function columnMenu(col) {
     const view = current();
@@ -423,6 +430,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
           })), { width: 200, empty: "Add a date column first" })
         }, ico("calendar"), ` Date: ${db.columns.find((c) => c.id === view.dateCol)?.name ?? "none"}`) : null,
         ["table", "sheet"].includes(view.type) ? h("button", { class: "tool-layout", onClick: (e) => openLayoutMenu(e.currentTarget, api()) }, ico("move-horizontal"), " Layout") : null,
+        ["table", "sheet"].includes(view.type) ? h("button", { class: "tool-rowh", title: "Row height of this view", onClick: () => openRowHeight() }, ico("rows-3"), " Row height") : null,
         h("button", { class: "tool-props", onClick: () => openDbOptions("props", api(), { onDone: async () => {
           await saveViews();
           draw();
@@ -481,7 +489,8 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
     cg.forEach((c, i) => {
       c.style.width = `${colWidth(a.view, a.cols[i])}px`;
     });
-    const table = h("table", { class: "db-table fixed", style: `width:${tableWidth(a, ACTIONS)}px` });
+    const rh = rowHeightAttrs(a.view);
+    const table = h("table", { class: `db-table fixed${rh.cls}`, style: `width:${tableWidth(a, ACTIONS)}px;${rh.style}` });
     const groupRows = headerRows(a.cols, a.groups).map((cells, level) => h(
       "tr",
       { class: `grp-row lvl-${level}` },

@@ -1,15 +1,15 @@
-import { TABLE_LIMITS, tableResize, tocEntries } from "../blocks/model.js";
+import { tocEntries } from "../blocks/model.js";
 import { h } from "./dom.js";
 import { iconNode, ico, pageIcon } from "../icons/index.js";
 import { toast } from "./dialogs.js";
 import { pivotBody } from "./pivotBlock.js";
 import { recordPreviewBody } from "./recordPreview.js";
 import { viewBlockBody } from "./viewBlock.js";
-import { isTableSource, sourceNameOf } from "../sources.js";
 import { createBlockEditor } from "./blockEditor.js";
+import { tableBody } from "./tableBlock.js";
+import { imageBody } from "./imageBlock.js";
+export { shrink } from "./imageUtil.js";
 
-const MAX_EMBED_BYTES = 15e4;
-const safeSrc = (s) => /^(data:image\/(png|jpe?g|gif|webp|svg\+xml);|https?:\/\/)/i.test(s || "");
 // Feature modules (ui/plugins/*.js) register extra block bodies here: fn(b, inst, actions) -> Node.
 const PLUGIN_BLOCKS = new Map();
 export function registerBlockType(type, fn) {
@@ -46,182 +46,6 @@ export function specialBody(b, inst, a) {
     default:
       return null;
   }
-}
-function tableBody(b, inst, a) {
-  const { ctx } = inst;
-  const locked = ctx.locked;
-  const cell = (r, c) => {
-    const isHead = b.header && r === 0 || b.headerCol && c === 0;
-    const input = h("input", {
-      type: "text",
-      class: `cell${isHead ? " head" : ""}`,
-      value: b.cells[r][c],
-      readonly: locked,
-      "aria-label": `Row ${r + 1}, column ${c + 1}`,
-      onInput: (e) => {
-        b.cells[r][c] = e.target.value;
-        a.save();
-      },
-      onKeydown: (e) => {
-        if (e.key === "Enter" && !e.isComposing) {
-          e.preventDefault();
-          grid.querySelectorAll("tr")[r + 1]?.children[c]?.firstChild?.focus();
-        }
-      },
-      onPaste: (e) => {
-        const t = e.clipboardData?.getData("text/plain") ?? "";
-        if (!/[\t\n]/.test(t.trim())) return;
-        e.preventDefault();
-        const rows = t.replace(/\r/g, "").replace(/\n$/, "").split("\n").map((l) => l.split("	"));
-        const needRows = Math.min(TABLE_LIMITS.maxRows, r + rows.length);
-        const needCols = Math.min(TABLE_LIMITS.maxCols, c + Math.max(...rows.map((x) => x.length)));
-        tableResize(b, Math.max(needRows, b.cells.length), Math.max(needCols, b.cells[0].length));
-        rows.forEach((line, i) => line.forEach((v, j) => {
-          if (b.cells[r + i]?.[c + j] !== void 0) b.cells[r + i][c + j] = v;
-        }));
-        a.save();
-        a.redraw();
-      }
-    });
-    return h(isHead ? "th" : "td", {}, input);
-  };
-  const grid = h("table", { class: "tbl" }, h("tbody", {}, b.cells.map((row, r) => h("tr", {}, row.map((_, c) => cell(r, c))))));
-  const num = (label, value, max, onChange) => h(
-    "label",
-    { class: "tbl-num" },
-    label,
-    h("input", {
-      type: "number",
-      min: 1,
-      max,
-      value,
-      disabled: locked,
-      onChange: (e) => {
-        const n = Math.min(max, Math.max(1, Math.round(Number(e.target.value) || 1)));
-        e.target.value = n;
-        onChange(n);
-      }
-    })
-  );
-  const check = (label, key) => h(
-    "label",
-    { class: "tbl-check" },
-    h("input", { type: "checkbox", checked: b[key], disabled: locked, onChange: (e) => {
-      b[key] = e.target.checked;
-      a.save();
-      a.redraw();
-    } }),
-    label
-  );
-  const controls = locked ? null : h(
-    "div",
-    { class: "tbl-controls" },
-    num("Rows", b.cells.length, TABLE_LIMITS.maxRows, (n) => {
-      tableResize(b, n, b.cells[0].length);
-      a.save();
-      a.redraw();
-    }),
-    num("Columns", b.cells[0].length, TABLE_LIMITS.maxCols, (n) => {
-      tableResize(b, b.cells.length, n);
-      a.save();
-      a.redraw();
-    }),
-    check("Header row", "header"),
-    check("Header column", "headerCol")
-  );
-  const tag = isTableSource(b) ? h("div", { class: "tbl-source", title: "Used as a data source (first row = column names)" }, ico("database-zap"), h("span", {}, ` Data source: ${sourceNameOf(b)}`)) : null;
-  return h("div", { class: "tbl-box" }, tag, h("div", { class: "tbl-wrap" }, grid), controls);
-}
-const readDataUrl = (blob) => new Promise((res, rej) => {
-  const fr = new FileReader();
-  fr.onload = () => res(fr.result);
-  fr.onerror = () => rej(fr.error);
-  fr.readAsDataURL(blob);
-});
-export async function shrink(file, maxBytes = MAX_EMBED_BYTES) {
-  if (file.type === "image/svg+xml" || file.type === "image/gif") {
-    const url = await readDataUrl(file);
-    if (url.length > maxBytes) throw new Error("That file is too large to embed. Use an image URL instead.");
-    return url;
-  }
-  const bmp = await createImageBitmap(file);
-  let scale = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
-  for (let attempt = 0; attempt < 6; attempt++, scale *= 0.75) {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bmp.width * scale));
-    canvas.height = Math.max(1, Math.round(bmp.height * scale));
-    const g = canvas.getContext("2d");
-    g.fillStyle = "#fff";
-    g.fillRect(0, 0, canvas.width, canvas.height);
-    g.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    for (const q of [0.82, 0.65, 0.5]) {
-      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", q));
-      const url = blob && await readDataUrl(blob);
-      if (url && url.length <= maxBytes) return url;
-    }
-  }
-  throw new Error("Could not shrink that picture enough to embed it.");
-}
-function imageBody(b, inst, a) {
-  const locked = inst.ctx.locked;
-  const box = h("div", { class: "img-box" });
-  const picker = h("input", {
-    type: "file",
-    accept: "image/*",
-    hidden: true,
-    onChange: async (e) => {
-      const f = e.target.files[0];
-      e.target.value = "";
-      if (!f) return;
-      try {
-        b.src = await shrink(f);
-        a.save();
-        a.redraw();
-      } catch (err) {
-        toast(err.message, "error");
-      }
-    }
-  });
-  if (b.src && safeSrc(b.src)) {
-    const img = h("img", { src: b.src, alt: b.caption || "", class: "img" });
-    img.addEventListener("error", () => {
-      img.replaceWith(h("div", { class: "img-fail" }, "This image can't load here. Claude artifacts block images from other websites. Upload the file instead to embed it."));
-    });
-    box.append(img);
-  } else if (!locked) {
-    const url = h("input", { type: "url", placeholder: "Paste an image URL\u2026", onKeydown: (e) => {
-      if (e.key === "Enter") setUrl();
-    } });
-    const setUrl = () => {
-      const v = url.value.trim();
-      if (!safeSrc(v)) return toast("Enter an http(s) image URL.", "error");
-      b.src = v;
-      a.save();
-      a.redraw();
-    };
-    box.append(h(
-      "div",
-      { class: "img-empty" },
-      h("button", { onClick: () => picker.click() }, "Upload image"),
-      h("span", { class: "hint" }, "or"),
-      url,
-      h("button", { onClick: setUrl }, "Embed link"),
-      h("div", { class: "hint" }, "Uploads are shrunk to fit. In Claude artifacts only uploaded images display; pictures from other websites are blocked.")
-    ));
-  } else box.append(h("div", { class: "img-fail" }, "Empty image"));
-  const caption = h("input", {
-    class: "caption",
-    type: "text",
-    value: b.caption,
-    placeholder: "Caption",
-    readonly: locked,
-    onInput: (e) => {
-      b.caption = e.target.value;
-      a.save();
-    }
-  });
-  const replace = b.src && !locked ? h("button", { class: "icon img-replace", onClick: () => picker.click() }, "Replace") : null;
-  return h("div", { class: "img-wrap" }, box, replace, b.src || !locked ? caption : null, picker);
 }
 function bookmarkBody(b, inst, a) {
   const locked = inst.ctx.locked;

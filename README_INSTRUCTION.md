@@ -225,9 +225,15 @@ You can also **paste markdown** with several lines and it becomes proper blocks.
 
 **Table.** A grid you type straight into. Controls under the table set the number of **Rows** (up to 100) and **Columns** (up to 12), and whether the first row and first column are headers. This is a simple text table; for data you want to sort, filter or calculate, use a [database](#4-databases).
 
+**Table headers and sizes.** Use **Header row** and **Header column** (block menu) to mark headers; they are bold with a heavier line. Drag the right edge of a top-row cell to change a column's width, or the bottom edge of a first-column cell to change a row's height (double-click to reset). To type an exact value, use the small arrow button on the cell, or press Shift+F10 inside a cell, and choose **Column width…** or **Row height…**. Sizes use px, em or rem; a bare number means px. **Reset sizes** puts everything back to automatic. A table used as a data source always reads its first row as column names.
+
 **Columns.** Two to six side-by-side columns. Each is a mini-page of its own: drag blocks into and between them with the handle. Change the count from the block's handle menu.
 
 **Image.** Choose **Upload image** (pictures are shrunk to fit), or paste a link with **Embed link**. Add a caption underneath. You can also paste an image straight in. If an image from another website won't load, upload the file instead.
+
+**Image size.** Hover an image to show **Size**, **Replace** and alignment (left, centre, right). Width and height take px, em or rem (a bare number is px) or the name of a repository constant, so changing that constant resizes every image that uses it. A constant must hold a number (px) or text like `20em`; otherwise the image shows at its natural size and a note says why. Width alone keeps the proportions; setting both stretches it. Drag the right edge, bottom edge or corner (corner keeps proportions) to resize by hand.
+
+**Inline images.** Type `/Inline image` to place a small picture inside a line of text, with a link or an upload (shrunk to about 150 KB), alt text and an optional width/height. Markdown export writes images as `![alt](src)` without size.
 
 **Web bookmark.** A card showing a link: enter an address and an optional title, then **Save**. Clicking the card opens the link in a new tab.
 
@@ -349,6 +355,8 @@ One database can be shown in many ways at once. The tabs above the data are **vi
 | **Dashboard** | A ready-made overview: counts and totals for your number and checkbox columns, plus charts |
 
 Boards, lists, galleries, the calendar and feeds all have an add button so you can create a row right there.
+
+**Row height.** In a table or sheet view, **Row height** (toolbar or view menu) sets Compact, Normal or Tall, or a custom size, for that view only.
 
 ### Filter, sort, group
 
