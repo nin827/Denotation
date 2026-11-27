@@ -3,8 +3,16 @@
 // and keeps working if folder permission lapses; writes go to the cache at once and to the folder
 // debounced (~800 ms) and serialised per file. The folder holds the JSON vault format:
 //   denotation.json, pages/<id>.json, rows/<id>.json
-// Only those files are ever written or deleted; anything else in the folder is left alone.
+// Only those files (plus permissions.json, see below) are ever written or deleted; anything else in
+// the folder is left alone.
+//
+// AI access: the app keeps the assistant permissions in `permissions.json` in the folder (read by the
+// local MCP server in tools/mcp, which never writes it). `readPermissionsFile` / `writePermissionsFile`
+// touch only that one file. External deletions (the MCP server deleting a row) are recorded in
+// `rows/.deleted.json` ({ deleted: { <id>: deletedAt } }); the merge reads it but never writes it.
 import { validPage, validRow, MANIFEST } from "../vault.js";
+import { PERMISSIONS_FILE } from "../permissions.js";
+import { syncPermissions } from "./folderPermissions.js";
 
 export const folderSupported = () => typeof globalThis.showDirectoryPicker === "function";
 
@@ -14,8 +22,10 @@ const TOMBS = "tombstones";
 const stamp = (r) => Number(r?.updatedAt ?? r?.createdAt ?? 0) || 0;
 const valid = (col, r) => (col === "pages" ? validPage(r) : validRow(r));
 const isPermission = (e) => e?.name === "NotAllowedError" || e?.name === "SecurityError";
+const REMOTE_TOMBS = ".deleted.json";
+const FOCUS_MERGE_MS = 5000;
 
-export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
+export function createFolderAdapter(cache, { debounceMs = 800, mergeOnFocus = true, onConnected = syncPermissions } = {}) {
   let dir = null;
   let state = "off"; // off | syncing | synced | needs-permission | error
   let error = "";
@@ -70,6 +80,7 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
     }
   });
   const tombKey = (col, id) => `${col}:${id}`;
+  let removedLocally = 0; // records the last merge removed from the cache (rows/.deleted.json)
 
   // Push one record's current cache state to the folder (write it, or delete its file if gone).
   const pushKey = async (col, id) => {
@@ -110,9 +121,22 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
     }
     return out;
   }
+  /** Deletions made outside the app (rows/.deleted.json): id -> deletedAt. Read only. */
+  async function readRemoteTombs(col) {
+    try {
+      const fh = await (await sub(col)).getFileHandle(REMOTE_TOMBS);
+      const data = JSON.parse(await (await fh.getFile()).text());
+      const out = new Map();
+      for (const [id, at] of Object.entries(data?.deleted ?? {})) if (FILE_RE.test(`${id}.json`) && Number(at) > 0) out.set(id, Number(at));
+      return out;
+    } catch {
+      return new Map();
+    }
+  }
   /** Two-way merge: per record, last write wins by updatedAt (fallback createdAt); then write back. */
   async function merge() {
     const counts = { pulled: 0, pushed: 0, deleted: 0 };
+    removedLocally = 0;
     const tombs = new Map((await cache.list(TOMBS)).map((t) => [tombKey(t.col, t.rid), t]));
     for (const col of COLS) {
       const files = await readFolder(col);
@@ -133,8 +157,15 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
           counts.pushed++;
         }
       }
+      const gone = await readRemoteTombs(col);
       for (const [id, mine] of local) {
         if (files.has(id)) continue;
+        if (gone.has(id) && stamp(mine) <= gone.get(id)) {
+          await cache.remove(col, id); // deleted outside the app after our last change
+          counts.deleted++;
+          removedLocally++;
+          continue;
+        }
         await writeRecord(col, mine);
         counts.pushed++;
       }
@@ -202,7 +233,8 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
       try {
         const counts = await merge();
         setState("synced");
-        if (counts.pulled) for (const f of [...remoteFns]) f(counts);
+        if (onConnected) await Promise.resolve(onConnected(adapter)).catch(() => {});
+        if (counts.pulled || removedLocally) for (const f of [...remoteFns]) f(counts);
         return counts;
       } catch (e) {
         fail(e);
@@ -216,6 +248,26 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
       folderName = "";
       setState("off");
     },
+    /** Read permissions.json from the folder: parsed JSON, or null if missing/unreadable/not connected. */
+    async readPermissionsFile() {
+      if (!dir || state === "needs-permission") return null;
+      try {
+        const fh = await dir.getFileHandle(PERMISSIONS_FILE);
+        return JSON.parse(await (await fh.getFile()).text());
+      } catch {
+        return null;
+      }
+    },
+    /** Write permissions.json (the only non-record file the app writes). Throws if not connected. */
+    async writePermissionsFile(data) {
+      if (!dir || state === "needs-permission") throw new Error("Connect a folder first.");
+      try {
+        await serial(PERMISSIONS_FILE, () => writeText(dir, PERMISSIONS_FILE, JSON.stringify(data, null, 2)));
+      } catch (e) {
+        fail(e);
+        throw e;
+      }
+    },
     /** Write everything still waiting for its debounce, and wait for all file writes. */
     async flush() {
       const due = [...timers.keys()];
@@ -228,6 +280,28 @@ export function createFolderAdapter(cache, { debounceMs = 800 } = {}) {
       await Promise.all([...chains.values()]);
     }
   };
+  // Pick up changes made in the folder by other tools (e.g. the AI assistant's MCP server) when the
+  // window regains focus. Throttled; only while synced; the merge itself is the same as "Sync now".
+  let lastFocusMerge = 0;
+  let focusBusy = false;
+  const onFocus = async () => {
+    if (!dir || state !== "synced" || focusBusy || Date.now() - lastFocusMerge < FOCUS_MERGE_MS) return;
+    if (globalThis.document?.visibilityState === "hidden") return;
+    focusBusy = true;
+    lastFocusMerge = Date.now();
+    try {
+      await adapter.flush();
+      await adapter.connect(dir);
+    } catch {
+      // state already reflects the failure
+    } finally {
+      focusBusy = false;
+    }
+  };
+  if (mergeOnFocus && typeof globalThis.addEventListener === "function" && globalThis.document) {
+    globalThis.addEventListener("focus", onFocus);
+    globalThis.document.addEventListener?.("visibilitychange", onFocus);
+  }
   return adapter;
 }
 

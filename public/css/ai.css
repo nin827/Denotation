@@ -1,0 +1,54 @@
+/* AI access dialogs (js/ui/aiAccess.js). Builds on .modal, .settings and .seg from style.css. */
+.modal:has(.ai-access) { width: min(580px, 100%); }
+.ai-access section { display: grid; gap: 6px; }
+.ai-access .hint { margin: 0; }
+
+.ai-table { display: grid; border: 1px solid var(--border); border-radius: var(--radius); }
+.ai-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
+.ai-row + .ai-row { border-top: 1px solid var(--border); }
+.ai-action { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ai-action-name { font-weight: 600; font-size: 14px; }
+.ai-action-hint, .ai-from { color: var(--muted); font-size: 12px; font-weight: 400; }
+.ai-effective { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; }
+.ai-effective b { font-weight: 500; }
+.ai-effective .icon-svg { margin-top: 2px; }
+.ai-effective .icon-svg, .ai-chip .icon-svg, .ai-note > .icon-svg { width: 14px; height: 14px; flex: none; }
+
+.ai-seg { flex: none; margin: 0; width: 252px; }
+.ai-seg button { font-size: 13px; padding: 5px 6px; color: var(--text); }
+.ai-seg button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.ai-seg button[aria-checked="false"]:hover { background: var(--bg-hover); }
+.ai-seg button:focus-visible { outline-offset: -3px; }
+
+.ai-note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-soft); border: 1px solid var(--border); }
+.ai-note > .icon-svg { width: 18px; height: 18px; margin-top: 2px; color: var(--muted); }
+.ai-note.ok > .icon-svg { color: var(--accent); }
+.ai-note strong { font-size: 14px; }
+
+.ai-overrides { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.ai-overrides li { display: flex; align-items: center; gap: 4px; }
+.ai-ov-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 5px 6px; text-align: left; }
+.ai-ov-open:hover { background: var(--bg-hover); }
+.ai-ov-open.gone { color: var(--muted); }
+.ai-ov-open > .icon-svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.ai-ov-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-ov-remove { flex: none; font-size: 13px; padding: 4px 8px; }
+.ai-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.ai-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.ai-chip.yes { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+
+.ai-cmd { display: flex; align-items: stretch; gap: 6px; }
+.ai-cmd-text { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 7px 9px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; user-select: all; }
+.ai-copy { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.ai-copy .icon-svg { width: 14px; height: 14px; }
+.ai-target { display: flex; align-items: center; gap: 8px; margin: 0; }
+.ai-target .icon-svg { width: 18px; height: 18px; color: var(--muted); }
+.ai-saved { min-height: 0; display: flex; align-items: center; gap: 4px; }
+.ai-saved .icon-svg { width: 14px; height: 14px; }
+
+@media (max-width: 560px) {
+  .ai-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .ai-seg { width: auto; }
+  .ai-seg button { min-height: 40px; font-size: 15px; }
+  .ai-ov-open { flex-wrap: wrap; }
+}
