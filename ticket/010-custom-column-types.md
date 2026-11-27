@@ -15,8 +15,6 @@ Plan (mirrors the Action workshop grammar):
   - Structs: `Dictionary{name: String, level: int(1..99), stats: Dictionary{hp: int, sp: int}}` (fixed keys, in order,
     nested to any depth).
   - Unions: `String | Dictionary{...}` with a shape switch.
-  - Named types: `Stats`, defined once per database in `types: { Stats: "Dictionary{hp: int, sp: int}" }` and reused
-    in any column (and inside other types).
 - Editing: a generated nested form (fields, number pads with ranges, enum pickers, add/remove/reorder list items,
   shape switch), plus a raw JSON tab. Invalid values are saved as written but flagged, never silently dropped.
 - Table/sheet cells show a compact summary (e.g. `{name: Ava, level: 12, …}`). Row pages show the full form.
@@ -27,3 +25,7 @@ Plan (mirrors the Action workshop grammar):
 
 Open question: should nested struct fields also be usable directly as filter/sort/group keys and in formulas
 (e.g. `prop("Stats").hp`)?
+
+## Owner decision
+No stored type presets (no data-level `types`). Build only the script-level engine: the type-text parser, validator and
+generated nested editor, so any setup is possible by writing the column's type text (or the columns JSON).
