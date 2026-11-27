@@ -28,7 +28,8 @@ const BLOCK_TYPES = [
   "page",
   "pivot",
   "preview",
-  "dbview"
+  "dbview",
+  "graph"
 ];
 const TEXTY = new Set(["p", "h1", "h2", "h3", "h4", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
 const NESTABLE = new Set(["p", "bullet", "numbered", "todo", "toggle", "quote", "callout"]);
@@ -130,6 +131,9 @@ export function newBlock(type = "p", props = {}) {
       break;
     case "dbview":
       b.sourceId ?? (b.sourceId = null);
+      break;
+    case "graph":
+      b.graph ?? (b.graph = {}); // settings owned by ui/plugins/links.js
       break;
     case "divider":
     case "toc":

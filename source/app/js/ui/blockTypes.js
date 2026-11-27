@@ -10,7 +10,14 @@ import { createBlockEditor } from "./blockEditor.js";
 
 const MAX_EMBED_BYTES = 15e4;
 const safeSrc = (s) => /^(data:image\/(png|jpe?g|gif|webp|svg\+xml);|https?:\/\/)/i.test(s || "");
+// Feature modules (ui/plugins/*.js) register extra block bodies here: fn(b, inst, actions) -> Node.
+const PLUGIN_BLOCKS = new Map();
+export function registerBlockType(type, fn) {
+  PLUGIN_BLOCKS.set(type, fn);
+}
 export function specialBody(b, inst, a) {
+  const plug = PLUGIN_BLOCKS.get(b.type);
+  if (plug) return plug(b, inst, a);
   switch (b.type) {
     case "divider":
       return h("hr", { class: "divider" });
