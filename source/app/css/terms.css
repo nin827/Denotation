@@ -1,1 +1,68 @@
-/* terms styles */
+/* terms: the {{term:id}} chip, its definition card, the Terms tab of the repository dialog and the insert picker */
+
+/* chip: always bold text, icon on the right; a hue tints it (never the only cue: the text and icon are always there) */
+.ichip-term { --term-h: 210; cursor: pointer; font: inherit; font-size: .96em; gap: var(--sp-4); color: var(--text); }
+.ichip-term .term-text { font-weight: 700; }
+.ichip-term .term-icon { display: inline-flex; align-items: center; flex: none; line-height: 1; }
+.ichip-term .term-icon .icon-svg { width: 1em; height: 1em; }
+.ichip-term.has-hue { background: oklch(var(--blk-tint) var(--term-h)); color: oklch(var(--blk-fg) var(--term-h)); border-color: oklch(var(--blk-fg) var(--term-h) / .45); }
+.ichip-term:hover, .ichip-term:focus-visible { filter: brightness(.96); }
+.ichip-term:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+span.ichip-term { cursor: default; }
+button.ichip.ichip-term { padding: 0 6px; }
+
+/* definition card (one shared element, positioned by script) */
+.term-card { position: fixed; z-index: 70; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100vw - 16px)); padding: 8px 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-float); font-size: var(--fs-ui); line-height: 1.4; pointer-events: none; overflow-wrap: anywhere; }
+.term-card[hidden] { display: none; }
+.term-card-head { display: flex; align-items: center; gap: var(--sp-6); }
+.term-card-head .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.term-card-cat, .term-card-branch { color: var(--muted); font-size: var(--fs-sm); margin-top: 2px; }
+.term-card-branch strong { color: var(--text); }
+.term-card-def { margin: 6px 0 0; white-space: pre-wrap; }
+.term-card-parent { color: var(--muted); border-top: 1px solid var(--border); padding-top: 6px; }
+.term-card-from { font-weight: 600; color: var(--text); }
+@media (prefers-reduced-motion: no-preference) { .term-card:not([hidden]) { animation: fade-in .09s linear; } }
+
+/* Terms tab */
+.tm-bar { display: flex; gap: var(--sp-8); align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.tm-bar .tm-search { flex: 1 1 160px; width: auto; min-width: 0; min-height: 40px; }
+.tm-bar button { min-height: 40px; display: inline-flex; align-items: center; gap: var(--sp-6); }
+.tm-cat { display: flex; align-items: center; gap: var(--sp-6); margin: 14px 0 4px; font-size: var(--fs-md); color: var(--muted); text-transform: none; font-weight: 600; }
+.tm-sub { margin: 8px 0 2px 12px; font-size: var(--fs-sm); color: var(--muted); font-weight: 600; }
+.tm-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); min-height: 44px; padding: 2px 4px; border-radius: var(--radius); }
+.tm-row:hover { background: var(--bg-hover); }
+.tm-row.is-branch { margin-left: 22px; border-left: 2px solid var(--border); padding-left: 10px; }
+.tm-main { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4) var(--sp-8); min-width: 0; flex: 1; }
+.tm-count { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--muted); font-size: var(--fs-sm); }
+.tm-count .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.tm-meta { color: var(--muted); font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
+.tm-acts { display: flex; gap: var(--sp-2); flex: none; }
+.tm-acts .icon { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.tm-editor { margin: 4px 0 10px 0; padding-bottom: 6px; }
+.tm-row.is-branch + .tm-editor { margin-left: 22px; }
+.tm-grid-2 { grid-template-columns: 1fr 1fr; }
+.tm-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.tm-sample { display: flex; align-items: center; gap: var(--sp-6); margin-bottom: 8px; }
+.tm-icon-row { display: flex; align-items: center; gap: var(--sp-6); flex-wrap: wrap; }
+.tm-icon-row button { min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; gap: var(--sp-4); }
+.tm-icon-row input { min-height: 40px; box-sizing: border-box; }
+.tm-icon-btn .icon-svg { width: 1em; height: 1em; display: inline-flex; }
+.tm-defaults { border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 10px; }
+.tm-defaults summary { cursor: pointer; display: flex; align-items: center; gap: var(--sp-6); min-height: 36px; }
+.tm-def-row { display: grid; grid-template-columns: 1.2fr 1fr 1.2fr; gap: 0 var(--sp-8); align-items: end; }
+.tm-done { display: inline-flex; align-items: center; gap: var(--sp-4); }
+
+/* insert picker */
+.term-pick-item.is-branch { margin-left: 18px; }
+.term-pick-item { gap: var(--sp-8); }
+.term-new { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.term-new summary { cursor: pointer; display: flex; align-items: center; gap: var(--sp-6); min-height: 40px; }
+.term-new-body { display: flex; flex-direction: column; gap: var(--sp-8); margin-top: 6px; }
+.term-new-body input, .term-new-body textarea { width: 100%; box-sizing: border-box; font-size: 16px; }
+
+@media (max-width: 560px) {
+  .tm-grid-2, .tm-def-row { grid-template-columns: 1fr; }
+  .tm-row.is-branch { margin-left: 12px; }
+  .tm-row.is-branch + .tm-editor { margin-left: 12px; }
+}
+@media (pointer: coarse) { button.ichip.ichip-term { position: relative; } button.ichip.ichip-term::after { content: ""; position: absolute; inset: -8px -4px; } }

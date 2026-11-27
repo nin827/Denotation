@@ -1,11 +1,13 @@
-// Repository settings dialog: constants ({{const:id}}, formulas) and the status list ({{status:id}}).
-// Reached from the repository's page menu in the sidebar (Constants… / Statuses…). Edits save as you go and every chip
+// Repository settings dialog: constants ({{const:id}}, formulas), the status list ({{status:id}}) and terms ({{term:id}}).
+// Reached from the repository's page menu in the sidebar (Constants… / Statuses… / Terms…). Edits save as you go and every chip
 // updates live (constantsChanged event).
 import { h, debounce } from "./dom.js";
 import { ico } from "../icons/index.js";
 import { openModal } from "./modal.js";
 import { confirmDialog, toast } from "./dialogs.js";
 import { constantsChanged } from "./inlineChips.js";
+import { termsChanged } from "./termsUi.js";
+import { createTermsPanel } from "./termsPanel.js";
 import { HUES } from "../blocks/model.js";
 import { setConstantsProvider } from "../formula.js";
 import {
@@ -29,8 +31,8 @@ const field = (label, control, cls = "") => h("label", { class: `ip-field rs-fie
 const errLine = () => h("div", { class: "rp-error rs-err", role: "alert" });
 const showErr = (el, msg) => el.replaceChildren(...msg ? [ico("info"), ` ${msg}`] : []);
 
-/** Tokens of one kind/id across every page and row (blocks of all pages, synced blocks and row pages). */
-async function countUsers(env, kind, id) {
+/** Every block list in the workspace: all pages, plus the rows of each database. */
+async function blockLists(env) {
   const lists = env.pages().map((p) => p.blocks).filter(Boolean);
   for (const db of env.pages()) {
     if (db.type !== "database" || db.sourceId) continue;
@@ -40,8 +42,10 @@ async function countUsers(env, kind, id) {
       // unreadable rows are skipped
     }
   }
-  return countTokenUsers(lists, kind, id);
+  return lists;
 }
+/** Tokens of one kind/id across every page and row (blocks of all pages, synced blocks and row pages). */
+const countUsers = async (env, kind, id) => countTokenUsers(await blockLists(env), kind, id);
 const usedText = (n, what) => n === 0 ? `No ${what} use it.` : `${n} ${what.replace(/s$/, "")}${n === 1 ? "" : "s"} on pages use it and will show “Not found”.`;
 
 export function openRepoSettings(env, repo, tab = "constants") {
@@ -60,6 +64,7 @@ export function openRepoSettings(env, repo, tab = "constants") {
       await env.ws.savePage(cur);
       await env.refresh();
       constantsChanged();
+      termsChanged();
     }).catch((e) => toast(e?.message || "Could not save.", "error"));
     return chain;
   };
@@ -229,6 +234,9 @@ export function openRepoSettings(env, repo, tab = "constants") {
     );
   }
 
+  // ---------- terms ----------
+  const termsTab = createTermsPanel({ current, persist, countLists: () => blockLists(env) });
+
   // ---------- tabs ----------
   const tabs = h("div", { class: "rs-tabs", role: "tablist" });
   const body = h("div", { class: "rs-body" });
@@ -237,8 +245,9 @@ export function openRepoSettings(env, repo, tab = "constants") {
     b.addEventListener("click", () => show(id));
     return b;
   };
-  const tbs = { constants: tabBtn("constants", "Constants", "variable"), statuses: tabBtn("statuses", "Statuses", "circle-dot") };
-  tabs.append(tbs.constants, tbs.statuses);
+  const tbs = { constants: tabBtn("constants", "Constants", "variable"), statuses: tabBtn("statuses", "Statuses", "circle-dot"), terms: tabBtn("terms", "Terms", "book-a") };
+  const panels = { constants: constPanel, statuses: stPanel, terms: termsTab.el };
+  tabs.append(tbs.constants, tbs.statuses, tbs.terms);
   function show(id) {
     for (const [k, b] of Object.entries(tbs)) {
       b.setAttribute("aria-selected", String(k === id));
@@ -246,18 +255,21 @@ export function openRepoSettings(env, repo, tab = "constants") {
       b.classList.toggle("active", k === id);
     }
     if (id === "constants") drawConstants();
-    else drawStatuses();
-    body.replaceChildren(id === "constants" ? constPanel : stPanel);
+    else if (id === "statuses") drawStatuses();
+    else termsTab.redraw();
+    body.replaceChildren(panels[id]);
   }
   tabs.addEventListener("keydown", (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    const id = tbs.constants.getAttribute("aria-selected") === "true" ? "statuses" : "constants";
+    const order = Object.keys(tbs);
+    const at = order.findIndex((k) => tbs[k].getAttribute("aria-selected") === "true");
+    const id = order[(at + (e.key === "ArrowRight" ? 1 : -1) + order.length) % order.length];
     show(id);
     tbs[id].focus();
   });
-  show(tab === "statuses" ? "statuses" : "constants");
+  show(Object.hasOwn(tbs, tab) ? tab : "constants");
   return openModal({
-    title: `${current()?.title || repo.title || "Repository"}: constants and statuses`,
+    title: `${current()?.title || repo.title || "Repository"}: constants, statuses and terms`,
     content: h("div", { class: "rs" }, tabs, body),
     actions: [{ label: "Done", class: "primary" }]
   });

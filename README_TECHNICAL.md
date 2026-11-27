@@ -194,6 +194,17 @@ and search also matches page property values. Details: `source/mcp/README.md`.
   Token `{{preset:<presetId>}}` or `{{preset:<presetId>|<key>}}`; resolved by `findChipPreset` → `resolvePreset` (reuses
   `resolveValue`). Slash entries are built per open by `presetEntries(...)`, not in `CATALOG`. Chips refresh on the
   `denotion:chip-presets` document event. Export: value → key → preset name.
+- **Terms:** `repo.terms: [{ id, text, definition?, category?, subcategory?, hue?, icon?, parentId? }]` and
+  `repo.termCategories: [{ name, hue?, icon? }]` on the repository page (limits: 500 terms, text 80, definition 500,
+  category 40). Token `{{term:<id>}}`. Pure logic (clean/validate, one-level branches, inheritance own → parent →
+  category default, tree order, filtering, usage counting, delete keeping or deleting branches) in `js/terms.js`. UI:
+  `ui/plugins/terms.js` (chip kind via `registerChipKind`, `/Term` entry and picker), `ui/termsUi.js` (event
+  `denotion:chip-terms`, chip, shared `role="tooltip"` card, `termMentionItems` for `@`), `ui/termsPanel.js` (Terms tab
+  in `ui/repoSettings.js`), `css/terms.css`. Export text is `**term**`.
+- **Plug-in points:** feature modules in `ui/plugins/*.js` (imported by `app.js`) register chip kinds with
+  `registerChipKind(kind, { render, text?, pick? })` (`ui/inlineChips.js`), block bodies with
+  `registerBlockType(type, fn)` (`ui/blockTypes.js`) and slash entries by pushing onto `CATALOG`; each has its own
+  stylesheet (`css/graph.css`, `css/sizing.css`, `css/terms.css`).
 - **Block colours:** `block.color` = hue (0–330, step 30) or absent; `block.bg` = hue, `"grey"` or absent. `normColor` /
   `normBg` in `blocks/model.js` map legacy names to the nearest hue. CSS: `.has-color` / `.has-bg` / `.bg-grey` with inline
   `--blk-h` / `--blk-bg-h`; lightness and chroma per mode via `--blk-fg` / `--blk-tint` / `--blk-grey`.

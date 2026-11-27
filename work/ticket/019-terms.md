@@ -1,6 +1,6 @@
 # 019: Term inline chips
 
-Status: queued (after the page batch; shares the chip and editor files)
+Status: resolved (built; see commit "Terms"). Was: queued (after the page batch; shares the chip and editor files)
 Raised: 2026-11-27
 
 Request: a **Term** inline block. Its text is always bold and it acts as a variable (edit once, every chip
@@ -33,3 +33,8 @@ the right of the text (default: none). Terms can be categorised and subcategoris
 - The hover/tap card on a branch shows "Branch of **Branch**" (with the parent's definition below its own).
 - Finding uses of a term (and the delete count) can include its branches.
 - Deleting a parent asks: also delete branches, or keep them as plain terms.
+
+## Built notes
+- Not yet hooked: repo right-click "Terms…" entry, `@` menu entries and search of term text (patches handed to the
+  links agent, which owns sidebar.js / blockEditor.js / workspace.js). Meanwhile Terms open from repository settings.
+- Duplicate term texts are allowed; deleted terms leave "Not found" chips; locked pages untested.

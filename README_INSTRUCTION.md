@@ -293,6 +293,14 @@ Type `/` for:
 
 Markdown export writes the resulting text (a checkbox becomes `[x]` or `[ ]`).
 
+### Terms
+
+A term is a named word or phrase you define once and reuse as a bold chip. Right-click your repository, choose **Terms…** and press **Add term**. Give it text and, if you like, a short definition, a category and subcategory, a colour and an icon (a Lucide icon or an emoji, shown to the right of the text). In any text, type `@` and start the term's name, or type `/Term`, to insert it. Edit the term once and every chip updates. Hover, focus or tap a chip to read its definition (Esc closes it).
+
+**Categories** group terms in the dialog (category, then subcategory). Under *Category colour and icon* you can give a category a default colour and icon; its terms use them unless they set their own.
+
+**Branches.** A term can be a branch of another: Long Branch and Short Branch under Branch. Use a term's **⋯** menu → **Add branch**, or pick "Branch of" in its editor. Branches take their parent's colour, icon and category unless they set their own, and appear indented under it. Their card says "Branch of Branch" and shows the parent's definition too. A branch can't have its own branches. When you delete a term that has branches, you choose to delete them too or keep them as ordinary terms. The delete prompt shows how many chips use the term. Markdown export writes a term chip as its bold text and drops the definition.
+
 ### Locking a page
 
 **Lock page** in the page options makes the whole page read-only: no handles, no typing. Unlock it the same way. Pages in the trash are read-only too.
