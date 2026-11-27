@@ -119,6 +119,8 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     // open a page and type into a block
     await sideOpen();
     await page.locator(".side-item", { hasText: "Welcome" }).first().tap();
+    // ".blk-row" may still be the previous page's, so wait for the route to land (hash) and the overlay to go
+    await page.waitForFunction(() => /^#page-/.test(location.hash) && document.getElementById("side-scrim").hidden).catch(() => {});
     await page.waitForSelector(".blk-row");
     if (await page.locator("#side-scrim").isVisible()) errs.push("phone: the sidebar did not close after opening a page");
     await page.locator(".doc-tail").tap();

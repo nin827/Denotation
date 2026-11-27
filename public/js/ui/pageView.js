@@ -20,7 +20,12 @@ const COVERS = {
   sky: "linear-gradient(120deg,#89f7fe,#66a6ff)",
   sand: "linear-gradient(120deg,#e6dccb,#c9b79c)"
 };
-export function makePersistence(ws) {
+/**
+ * Debounced editor saves. With `win`, also flushes at once when the tab goes away (pagehide, beforeunload,
+ * visibilitychange to hidden) in capture listeners, so the save reaches the store before the folder adapter's own
+ * hide flush runs; `afterFlush` (e.g. store.flush) then writes it out. `dispose()` removes the listeners.
+ */
+export function makePersistence(ws, { win = null, afterFlush = null } = {}) {
   const pending = new Map();
   const run = async (id) => {
     const e = pending.get(id);
@@ -29,13 +34,27 @@ export function makePersistence(ws) {
     clearTimeout(e.t);
     await (e.c.dbId ? ws.saveRow(e.c) : ws.savePage(e.c));
   };
+  const flush = () => Promise.all([...pending.keys()].map(run));
+  const onHide = () => {
+    if (!pending.size) return;
+    flush().then(() => afterFlush?.()).catch(() => {});
+  };
+  const onVisibility = () => win.document?.visibilityState === "hidden" && onHide();
+  win?.addEventListener?.("pagehide", onHide, true);
+  win?.addEventListener?.("beforeunload", onHide, true);
+  win?.document?.addEventListener?.("visibilitychange", onVisibility, true);
   return {
     persist(c) {
       const e = pending.get(c.id);
       if (e) clearTimeout(e.t);
       pending.set(c.id, { c, t: setTimeout(() => run(c.id).catch((err) => toast(err.message, "error")), 400) });
     },
-    flush: () => Promise.all([...pending.keys()].map(run))
+    flush,
+    dispose() {
+      win?.removeEventListener?.("pagehide", onHide, true);
+      win?.removeEventListener?.("beforeunload", onHide, true);
+      win?.document?.removeEventListener?.("visibilitychange", onVisibility, true);
+    }
   };
 }
 function makeCtx(env, container, { pageId, locked, crumbs }) {

@@ -85,7 +85,8 @@ function showLogin() {
 async function start(u) {
   user = u;
   ws = createWorkspace(store);
-  persistence = makePersistence(ws);
+  persistence?.dispose?.();
+  persistence = makePersistence(ws, { win: window, afterFlush: () => store.flush?.() });
   env = {
     importCsv: (parentId) => importCsv(parentId),
     ws,
@@ -94,6 +95,7 @@ async function start(u) {
     refresh,
     rerender: () => route(),
     open: async (id) => {
+      layout.afterNavigate(); // get an overlay sidebar out of the way on the tap, not after the async flush + hashchange
       await persistence.flush();
       if (location.hash === hashFor(id)) route();
       else location.hash = hashFor(id);
