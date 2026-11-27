@@ -46,3 +46,11 @@ Raised: 2026-11-27
 - Reduced motion: no animation, layout computed then shown.
 - A benchmark (Node for layout, Playwright for frame times) with before/after numbers in the report; add it to the
   test suite.
+
+## Engine done (commit "Graph engine")
+1000 nodes / 3000 edges settle in ~0.6 s in a worker; draw < 16 ms per frame at 4× CPU throttling; 5000 nodes settle ~2 s.
+Left:
+- Integration: link index on save, sidebar Graph (repo/workspace), local graph panel (depth 1–3), `/graph` block,
+  page menu → Graph appearance, rule editor, positions cache per graph key, CSS, list/canvas toggle.
+- Flaky e2e drag check (pick timing).
+- Optional: bitmap reuse while panning; `where` with `field: "links"` sees degree 0; forced neighbour labels may overlap.

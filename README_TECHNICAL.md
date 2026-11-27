@@ -233,6 +233,13 @@ and search also matches page property values. Details: `tools/mcp/README.md`.
   trashed or archived. Use `isHidden` for every listing (sidebar, `sources.js`, chips, view blocks, vault Markdown, Move
   to). `ws.archivePage` / `unarchivePage` / `listArchive` / `archiveToTrash`; `search(q, limit, { includeArchived })`.
   Archived databases render with `renderDatabase(..., { frozen: true })`. Markdown export skips archived pages; JSON keeps them.
+- **Graph engine** (`js/graph/`, integration pending): `model.js` (link index + `buildGraph`: hidden links draw no edge,
+  mutual links are two-way, rows only when their database is included or a page links them), `style.js` (explicit
+  per-page `graph` settings, then the first matching rule, then size from link count), `layout.js` (Barnes–Hut force
+  layout, deterministic per seed, warm start from cached positions) run by `runner.js` in `layout.worker.js` with a
+  main-thread fallback, `render.js` (canvas, draws on change only, level of detail, grid hit-testing), `list.js`
+  (accessible list), `index.js` (`createGraphView`). Tests: `test/graph.test.js`, `test/graph-bench.test.js`
+  (`GRAPH_BENCH=full` for 5000 nodes), `PORT=8094 node test/e2e/graph.cjs` (`GRAPH_SIZES=1000,5000`, `SHOTS=dir`).
 - **Popovers** close on route change: `closePopovers()` in `ui/popover.js` (also fires `denotation:close-popovers`).
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 
