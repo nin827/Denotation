@@ -35,11 +35,11 @@ ${indentLines(kids, 2)}` : head;
         text = withKids(`${"#".repeat(Number(b.type[1]))} ${inl(b.text)}`);
         break;
       case "bullet":
-        text = withKids(`- ${inl(b.text)}`);
+        text = withKids(`- ${escapeTask(inl(b.text))}`);
         list = true;
         break;
       case "numbered":
-        text = withKids(`${nums.get(b.id)}. ${inl(b.text)}`);
+        text = withKids(`${nums.get(b.id)}. ${escapeTask(inl(b.text))}`);
         list = true;
         break;
       case "todo":
@@ -116,6 +116,10 @@ const escapeMarker = (l) => {
   const t = l.trim();
   return startsBlock(t.replace(/^\\+/, "")) && t ? `\\${t}` : l;
 };
+// a bullet whose text starts like "[x] " would import as a to-do item; escape it, and remove the escape on import
+const TASK_RE = /^\[( |x|X)\]\s/;
+const escapeTask = (t) => (TASK_RE.test(t) ? `\\${t}` : t);
+const unescapeTask = (t) => (/^\\/.test(t) && TASK_RE.test(t.slice(1)) ? t.slice(1) : t);
 const unescapeMarker = (t) => /^\\/.test(t) && startsBlock(t.replace(/^\\+/, "")) ? t.slice(1) : t;
 export function markdownToBlocks(md) {
   const lines = String(md).replace(/\r\n?/g, "\n").split("\n");
@@ -175,7 +179,7 @@ export function markdownToBlocks(md) {
       const body = m[3];
       const todo = /^\[( |x|X)\]\s+(.*)$/.exec(body);
       if (todo) addItem(indent, newBlock("todo", { text: todo[2], checked: /x/i.test(todo[1]) }));
-      else addItem(indent, newBlock(m[2] ? "numbered" : "bullet", { text: body }));
+      else addItem(indent, newBlock(m[2] ? "numbered" : "bullet", { text: unescapeTask(body) }));
       continue;
     }
     if (m = /^!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s)]+)\)$/.exec(line.trim())) {
