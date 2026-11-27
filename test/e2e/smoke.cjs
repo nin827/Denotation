@@ -518,6 +518,83 @@ const server = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "1
     await ctx.close();
   }
   {
+    // Page properties, automatic callouts, archive + restore, template -> new page, row pages off for new databases
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on("pageerror", (e) => errs.push(e.message));
+    page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+    await page.goto(`http://127.0.0.1:${PORT}${targets[0]}`);
+    await page.waitForSelector(".side-item");
+    await page.locator(".side-item", { hasText: "Welcome to Denotation" }).click();
+    await page.waitForSelector(".page-title");
+    const pageMenu = async (re) => {
+      await page.locator(".page-actions button[aria-label='Page options']").click();
+      await page.locator(".menu-item .menu-label", { hasText: re }).click();
+    };
+    await pageMenu(/^Add a property$/);
+    await page.fill(".prop-name-in", "Status");
+    await page.selectOption(".prop-type-in", "select");
+    await page.fill(".prop-options-in", "Draft\nDone");
+    await page.locator(".prop-save").click();
+    await page.waitForSelector(".pp-row select");
+    await page.locator(".pp-row select").selectOption("Draft");
+    await pageMenu(/^Automatic callouts/);
+    await page.locator(".r-add").click();
+    await page.locator(".rule .r-prop").fill("Status");
+    await page.locator(".rule .r-value").fill("Draft");
+    await page.locator(".rule .r-preset").selectOption("warning");
+    await page.locator(".rule .r-text").fill("Draft, not reviewed yet");
+    await page.locator(".r-save").click();
+    await page.waitForSelector(".auto-callout", { timeout: 5000 }).catch(() => errs.push("auto callout did not appear"));
+    await page.locator(".pp-row select").selectOption("Done");
+    await page.waitForTimeout(200);
+    if (await page.locator(".auto-callouts:not([hidden]) .auto-callout").count()) errs.push("auto callout did not go away");
+    await page.locator(".pp-row select").selectOption("Draft");
+    await page.waitForSelector(".auto-callout", { timeout: 3000 }).catch(() => errs.push("auto callout did not come back"));
+    await page.keyboard.press("Control+k");
+    await page.fill(".qf-input", "Draft");
+    await page.waitForSelector(".qf-hit", { timeout: 3000 }).catch(() => errs.push("quick find does not see property values"));
+    await page.keyboard.press("Escape");
+    // template -> new page
+    await pageMenu(/^Template$/);
+    await page.waitForSelector(".banner-template");
+    await page.locator(".side-templates").click();
+    await page.waitForSelector(".side-templates + .side-item", { timeout: 3000 }).catch(() => errs.push("Templates group does not list the template"));
+    await page.locator(".act-new").click();
+    await page.locator(".menu-item", { hasText: "From template" }).click();
+    await page.locator(".menu-item", { hasText: "Welcome to Denotation" }).click();
+    await page.waitForFunction(() => !document.querySelector(".banner-template") && document.querySelector(".page-title")?.value === "Welcome to Denotation", null, { timeout: 5000 }).catch(() => errs.push("From template did not open a new page"));
+    if (!(await page.locator(".pp-row").count())) errs.push("template copy has no properties");
+    if (!(await page.locator(".auto-callout").count())) errs.push("template copy has no automatic callout");
+    // archive + restore
+    const copyId = await page.evaluate(() => location.hash.replace("#page-", ""));
+    await pageMenu(/^Archive$/);
+    await page.locator(".modal-actions button.primary").click();
+    await page.waitForTimeout(400);
+    if (await page.locator(`.side-item[data-id="${copyId}"]`).count()) errs.push("archived page still in the sidebar");
+    await page.locator(".act-more").click();
+    await page.locator(".menu-item .menu-label", { hasText: /^Archive$/ }).click();
+    await page.waitForSelector(`.archive-item[data-id="${copyId}"]`, { timeout: 3000 }).catch(() => errs.push("archived page not listed in Archive"));
+    await page.locator(`.archive-item[data-id="${copyId}"] .ti-title`).click();
+    await page.waitForSelector(".banner-archive");
+    if (!(await page.locator(".page-title[readonly]").count())) errs.push("archived page is not read-only");
+    await page.locator(".arch-restore").click();
+    await page.waitForSelector(`.side-item[data-id="${copyId}"]`, { timeout: 3000 }).catch(() => errs.push("restored page not back in the sidebar"));
+    // a new database has row pages off: the open button shows properties, not a page body
+    await page.locator(".act-new").click();
+    await page.locator(".menu-item .menu-label", { hasText: /^Database$/ }).click();
+    await page.waitForSelector(".db-table");
+    await page.locator(".add-row-top").click();
+    await page.locator(".row-open").first().click();
+    await page.waitForSelector(".row-data-only", { timeout: 3000 }).catch(() => errs.push("row pages off: no read-only property view"));
+    if (await page.locator("#main .blocks").count()) errs.push("row pages off: a row body is still editable");
+    const ok = errs.length === 0;
+    failed ||= !ok;
+    console.log(`${ok ? "ok  " : "FAIL"} properties, automatic callouts, templates, archive, row pages${errs.length ? "\n  " + errs.join("\n  ") : ""}`);
+    await ctx.close();
+  }
+  {
     // PWA: manifest, service worker, offline reload, install row, toast icons
     const ctx = await browser.newContext();
     const page = await ctx.newPage();

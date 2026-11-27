@@ -303,13 +303,13 @@ function pageBody(b, inst) {
   const info = b.ref ? inst.ctx.pageInfo(b.ref) : { state: "missing", title: "" };
   const open = (e) => {
     e.preventDefault();
-    if (info.state === "ok") inst.ctx.openPage(b.ref);
+    if (info.state === "ok" || info.state === "archived") inst.ctx.openPage(b.ref);
   };
   return h(
     "a",
     { class: `page-link${info.state === "ok" ? "" : " gone"}`, href: `#page-${b.ref}`, onClick: open },
     h("span", { class: "pl-icon" }, pageIcon(info)),
     h("span", { class: "pl-title" }, info.state === "missing" ? "Page not found" : info.title || "Untitled"),
-    info.state === "trashed" ? h("span", { class: "hint" }, "in trash") : null
+    info.state === "trashed" ? h("span", { class: "hint" }, "in trash") : info.state === "archived" ? h("span", { class: "hint" }, "archived") : null
   );
 }

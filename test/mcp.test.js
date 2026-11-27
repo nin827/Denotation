@@ -413,3 +413,19 @@ test("an encrypted folder is refused clearly; nothing is read as data or written
   fs.writeFileSync(path.join(dir, "denotation.json"), JSON.stringify(man));
   assert.match((await s.call("list_pages")).text, /encrypted/);
 });
+
+test("archived pages are hidden from list_pages and search unless asked", async (t) => {
+  const dir = fixture(PERMS);
+  const rec = { id: "doc-arch", type: "doc", title: "Old plan", parentId: "repo-open", createdAt: NOW, updatedAt: NOW, archivedAt: NOW, props: [{ id: "p1", name: "Status", type: "text", value: "archived-status" }], blocks: [{ id: "b1", type: "p", text: "archived body" }] };
+  fs.writeFileSync(path.join(dir, "pages", "doc-arch.json"), JSON.stringify(rec));
+  const s = startServer(dir);
+  t.after(() => s.stop());
+  const list = await s.call("list_pages");
+  assert.ok(!list.data.pages.some((p) => p.id === "doc-arch"));
+  const all = await s.call("list_pages", { includeArchived: true });
+  assert.equal(all.data.pages.find((p) => p.id === "doc-arch")?.archived, true);
+  assert.deepEqual((await s.call("search", { query: "archived body" })).data.results, []);
+  const hits = await s.call("search", { query: "archived-status", includeArchived: true });
+  assert.deepEqual(hits.data.results.map((h) => [h.id, h.archived]), [["doc-arch", true]]);
+  assert.equal((await s.call("list_pages", { includeArchived: "yes" })).error, true);
+});

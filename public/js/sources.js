@@ -5,7 +5,7 @@
 //  - A `/table` block marked `block.dataSource === true` with a `block.sourceName` is a read-only table source. Its
 //    virtual database id is `tbl-<blockId>` (short enough for the 64-character inline token id limit).
 import { walk } from "./blocks/model.js";
-import { isTrashed } from "./workspace.js";
+import { isHidden, isTrashed } from "./workspace.js";
 
 export const TABLE_PREFIX = "tbl-";
 export const NAME_MAX = 80;
@@ -92,12 +92,12 @@ export const sourceLabel = (p) => (p?.virtual ? `Table: ${p.title} on ${p.pageTi
 
 /**
  * The databases a picker offers, data sources first, then the other databases, then (with `tables`) table sources.
- * Each group keeps the order of `pages`. Trashed pages and sync pages are left out; linked views (databases with a
+ * Each group keeps the order of `pages`. Trashed and archived pages and sync pages are left out; linked views (databases with a
  * `sourceId`) only appear with `linked: true`, after the others.
  */
 export function sourceList(pages, { tables = true, linked = false } = {}) {
   const all = pages ?? [];
-  const live = all.filter((p) => p && p.type === "database" && !isTrashed(all, p));
+  const live = all.filter((p) => p && p.type === "database" && !isHidden(all, p));
   const own = live.filter((p) => !p.sourceId);
   const marked = own.filter((p) => p.dataSource === true);
   const rest = own.filter((p) => p.dataSource !== true);
@@ -105,7 +105,7 @@ export function sourceList(pages, { tables = true, linked = false } = {}) {
     ...marked,
     ...rest,
     ...linked ? live.filter((p) => p.sourceId) : [],
-    ...tables ? tableSources(all.filter((p) => !isTrashed(all, p))) : []
+    ...tables ? tableSources(all.filter((p) => !isHidden(all, p))) : []
   ];
 }
 
@@ -117,17 +117,17 @@ export function sourceList(pages, { tables = true, linked = false } = {}) {
 export function resolveSource(pages, id) {
   const all = pages ?? [];
   if (isTableSourceId(id)) {
-    const live = all.filter((p) => !isTrashed(all, p));
+    const live = all.filter((p) => !isHidden(all, p));
     const t = findTableSource(live, id);
     if (t) return { state: "ok", host: t, data: t };
     const owner = all.find((p) => Array.isArray(p.blocks) && JSON.stringify(p.blocks).includes(`"${blockIdOf(id)}"`));
-    return { state: owner && isTrashed(all, owner) ? "trashed" : "missing", host: null, data: null };
+    return { state: owner && isHidden(all, owner) ? "trashed" : "missing", host: null, data: null };
   }
   const host = all.find((p) => p.id === id && p.type === "database");
   if (!host) return { state: "missing", host: null, data: null };
-  if (isTrashed(all, host)) return { state: "trashed", host, data: null };
+  if (isHidden(all, host)) return { state: isTrashed(all, host) ? "trashed" : "archived", host, data: null };
   if (!host.sourceId) return { state: "ok", host, data: host };
   const data = all.find((p) => p.id === host.sourceId && p.type === "database");
   if (!data) return { state: "missing", host, data: null };
-  return { state: isTrashed(all, data) ? "trashed" : "ok", host, data: isTrashed(all, data) ? null : data };
+  return { state: isHidden(all, data) ? "trashed" : "ok", host, data: isHidden(all, data) ? null : data };
 }

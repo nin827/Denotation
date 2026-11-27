@@ -7,13 +7,17 @@ import { openModal } from "./modal.js";
 import { confirmDialog, toast } from "./dialogs.js";
 import { isTableSource, tableData, NAME_MAX } from "../sources.js";
 import { newBlock } from "../blocks/model.js";
+import { calloutLook, hasOverride, applyPreset, resetToPreset } from "../blocks/callout.js";
+import { CALLOUT_PRESETS } from "../blocks/callout-presets.js";
+import { iconNode } from "../icons/index.js";
 
 let pickerClose = null;
 /** Swatch grid (6 per row) for text colour and background; the chosen swatch shows a check, not just a fill. */
 function openColorPicker(anchor, b, a) {
   pickerClose?.();
-  const curColor = normColor(b.color);
-  const curBg = normBg(b.bg);
+  const look = b.type === "callout" ? calloutLook(b) : null;
+  const curColor = look ? look.color : normColor(b.color);
+  const curBg = look ? look.bg : normBg(b.bg);
   const sw = (key, value, current, { label, cls = "", glyph }) => {
     const sel = value === current;
     return h("button", {
@@ -142,6 +146,24 @@ export function openBlockMenu(anchor, b, inst, a) {
   }
   if (texty) {
     items.push({ label: "Color", icon: ico("palette"), hint: "Text, background", onSelect: () => openColorPicker(anchor, b, a) });
+  }
+  if (b.type === "callout") {
+    const look = calloutLook(b);
+    items.push({ label: "Callout style", icon: ico("swatch-book"), hint: look.preset?.label ?? null, items: CALLOUT_PRESETS.map((p) => ({
+      label: p.label,
+      icon: iconNode(p.icon, "icon:lightbulb"),
+      hint: look.preset?.id === p.id ? "\u2713" : null,
+      onSelect: () => {
+        applyPreset(b, p.id);
+        a.save();
+        a.redraw();
+      }
+    })) });
+    if (hasOverride(b)) items.push({ label: "Reset to preset", icon: ico("rotate-ccw"), onSelect: () => {
+      resetToPreset(b);
+      a.save();
+      a.redraw();
+    } });
   }
   if (/^h[1-4]$/.test(b.type)) {
     items.push({ label: b.fold ? "Make not foldable" : "Make foldable (toggle heading)", icon: ico("chevron-right"), onSelect: () => a.setFold(b, !b.fold) });

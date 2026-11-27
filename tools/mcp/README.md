@@ -53,9 +53,9 @@ Any client that starts stdio servers works. For example, in Claude Desktop's `cl
 
 | Tool | Needs | What it does |
 |---|---|---|
-| `list_pages` | read | Tree of readable repositories, pages and databases (id, title, type, parentId, depth, what else is allowed on each). |
+| `list_pages` | read | Tree of readable repositories, pages and databases (id, title, type, parentId, depth, what else is allowed on each). Archived pages only with `includeArchived: true`. |
 | `read_page` | read | A page as Markdown, a database as columns + rows, or a row's values + body. |
-| `search` | read | Titles, page text and row values. |
+| `search` | read | Titles, page text, page properties and row values. Archived pages only with `includeArchived: true`. |
 | `create_page` | create on the parent (workspace for a new repository) | New doc page (Markdown body), database (columns) or repository. |
 | `update_page` | edit | New title and/or Markdown body (replaces the body). |
 | `delete_page` | delete on the page and everything under it | Moves it to the trash, like the app; restore it from the trash. |

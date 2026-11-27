@@ -5,6 +5,12 @@ import { newBlock, walk, plainText } from "./blocks/model.js";
 import { markdownToBlocks } from "./blocks/markdown.js";
 import { tableFromCsv, parseCsv, rowsFromCsv } from "./csv.js";
 import { tableData } from "./sources.js";
+import { cloneBlock } from "./blocks/model.js";
+import { cleanProps, propsFromRow, valuesFromProps, propsSearchText } from "./pageProps.js";
+import { cleanRules } from "./autoCallouts.js";
+import { summarize, isComposite } from "./schema.js";
+import { formatResult } from "./formula.js";
+import { toText } from "./dbviews.js";
 
 // id -> page index per pages array, so isTrashed / ancestors over a whole list stay O(n) instead of rebuilding the map per call.
 // Holds references, so in-place edits (trashedAt, parentId) are seen; a changed length drops it.
@@ -22,6 +28,30 @@ export const isTrashed = (pages, page) => {
   for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.trashedAt) return true;
   return false;
 };
+/** True when the page or one of its parents is archived (`archivedAt`). Archived pages are out of every listing. */
+export const isArchived = (pages, page) => {
+  const byId = indexOf(pages, page);
+  for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.archivedAt) return true;
+  return false;
+};
+/** Trashed or archived: left out of the tree, pickers, search and chips. */
+export const isHidden = (pages, page) => isTrashed(pages, page) || isArchived(pages, page);
+/** True when the page is a template or sits inside one (templates are listed apart from the tree). */
+export const inTemplate = (pages, page) => {
+  const byId = indexOf(pages, page);
+  for (let p = page, n = 0; p && n < 100; p = byId.get(p.parentId), n++) if (p.template) return true;
+  return false;
+};
+/** Does a row (or page) body hold anything written? An empty paragraph does not count. */
+export const hasWrittenBlocks = (blocks) => Array.isArray(blocks) && blocks.some((b) => b && (b.type !== "p" || String(b.text ?? "").trim() || b.children?.length));
+/** Text of a cell value for page properties and rules (composite values summarised, formulas formatted). */
+export const valueText = (col, v) => {
+  if (v == null) return "";
+  if (col.type === "formula") return formatResult(v);
+  if (isComposite(col)) return summarize(col, v);
+  return toText(col, v);
+};
+const freshBlocks = (blocks) => (Array.isArray(blocks) ? blocks.map((b) => cloneBlock(b)) : []);
 export const ancestors = (pages, id) => {
   const byId = indexOf(pages);
   const chain = [];
@@ -84,6 +114,7 @@ export function createWorkspace(store) {
       page.icon = "icon:link-2";
     } else if (type === "database") {
       page.columns = [{ id: newId(), name: "Name", type: "text", config: {} }];
+      page.rowPages = false; // new databases: rows are data only until Row pages is turned on
       if (viewType === "sheet") {
         page.columns.push({ id: newId(), name: "Column 2", type: "text", config: {} }, { id: newId(), name: "Column 3", type: "text", config: {} });
         page.views = [newView("sheet", page)];
@@ -185,6 +216,7 @@ export function createWorkspace(store) {
     const p = await getPage(id);
     if (!p) return null;
     p.trashedAt = Date.now();
+    delete p.archivedAt;
     return savePage(p);
   };
   const restorePage = async (id) => {
@@ -192,11 +224,176 @@ export function createWorkspace(store) {
     const p = pages.find((x) => x.id === id);
     if (!p) return null;
     delete p.trashedAt;
+    delete p.archivedAt;
+    rehome(pages, p);
+    return savePage(p);
+  };
+  // Back to the parent it came from, or the root of its repository (else the first live one) when that is gone.
+  const rehome = (pages, p) => {
+    if (p.type === "repo") return;
     const parent = pages.find((x) => x.id === p.parentId);
-    if (p.type !== "repo" && (!parent || isTrashed(pages, parent))) {
-      p.parentId = pages.find((x) => x.type === "repo" && !isTrashed(pages, x) && x.id !== p.id)?.id ?? null;
+    if (parent && !isHidden(pages, parent) && ["doc", "repo"].includes(parent.type)) return;
+    const own = ancestors(pages, p.id).find((x) => x.type === "repo" && x.id !== p.id && !isHidden(pages, x));
+    p.parentId = own?.id ?? pages.find((x) => x.type === "repo" && !isHidden(pages, x) && x.id !== p.id)?.id ?? null;
+  };
+  /** Archive: out of the tree, search and pickers, read-only until restored. */
+  const archivePage = async (id) => {
+    const p = await getPage(id);
+    if (!p || p.type === "repo" || p.type === "sync") return null;
+    p.archivedAt = Date.now();
+    return savePage(p);
+  };
+  const listArchive = async () => {
+    const pages = await listPages();
+    return pages.filter((p) => p.archivedAt && p.type !== "sync" && !isTrashed(pages, p) && !isArchived(pages, { ...p, archivedAt: 0 })).sort((a, b) => b.archivedAt - a.archivedAt);
+  };
+  /**
+   * Restores an archived page. A row body archived from a database goes back into its row when that row still exists,
+   * its database has row pages on and the row body is empty; otherwise the page returns to its parent (or the root of
+   * its repository). Returns { page } or { row }.
+   */
+  const unarchivePage = async (id) => {
+    const pages = await listPages();
+    const p = pages.find((x) => x.id === id);
+    if (!p) return null;
+    const from = p.archivedFrom;
+    if (from?.rowId) {
+      const row = await getRow(from.rowId);
+      const db = row && pages.find((x) => x.id === row.dbId);
+      if (row && db && !isHidden(pages, db) && db.rowPages !== false && !hasWrittenBlocks(row.blocks)) {
+        row.blocks = p.blocks ?? [];
+        await saveRow(row);
+        await del("pages", p.id);
+        return { row };
+      }
+    }
+    delete p.archivedAt;
+    rehome(pages, p);
+    return { page: await savePage(p) };
+  };
+  /** Archived page -> Trash (it can still be restored from there). */
+  const archiveToTrash = async (id) => {
+    const p = await getPage(id);
+    if (!p) return null;
+    delete p.archivedAt;
+    p.trashedAt = Date.now();
+    return savePage(p);
+  };
+  /** Turns a row body into its own page (title, row values as properties, link back), archived or in the Trash. */
+  const rowBodyToPage = async (db, row, mode = "archive") => {
+    const nameCol = db.columns?.[0];
+    const now = Date.now();
+    const parent = (await listPages()).find((x) => x.id === db.parentId);
+    const page = {
+      id: newId(),
+      type: "doc",
+      title: (nameCol ? valueText(nameCol, row.values?.[nameCol.id]) : "").trim() || "Untitled",
+      parentId: parent && ["doc", "repo"].includes(parent.type) ? parent.id : db.parentId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      props: propsFromRow(db.columns, row, valueText),
+      archivedFrom: { dbId: db.id, rowId: row.id, dbTitle: db.title || "Untitled" },
+      blocks: row.blocks
+    };
+    if (row.icon) page.icon = row.icon;
+    if (mode === "trash") page.trashedAt = now;
+    else page.archivedAt = now;
+    await put("pages", page.id, page);
+    delete row.blocks;
+    await saveRow(row);
+    return page;
+  };
+  /** Rows of a database whose page body holds something. */
+  const rowsWithBodies = async (dbId) => (await listRows(dbId)).filter((r) => hasWrittenBlocks(r.blocks));
+  /**
+   * Row pages on/off. Off with written row bodies needs `bodies`: "archive" or "trash" (each body becomes a page there);
+   * without it nothing changes and { needs: n } is returned. Empty bodies are just dropped.
+   */
+  const setRowPages = async (dbId, on, { bodies = null } = {}) => {
+    const db = await getPage(dbId);
+    if (!db || db.type !== "database" || db.sourceId) return { ok: false };
+    if (on) {
+      db.rowPages = true;
+      await savePage(db);
+      return { ok: true, moved: 0 };
+    }
+    const written = await rowsWithBodies(db.id);
+    if (written.length && !["archive", "trash"].includes(bodies)) return { ok: false, needs: written.length };
+    for (const r of written) await rowBodyToPage(db, r, bodies);
+    for (const r of await listRows(db.id)) {
+      if (r.blocks) {
+        delete r.blocks;
+        await saveRow(r);
+      }
+    }
+    db.rowPages = false;
+    await savePage(db);
+    return { ok: true, moved: written.length };
+  };
+  /** Marks a page as a template (optionally a row template for database `templateFor`), or back to a normal page. */
+  const setTemplate = async (id, on, { templateFor } = {}) => {
+    const p = await getPage(id);
+    if (!p || p.type === "repo" || p.type === "sync") return null;
+    if (on) p.template = true;
+    else {
+      delete p.template;
+      delete p.templateFor;
+    }
+    if (on && templateFor !== undefined) {
+      if (templateFor) p.templateFor = templateFor;
+      else delete p.templateFor;
     }
     return savePage(p);
+  };
+  /** Live templates (not trashed or archived); `forDb` limits to row templates of that database, `pagesOnly` to page templates. */
+  const listTemplates = async ({ forDb = null, pagesOnly = false } = {}) => {
+    const pages = await listPages();
+    return pages.filter((p) => p.template && p.type !== "sync" && !isHidden(pages, p) && (forDb ? p.templateFor === forDb : pagesOnly ? !p.templateFor : true));
+  };
+  // Rules get fresh ids; rules the template already pinned as blocks stay pinned on the copy.
+  const copyRules = (t, target) => {
+    const map = new Map();
+    const rules = cleanRules(t.autoCallouts).map((r) => {
+      const id = newId();
+      map.set(r.id, id);
+      return { ...r, id };
+    });
+    if (rules.length) target.autoCallouts = rules;
+    const pinned = (Array.isArray(t.pinnedRules) ? t.pinnedRules : []).map((id) => map.get(id)).filter(Boolean);
+    if (pinned.length) target.pinnedRules = pinned;
+  };
+  /** A new page from a template: blocks (fresh ids), properties and automatic-callout rules are copied. */
+  const createFromTemplate = async (templateId, parentId) => {
+    const t = await getPage(templateId);
+    if (!t || !t.template) throw new Error("That template was not found.");
+    const page = await createPage({ type: "doc", title: t.title || "Untitled", parentId });
+    if (t.icon) page.icon = t.icon;
+    if (t.cover) page.cover = t.cover;
+    for (const k of ["fullWidth", "smallText"]) if (t[k]) page[k] = true;
+    page.blocks = t.blocks?.length ? freshBlocks(t.blocks) : page.blocks;
+    const props = cleanProps(t.props).map((p) => ({ ...p, id: newId() }));
+    if (props.length) page.props = props;
+    copyRules(t, page);
+    return savePage(page);
+  };
+  /** A new row from a row template: values from properties matched by column name, body and rules copied. */
+  const createRowFromTemplate = async (db, templateId) => {
+    const t = await getPage(templateId);
+    if (!t || !t.template) throw new Error("That template was not found.");
+    const patch = {};
+    for (const [colId, v] of Object.entries(valuesFromProps(db.columns, t.props))) {
+      const col = db.columns.find((c) => c.id === colId);
+      const r = validate(col, v);
+      if (r.ok) patch[colId] = r.value;
+    }
+    const nameCol = db.columns[0];
+    if (nameCol && !(nameCol.id in patch) && nameCol.type === "text" && t.title) patch[nameCol.id] = t.title;
+    const row = await createRow(db, patch);
+    if (hasWrittenBlocks(t.blocks)) row.blocks = freshBlocks(t.blocks);
+    copyRules(t, row);
+    if (t.icon) row.icon = t.icon;
+    if (row.blocks || row.autoCallouts || row.icon) await saveRow(row);
+    return row;
   };
   const listTrash = async () => {
     const pages = await listPages();
@@ -238,6 +435,7 @@ export function createWorkspace(store) {
       c.parentId = old.id === id ? old.parentId : idMap.get(old.parentId);
       c.createdAt = c.updatedAt = now + clones.length;
       delete c.trashedAt;
+      delete c.archivedAt;
       if (old.id === id) {
         c.title = `${old.title} (copy)`;
         delete c.favorite;
@@ -272,11 +470,12 @@ export function createWorkspace(store) {
     await put("pages", page.id, page);
     return page;
   };
-  const search = async (query, limit = 30) => {
+  const search = async (query, limit = 30, { includeArchived = false } = {}) => {
     const q = String(query).trim().toLowerCase();
     if (!q) return [];
     const pages = (await listPages()).filter((p) => p.type !== "sync");
-    const live = pages.filter((p) => !isTrashed(pages, p));
+    const live = pages.filter((p) => !isTrashed(pages, p) && (includeArchived || !isArchived(pages, p)));
+    const titleOf = (id) => pages.find((x) => x.id === id)?.title || "Untitled";
     const snippetOf = (text) => {
       const i = text.toLowerCase().indexOf(q);
       if (i < 0) return "";
@@ -285,9 +484,10 @@ export function createWorkspace(store) {
     const hits = [];
     for (const p of live) {
       const inTitle = (p.title || "").toLowerCase().includes(q);
-      const body = p.blocks ? plainText(p.blocks) : "";
+      const body = `${p.props?.length ? `${propsSearchText(p.props, titleOf)}\n` : ""}${p.blocks ? plainText(p.blocks) : ""}`;
       const snip = snippetOf(body);
-      if (inTitle || snip) hits.push({ kind: "page", id: p.id, pageId: p.id, title: p.title || "Untitled", snippet: inTitle ? "" : snip, rank: inTitle ? 0 : 1 });
+      const archived = isArchived(pages, p);
+      if (inTitle || snip) hits.push({ kind: "page", id: p.id, pageId: p.id, title: p.title || "Untitled", snippet: inTitle ? "" : snip, rank: inTitle ? 0 : 1, ...(archived ? { archived: true } : {}), ...(p.template ? { template: true } : {}) });
       if (p.type === "database") {
         const nameCol = p.columns[0]?.id;
         for (const r of await listRows(p.id)) {
@@ -333,6 +533,7 @@ export function createWorkspace(store) {
         col("Details", "text")
       ];
       db.ticketDb = true;
+      db.rowPages = true; // each feedback item keeps its details as a row page
       db.icon = "icon:message-square-text";
       db.views = [newView("table", db, "All feedback"), newView("board", db, "By status")];
       db.views[1].groupBy = db.columns[2].id;
@@ -387,6 +588,17 @@ export function createWorkspace(store) {
     appendCsv,
     trashPage: trashPage,
     restorePage,
+    archivePage,
+    unarchivePage,
+    listArchive,
+    archiveToTrash,
+    rowBodyToPage,
+    rowsWithBodies,
+    setRowPages,
+    setTemplate,
+    listTemplates,
+    createFromTemplate,
+    createRowFromTemplate,
     listTrash,
     emptyTrash,
     setFavorite,

@@ -35,6 +35,8 @@ import { specialBody, shrink } from "./blockTypes.js";
 import { openBlockMenu } from "./blockMenu.js";
 import { pickEmoji } from "./emoji.js";
 import { openInlinePicker, inlineResolver, blockTexts, chipAction } from "./inlineChips.js";
+import { calloutLook, applyPreset, setLook, resetToPreset, hasOverride, DEFAULT_ICON } from "../blocks/callout.js";
+import { CALLOUT_PRESETS } from "../blocks/callout-presets.js";
 
 let drag = null;
 const clip = { mode: null, block: null };
@@ -64,8 +66,9 @@ const handleTitle = () => (touchOnly ??= matchMedia("(hover: none)").matches) ? 
 const listLike = (b) => ["bullet", "numbered", "todo"].includes(b.type);
 const focusable = (b) => isTexty(b) || b.type === "code";
 const colorOf = (b) => {
-  const c = normColor(b.color);
-  const bg = normBg(b.bg);
+  const look = b.type === "callout" ? calloutLook(b) : null;
+  const c = look ? look.color : normColor(b.color);
+  const bg = look ? look.bg : normBg(b.bg);
   return { cls: `${c !== null ? " has-color" : ""}${bg !== null ? " has-bg" : ""}${bg === "grey" ? " bg-grey" : ""}`, c, bg };
 };
 const applyHues = (el, { c, bg }) => {
@@ -291,18 +294,46 @@ export function createBlockEditor(container, ctx) {
       }, ico("chevron-right"));
     }
     if (b.type === "callout") {
+      const look = calloutLook(b);
       return h("button", {
         class: "callout-icon",
-        "aria-label": "Change icon",
+        "aria-label": look.preset ? `Callout style: ${look.preset.label}. Change style or icon` : "Change callout style or icon",
+        "aria-haspopup": "menu",
+        title: look.preset ? `${look.preset.label}${hasOverride(b) ? " (customised)" : ""}` : "Callout style",
         disabled: ctx.locked,
-        onClick: (e) => pickEmoji(e.currentTarget, (em) => {
-          b.icon = em || "icon:lightbulb";
-          save();
-          redraw();
-        }, { removable: false })
-      }, iconNode(b.icon, "icon:lightbulb"));
+        onClick: (e) => openCalloutPicker(e.currentTarget, b)
+      }, iconNode(look.icon, DEFAULT_ICON));
     }
     return null;
+  }
+  // Presets first, then a custom icon (emoji / icon picker) and, for a customised preset callout, Reset to preset.
+  function openCalloutPicker(anchor, b) {
+    const look = calloutLook(b);
+    openMenu(anchor, [
+      { header: true, label: "Presets" },
+      ...CALLOUT_PRESETS.map((p) => ({
+        label: p.label,
+        icon: iconNode(p.icon, DEFAULT_ICON),
+        hint: look.preset?.id === p.id ? "\u2713 current" : null,
+        onSelect: () => {
+          applyPreset(b, p.id);
+          save();
+          redraw();
+        }
+      })),
+      { separator: true },
+      { label: "Custom icon\u2026", icon: ico("shapes"), onSelect: () => pickEmoji(anchor.isConnected ? anchor : root, (em) => {
+        if (!em) return;
+        setLook(b, "icon", em);
+        save();
+        redraw();
+      }, { removable: false }) },
+      b.preset && hasOverride(b) ? { label: "Reset to preset", icon: ico("rotate-ccw"), onSelect: () => {
+        resetToPreset(b);
+        save();
+        redraw();
+      } } : null
+    ].filter(Boolean), { width: 220 });
   }
   function codeBox(b, main, ta) {
     const langs = ["plain", "js", "ts", "python", "json", "html", "css", "bash", "sql", "java", "c", "go", "rust", "markdown"];
@@ -730,7 +761,8 @@ export function createBlockEditor(container, ctx) {
       redraw({ id: b.id, pos: "end" });
     },
     setColor(b, key, value) {
-      if (value === "default") delete b[key];
+      if (b.type === "callout" && b.preset) setLook(b, key, value === "default" ? null : value);
+      else if (value === "default") delete b[key];
       else b[key] = value;
       save();
       redraw();

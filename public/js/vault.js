@@ -19,7 +19,8 @@ import { blocksToMarkdown, markdownToBlocks } from "./blocks/markdown.js";
 import { newBlock } from "./blocks/model.js";
 import { databaseToCsv } from "./csv.js";
 import { toText } from "./dbviews.js";
-import { isTrashed } from "./workspace.js";
+import { isHidden } from "./workspace.js";
+import { frontMatter, propsFromFrontMatter, cleanProps } from "./pageProps.js";
 
 export const MANIFEST = "denotation.json";
 const ID_RE = /^[A-Za-z0-9-]{1,100}$/;
@@ -145,7 +146,7 @@ const readManifest = (f) => {
 export function toMarkdownFiles({ pages, rows }) {
   const files = [];
   const byId = new Map(pages.map((p) => [p.id, p]));
-  const live = pages.filter((p) => p.type !== "sync" && !isTrashed(pages, p));
+  const live = pages.filter((p) => p.type !== "sync" && !isHidden(pages, p));
   const liveIds = new Set(live.map((p) => p.id));
   const kids = new Map();
   for (const p of live) {
@@ -207,7 +208,7 @@ export function toMarkdownFiles({ pages, rows }) {
     } else if (p.type === "doc" || (p.blocks?.length && md(p.blocks, bodyCtx))) {
       const path = join(dir, `${base}.md`);
       target.set(p.id, path);
-      jobs.push({ path, title: p.title || "Untitled", blocks: p.blocks });
+      jobs.push({ path, title: p.title || "Untitled", blocks: p.blocks, props: p.props });
     }
     for (const c of kids.get(p.id) ?? []) place(c, folder);
     if (p.type === "database" && !p.sourceId) {
@@ -262,7 +263,8 @@ export function toMarkdownFiles({ pages, rows }) {
       const to = link(id);
       return to ? `[${text}](${to})` : text;
     });
-    files.push({ path: job.path, data: `---\ntitle: ${JSON.stringify(job.title)}\n---\n\n${body}\n` });
+    const titleOf = (id) => byId.get(id)?.title || "Untitled";
+    files.push({ path: job.path, data: `---\n${frontMatter(job.title, cleanProps(job.props), titleOf)}\n---\n\n${body}\n` });
   }
   return files;
 }
@@ -342,15 +344,18 @@ const splitFrontMatter = (text) => {
     } else if (/^'.*'$/.test(v)) v = v.slice(1, -1).replace(/''/g, "'");
     if (typeof v === "string" && v.trim()) meta.title = v.trim();
   }
+  const props = propsFromFrontMatter(m[1]);
+  if (props.length) meta.props = props;
   return { meta, body: text.slice(m[0].length) };
 };
 /** Title from front-matter `title`, else a leading "# H1" (removed from the body), else the file name. */
 export function readMarkdownFile(path, data) {
   const { meta, body } = splitFrontMatter(asText(data).replace(/\r\n?/g, "\n"));
-  if (meta.title) return { title: meta.title, body };
+  const props = meta.props ? { props: meta.props } : {};
+  if (meta.title) return { title: meta.title, body, ...props };
   const h1 = /^\s*# +(.+?)\s*#*\s*(?:\n|$)/.exec(body);
-  if (h1) return { title: h1[1], body: body.slice(h1[0].length) };
-  return { title: baseOf(path), body };
+  if (h1) return { title: h1[1], body: body.slice(h1[0].length), ...props };
+  return { title: baseOf(path), body, ...props };
 }
 
 async function importMarkdown(ws, input, { name, parentId }) {
@@ -402,8 +407,9 @@ async function importMarkdown(ws, input, { name, parentId }) {
       stats.skipped++;
       return null;
     }
-    const { title, body } = readMarkdownFile(path, f.data);
+    const { title, body, props } = readMarkdownFile(path, f.data);
     const page = await ws.createPage({ type: "doc", title: title.slice(0, 200), parentId: parent });
+    if (props?.length) page.props = props;
     stats.pages++;
     targetOf.set(path, `#page-${page.id}`);
     pending.push({ kind: "page", rec: page, path, body });
@@ -442,6 +448,10 @@ async function importMarkdown(ws, input, { name, parentId }) {
       used.add(p);
       targetOf.set(p, `#row-${hit.id}`);
       pending.push({ kind: "row", rec: hit, path: p, body });
+      if (db.rowPages === false) {
+        db.rowPages = true; // a database with row bodies keeps them as row pages
+        await ws.savePage(db);
+      }
     }
     await walkDir(dir, parent);
   };

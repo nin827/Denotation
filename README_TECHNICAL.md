@@ -62,7 +62,9 @@ public/
     csv.js              CSV parse/serialise                    (pure)
     prefs.js            appearance preferences and tokens      (pure)
     ids.js              id generation
-    blocks/             block model, markdown, inline formatting, block catalogue (pure)
+    pageProps.js        page properties: clean, convert, text, row <-> props, front matter (pure)
+    autoCallouts.js     automatic-callout rules: clean, match, nearest set (pure)
+    blocks/             block model, markdown, inline formatting, block catalogue, callout presets (pure)
     icons/              ico(name) helper + Lucide data
     ui/                 rendering: sidebar, pages, block editor, database views, dialogs, settings
 tools/
@@ -139,7 +141,8 @@ extracted Denotation JSON export with `--read-only`). Tools: `list_pages`, `read
 the app from **AI access** settings; the server never writes it) and checks it with `public/js/permissions.js`. The
 server writes only `pages/`, `rows/` and delete markers, via temp file + rename, never follows symlinks, and hides
 unreadable titles. The app keeps a browser copy of the permissions in `localStorage["denotion:ai-permissions"]`.
-Details: `tools/mcp/README.md`.
+`list_pages` and `search` take `includeArchived` (default false); results carry `archived: true` / `template: true`,
+and search also matches page property values. Details: `tools/mcp/README.md`.
 
 ## 7. Data model
 
@@ -188,6 +191,28 @@ Details: `tools/mcp/README.md`.
   `sourceName`, `sourceKey?` become read-only virtual databases with id `tbl-<blockId>` (text columns `c0…`, rows
   `tbl-<blockId>:r<n>`), never written to the store. `sourceList(pages, { tables, linked })` orders every picker
   (data sources, other databases, tables). `ws.createDatabaseFromTable(...)` converts a table.
+- **Page properties:** `page.props: [{ id, name, type: text|number|date|select|multi|checkbox|url|page, value, options? }]`
+  (max 50; `cleanProps`). Docs and databases only; rows use columns. `page.propsCollapsed` folds the panel
+  (`ui/propsPanel.js`). Searched by `ws.search` and the MCP `search`. Markdown front matter: `frontMatter` /
+  `propsFromFrontMatter`.
+- **Templates:** `page.template: true`, `page.templateFor: <dbId>` for row templates. `inTemplate(pages, p)` hides
+  templates and their children from the tree. `ws.createFromTemplate(id, parentId)` clones blocks (new ids), props and
+  `autoCallouts` (new rule ids, `pinnedRules` remapped). `ws.createRowFromTemplate(db, id)` maps props to columns by name.
+- **Callout presets:** `CALLOUT_PRESETS = [{ id, label, icon, color, bg }]` in `blocks/callout-presets.js` (data only).
+  Block `preset: <id>` plus overrides `custom: { icon?, color?, bg? }` (`null` = explicitly none). `calloutLook(b)` in
+  `blocks/callout.js` resolves the look; no preset = legacy `icon`/`color`/`bg`.
+- **Automatic callouts:** `autoCallouts: [{ id, when: { prop, op: is|is not|empty|not empty|contains|before|after, value },
+  preset, text }]` on pages, templates, databases and rows (max 30). Chain, nearest first: page → ancestors; row → its
+  database → the database's ancestors. `nearestRules` picks the first non-empty set; `matchingCallouts` returns its
+  matches. Rendered by `ui/autoCalloutsUi.js`, never stored. `pinnedRules: [ruleId]` hides rules pinned as blocks.
+- **Row pages:** `page.rowPages` on databases (`false` for new ones; missing = on). `ws.setRowPages(dbId, on, { bodies:
+  "archive"|"trash" })` returns `{ needs }` when written bodies exist and no choice is given. `ws.rowBodyToPage` turns a
+  body into a doc with the row's values as props and `archivedFrom: { dbId, rowId, dbTitle }`. When off, `#row-<id>`
+  renders a read-only property view.
+- **Archive:** `page.archivedAt`; route `#archive`. `isArchived(pages, p)` walks ancestors like `isTrashed`; `isHidden` =
+  trashed or archived. Use `isHidden` for every listing (sidebar, `sources.js`, chips, view blocks, vault Markdown, Move
+  to). `ws.archivePage` / `unarchivePage` / `listArchive` / `archiveToTrash`; `search(q, limit, { includeArchived })`.
+  Archived databases render with `renderDatabase(..., { frozen: true })`. Markdown export skips archived pages; JSON keeps them.
 - **Popovers** close on route change: `closePopovers()` in `ui/popover.js` (also fires `denotation:close-popovers`).
 - **Views:** table, sheet, board, list, gallery, calendar, feed, chart, dashboard, each with its own filters, sorts, groups and layout.
 

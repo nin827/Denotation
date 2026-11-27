@@ -3,7 +3,7 @@
 // cannot read are never included).
 import crypto from "node:crypto";
 import { makeResolver } from "../../public/js/permissions.js";
-import { isTrashed, descendantIds } from "../../public/js/workspace.js";
+import { isTrashed, isArchived, descendantIds } from "../../public/js/workspace.js";
 import { blocksToMarkdown, markdownToBlocks } from "../../public/js/blocks/markdown.js";
 import { newBlock, plainText, walk } from "../../public/js/blocks/model.js";
 import { validate, defaultValue } from "../../public/js/schema.js";
@@ -45,6 +45,12 @@ const int = (args, key, def, lo, hi) => {
   return v;
 };
 const md = (args, key) => str(args, key, { max: MD_MAX });
+const bool = (args, key) => {
+  const v = args?.[key];
+  if (v == null) return false;
+  if (typeof v !== "boolean") fail(`"${key}" must be true or false.`);
+  return v;
+};
 
 // ---------- snapshot ----------
 async function snapshot(store) {
@@ -69,7 +75,8 @@ async function snapshot(store) {
     if (!allowed(x, action)) fail(`Denotation: permission denied: ${action} on ${x ? label(x) : "the workspace"}`);
   };
   const rowsOf = (dbId) => rows.filter((r) => r.dbId === dbId);
-  return { pages, rows, pageMap, rowMap, perms, can, allowed, readable, isLive, livePage, label, need, titleOf, rowTitle, rowsOf };
+  const archived = (p) => !!p && isArchived(pages, p);
+  return { pages, rows, pageMap, rowMap, perms, can, allowed, readable, isLive, livePage, label, need, titleOf, rowTitle, rowsOf, archived };
 }
 
 const mdCtx = (s) => ({
@@ -135,8 +142,8 @@ const VALUES = { type: "object", description: 'Cell values keyed by column name 
 export const TOOLS = [
   {
     name: "list_pages",
-    description: "List the pages, repositories and databases the assistant may read, as a tree (id, title, type, parentId, depth) with what it may do on each.",
-    inputSchema: obj({}),
+    description: "List the pages, repositories and databases the assistant may read, as a tree (id, title, type, parentId, depth) with what it may do on each. Archived pages are left out unless includeArchived is true.",
+    inputSchema: obj({ includeArchived: { type: "boolean", description: "Also list archived pages (marked archived: true)." } }),
     annotations: { readOnlyHint: true },
     write: false
   },
@@ -149,8 +156,8 @@ export const TOOLS = [
   },
   {
     name: "search",
-    description: "Search page titles, page text and database rows the assistant may read.",
-    inputSchema: obj({ query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 100 } }, ["query"]),
+    description: "Search page titles, page text, page properties and database rows the assistant may read. Archived pages are left out unless includeArchived is true.",
+    inputSchema: obj({ query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 100 }, includeArchived: { type: "boolean" } }, ["query"]),
     annotations: { readOnlyHint: true },
     write: false
   },
@@ -212,9 +219,10 @@ export const listTools = (store) => TOOLS.filter((t) => !t.write || !store.readO
 
 // ---------- handlers ----------
 const handlers = {
-  async list_pages(store) {
+  async list_pages(store, args) {
+    const withArchived = bool(args, "includeArchived");
     const s = await snapshot(store);
-    const visible = s.pages.filter((p) => s.livePage(p) && s.allowed(p.id, "read"));
+    const visible = s.pages.filter((p) => s.livePage(p) && s.allowed(p.id, "read") && (withArchived || !s.archived(p)));
     const ids = new Set(visible.map((p) => p.id));
     const kids = new Map();
     for (const p of visible) {
@@ -226,7 +234,7 @@ const handlers = {
     const walk = (key, depth) => {
       for (const p of kids.get(key) ?? []) {
         const can = Object.fromEntries(["create", "edit", "delete"].map((a) => [a, s.allowed(p.id, a)]));
-        out.push({ id: p.id, title: p.title || "Untitled", type: p.type, parentId: p.parentId ?? null, depth, can });
+        out.push({ id: p.id, title: p.title || "Untitled", type: p.type, parentId: p.parentId ?? null, depth, can, ...(s.archived(p) ? { archived: true } : {}), ...(p.template ? { template: true } : {}) });
         if (out.length < 5000) walk(p.id, depth + 1);
       }
     };
@@ -279,6 +287,7 @@ const handlers = {
   async search(store, args) {
     const query = str(args, "query", { required: true, max: 200 }).trim().toLowerCase();
     const limit = int(args, "limit", 30, 1, 100);
+    const withArchived = bool(args, "includeArchived");
     if (!query) fail("Give a search query.");
     const s = await snapshot(store);
     const snip = (text) => {
@@ -288,10 +297,13 @@ const handlers = {
     const hits = [];
     for (const p of s.pages) {
       if (!s.livePage(p)) continue;
+      const arch = s.archived(p);
+      if (arch && !withArchived) continue;
       if (s.allowed(p.id, "read")) {
         const inTitle = (p.title || "").toLowerCase().includes(query);
-        const body = snip(p.blocks ? plainText(p.blocks) : "");
-        if (inTitle || body) hits.push({ kind: p.type, id: p.id, title: p.title || "Untitled", snippet: inTitle ? undefined : body, rank: inTitle ? 0 : 1 });
+        const props = Array.isArray(p.props) ? p.props.map((x) => `${x.name}: ${Array.isArray(x.value) ? x.value.join(", ") : x.value ?? ""}`).join("\n") : "";
+        const body = snip(`${props ? `${props}\n` : ""}${p.blocks ? plainText(p.blocks) : ""}`);
+        if (inTitle || body) hits.push({ kind: p.type, id: p.id, title: p.title || "Untitled", snippet: inTitle ? undefined : body, rank: inTitle ? 0 : 1, ...(arch ? { archived: true } : {}) });
       }
       if (p.type === "database" && !p.sourceId) {
         for (const r of s.rowsOf(p.id)) {

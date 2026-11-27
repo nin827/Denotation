@@ -66,7 +66,7 @@ The sidebar is on the left. From top to bottom:
 | **New** button | Opens a menu to create a page, database, sheet, or a database from a CSV file |
 | Search icon | Opens quick find |
 | Lock / close icons | Lock the sidebar open, or close it when it is unlocked |
-| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Export ▸**, **Import ▸**, **Storage…** (Chrome or Edge, plus **Pull** / **Push** when a main location is connected) and **AI access…** |
+| **⋯** (workspace menu) | Everything that applies to the whole workspace: **Settings** ([Appearance](#8-appearance)), **[Feedback](#6-feedback)**, **Trash**, **Archive**, **Export ▸**, **Import ▸**, **Storage…** (Chrome or Edge, plus **Pull** / **Push** when a main location is connected) and **AI access…** |
 | **Favorites** | Pages you starred (only shown when you have some) |
 | **Repositories** | Your top-level folders, with their pages nested underneath |
 | Footer | Where your data is stored (this browser, or the connected folder) |
@@ -97,6 +97,7 @@ Create something new with the **New** button in the sidebar. It adds to the repo
 - **Page**
 - **Database** and **Sheet** (listed under *Original source*)
 - **Database from CSV…**
+- **From template…** (makes a new page from one of your [templates](#templates))
 - **Database view of…** and **Sheet view of…** (listed under *View of an existing source*, see [linked views](#linked-views))
 
 Use the **+** beside **Repositories** to create a new repository.
@@ -109,15 +110,15 @@ Every item in the sidebar has its own menu:
 - **Phone or tablet:** press and hold it for about half a second.
 - **Keyboard:** Tab to the item and press **Shift+F10** (or the Menu key). This uses your browser's standard context-menu key, so it can depend on your system.
 
-The menu has **Open**, **Add sub-page** (or **Add page or database** on a repository), **Rename**, **Add to favorites** / **Remove from favorites**, **Duplicate** and **Move to trash**.
+The menu has **Open**, **Add sub-page** (or **Add page or database** on a repository), **Rename**, **Add to favorites** / **Remove from favorites**, **Duplicate**, **Archive** and **Move to trash**.
 
-When you are on a page, the **⋯ Page options** button at the top has more: change icon, **Full width**, **Small text**, **Lock page**, **Duplicate**, **Move to** another page or repository, **Export as Markdown** and **Move to trash**. Beside it is a star to add the page to your favorites. You can also add an icon and a cover (a choice of eight gradients) from the top of the page.
+When you are on a page, the **⋯ Page options** button at the top has more: change icon, **Full width**, **Small text**, **Lock page**, **Duplicate**, **Move to** another page or repository, **Export as Markdown**, **Add a property**, **Automatic callouts…**, **Template** (and **Template for ▸** on a template), **Archive** and **Move to trash**. On a database it also has **Row pages**, **New row template** and **New row from template ▸**. Beside it is a star to add the page to your favorites. You can also add an icon and a cover (a choice of eight gradients) from the top of the page.
 
 The breadcrumb at the top shows where you are; click any part to go back up.
 
 ### Quick find
 
-Press **Ctrl/Cmd + K** (or click **Search**) and start typing. It searches page titles, page text and database rows. Press **Enter** to open the first result, or click any result.
+Press **Ctrl/Cmd + K** (or click **Search**) and start typing. It searches page titles, page text, page properties and database rows. Tick **Include archived** to search the [Archive](#archive) too. Press **Enter** to open the first result, or click any result.
 
 ### Favourites
 
@@ -132,6 +133,20 @@ Star a page with the star at the top of the page, or choose **Add to favorites**
 - **Empty trash** to clear everything.
 
 Trashing a page also hides the pages inside it. Deleting a database row from its page asks for confirmation and removes it permanently, with no trash step.
+
+### Archive
+
+**Archive** (page menu) puts a page away without deleting it. It leaves the page tree, search and pickers, and becomes read-only. Open **Archive** from the workspace **⋯** menu to **Restore** a page (it goes back where it was, or to the top of its repository if that place is gone) or **Move to trash**. A row body archived from a database shows a link back to its row.
+
+### Properties
+
+Any page or database can have properties under its title: text, number, date, select, multi-select, checkbox, URL or a link to another page. Add one with **Add a property** (page **⋯** menu, or the link under the list). Click a property's name (or right-click it, or press Shift+F10) to edit, move or delete it. Click **Properties** to fold the list. Database rows use their columns as properties.
+
+### Templates
+
+Mark a page as a template with **Template** in its **⋯** menu. It moves out of the page tree into the repository's folded **Templates** group in the sidebar. **New → From template…** makes a new page with a copy of the template's blocks, properties and automatic callouts; the template itself is unchanged.
+
+For a database, **⋯ → New row template** makes a template whose properties match the columns. **New row from template** (**⋯** menu, or **From template** next to New row) adds a row with those values and the template's body. **Template for ▸** switches a template between new pages and rows of a database. Only pages (not databases) can be templates.
 
 ---
 
@@ -199,7 +214,9 @@ You can also **paste markdown** with several lines and it becomes proper blocks.
 
 **Toggles and nesting.** A toggle list folds away what is inside it. Press **Tab** to nest a block under the one above it, **Shift+Tab** to bring it back out. Any heading can also be made foldable from its handle menu, or by choosing a *Toggle heading* from `/`. **Ctrl/Cmd + Enter** folds or unfolds the block you are in.
 
-**Callout.** A highlighted note with an icon on its left. Click the icon to choose another. Use the handle menu to colour it. (There is no markdown shortcut; use `/callout`.)
+**Callout.** A highlighted note with an icon. Click the icon to choose a preset (Info, Tip, Note, Success, Warning, Danger, Question, Quote), or **Custom icon…**. A custom icon or colour (handle menu → **Color**) changes only that callout; **Reset to preset** undoes it. Callouts made before presets keep their look. (There is no markdown shortcut; use `/callout`.)
+
+**Automatic callouts.** Page **⋯ → Automatic callouts…** sets rules such as "When Status is Draft, show Warning: Draft, not reviewed yet". Conditions: is, is not, is empty, is not empty, contains, is before, is after (dates, numbers, or "today"). Rules on a page also apply to its sub-pages; rules on a database apply to its row pages; rules on a template are copied into pages made from it. The nearest page with rules wins. Matching callouts appear at the top, marked "automatic", and change as properties change. **Pin as block** turns one into a normal callout.
 
 **Quote.** A quoted passage. Colours work here too.
 
@@ -283,7 +300,7 @@ Markdown export writes the resulting text (a checkbox becomes `[x]` or `[ ]`).
 
 ## 4. Databases
 
-A database is a table of **rows**, where every row has the same **columns**. **Every row is also a full page:** click the open icon on a row to write notes, add blocks and more inside it.
+A database is a table of **rows**, where every row has the same **columns**. With **Row pages** on (database **⋯** menu), each row also opens as a full page with its own blocks: click the open icon on a row. New databases start with Row pages off: rows are data only, and opening a row shows its values. Databases from before this change keep Row pages on. Turning Row pages off when rows have written content asks whether to **Move to Archive** or **Delete** (to the Trash) those bodies; each becomes a page titled after its row, with the row's values as properties. The rows and their values stay.
 
 Create one from **New → Database**, or **New → Sheet** for a spreadsheet-style start (see views below). The first column is the row's title.
 
@@ -467,7 +484,7 @@ Open the **⋯** menu at the top of the sidebar and choose **Export** or **Impor
 **Export** offers:
 - **JSON file:** one file with everything, named like `denotion-2025-01-31.json`.
 - **ZIP — Denotation JSON:** everything, one file per page and row. Use this for backups, because it restores exactly.
-- **ZIP — Markdown:** plain `.md` files and `.csv` tables that any editor (Obsidian, VS Code, Notion's importer…) can read. Views, column types and colours aren't kept.
+- **ZIP — Markdown:** plain `.md` files and `.csv` tables that any editor (Obsidian, VS Code, Notion's importer…) can read. Views, column types and colours aren't kept. Page properties go in front matter at the top of each file, and Markdown import reads simple ones back. Archived pages are left out, like the trash.
 - **To folder — Markdown / Denotation JSON** (Chrome or Edge on a computer): the same, written straight into a folder you pick. Files with the same names are overwritten.
 
 The Markdown layout looks like this:
@@ -538,7 +555,7 @@ claude mcp add denotation -- node <path to Denotation>/tools/mcp/denotation-mcp.
 
 It needs [Node.js](https://nodejs.org) on your computer. Other assistants and options are in [tools/mcp/README.md](tools/mcp/README.md).
 
-**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Its changes show up in Denotation when you switch back to the window, or within 30 seconds: the assistant marks the folder as changed and Denotation then pulls (in manual mode use **Pull**).
+**3. Use it.** Ask the assistant to list, read, search, create, edit or delete pages and rows. Anything not allowed is refused, and pages it can't read stay invisible, titles included. Archived pages are hidden from its page list and search unless it asks to include them. Its changes show up in Denotation when you switch back to the window, or within 30 seconds: the assistant marks the folder as changed and Denotation then pulls (in manual mode use **Pull**).
 
 > **Keep the folder private to the connector.** Permissions are checked by the connector. An assistant that can also open files directly (for example one started inside that folder) could get around them.
 

@@ -1,6 +1,6 @@
 # 015: Page properties, templates, callout presets, automatic callouts, database pages, Archive
 
-Status: queued (after the performance pass; touches the editor and database UI)
+Status: resolved (built; see commit "Page properties, templates, archive")
 Raised: 2026-11-27
 
 ## Page properties
@@ -41,3 +41,10 @@ Stored as `page.props: [{ id, name, type, value, options? }]`. Search and quick 
 - Row page bodies archived from a database become archive pages titled after the row, with the row's values as page
   properties, and a link back if the row still exists.
 - Any page can also be archived from its page menu.
+
+## Follow-ups
+- Only doc pages can be templates (not databases). Page-link blocks in a template still point at the template's sub-pages.
+- Markdown import guesses property types (select comes back as text).
+- `design/` needs the new controls (`.pp-name`, `.side-group`, archive banner).
+- MCP `create_page` for a database doesn't set `rowPages` (behaves as on).
+- Confirm the "nearest rule set wins" behaviour for automatic callouts.

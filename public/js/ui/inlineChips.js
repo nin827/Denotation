@@ -76,7 +76,7 @@ function findDb(ctx, id) {
   }
   const info = ctx.pageInfo?.(id);
   if (!info || info.state === "missing") return { state: "missing" };
-  if (info.state === "trashed") return { state: "trashed" };
+  if (info.state === "trashed" || info.state === "archived") return { state: info.state };
   const pages = ctx.livePages();
   const page = pages.find((p) => p.id === id);
   const data = page?.sourceId ? pages.find((p) => p.id === page.sourceId) : page;
@@ -110,6 +110,7 @@ export function inlineChip(n, ctx) {
   (async () => {
     const f = findDb(ctx, dbId);
     if (f.state === "trashed") return fill(miss("In trash", `Database is in the trash › ${key}`));
+    if (f.state === "archived") return fill(miss("Archived", `Database is archived › ${key}`));
     if (f.state !== "ok") return fill(miss("Not found", `Database not found › ${key}`));
     const res = resolveValue(f.db, await rowsOf(ctx, f.db.id), key, colId);
     const path = `${f.title} › ${key} › ${res.col?.name ?? "Column"}`;
@@ -137,6 +138,7 @@ function pageChip(n, ctx) {
     const info = ctx.pageInfo?.(id);
     if (!info || info.state === "missing") return miss("Not found", "Page not found");
     if (info.state === "trashed") return miss("In trash", `${info.title || "Untitled"} is in the trash`);
+    if (info.state === "archived") return miss("Archived", `${info.title || "Untitled"} is archived`);
     const p = ctx.livePages().find((x) => x.id === id) ?? info;
     return h("a", { class: "ichip ichip-page", href: `#page-${id}`, title: `Open ${p.title || "Untitled"}` }, pageIcon(p), h("span", {}, p.title || "Untitled"));
   });

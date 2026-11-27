@@ -4,7 +4,7 @@ import { h } from "./dom.js";
 import { openModal } from "./modal.js";
 import { toast } from "./dialogs.js";
 import { createBlockEditor } from "./blockEditor.js";
-import { isTrashed } from "../workspace.js";
+import { isTrashed, isHidden } from "../workspace.js";
 
 // Stored values stay "Feedback" / "Request" (compatible with earlier tickets); only the labels differ.
 const KINDS = [
@@ -42,9 +42,9 @@ export function openFeedback({ env, onFile, onOpen }) {
     onChange() {},
     pageInfo(id) {
       const p = env.pages().find((x) => x.id === id);
-      return p ? { id, title: p.title, icon: p.icon, type: p.type, state: isTrashed(env.pages(), p) ? "trashed" : "ok" } : { id, state: "missing", title: "" };
+      return p ? { id, title: p.title, icon: p.icon, type: p.type, state: isTrashed(env.pages(), p) ? "trashed" : isHidden(env.pages(), p) ? "archived" : "ok" } : { id, state: "missing", title: "" };
     },
-    livePages: () => env.pages().filter((p) => p.type !== "sync" && !isTrashed(env.pages(), p)),
+    livePages: () => env.pages().filter((p) => p.type !== "sync" && !isHidden(env.pages(), p)),
     breadcrumbs: () => [],
     openPage() {},
     createChildPage: unavailable,

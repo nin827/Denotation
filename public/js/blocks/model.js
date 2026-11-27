@@ -1,6 +1,7 @@
 import { newId } from "../ids.js";
 import { stripInline } from "./inline.js";
 import { cleanBlock as cleanPreviewBlock } from "../preview.js";
+import { cleanCallout } from "./callout.js";
 
 const BLOCK_TYPES = [
   "p",
@@ -330,6 +331,7 @@ export function normalizeBlocks(blocks) {
         if (typeof b.agg !== "string") b.agg = "count";
       }
       if (b.type === "preview") cleanPreviewBlock(b);
+      if (b.type === "callout") cleanCallout(b);
       if (b.type === "dbview") {
         b.sourceId = typeof b.sourceId === "string" && b.sourceId ? b.sourceId : null;
         if (typeof b.viewId !== "string" || !b.viewId) delete b.viewId;

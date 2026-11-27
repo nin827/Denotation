@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { createStore } from "./store.js";
 import { newBlock } from "./blocks/model.js";
-import { isTrashed, createWorkspace } from "./workspace.js";
+import { isTrashed, isHidden, isArchived, inTemplate, createWorkspace } from "./workspace.js";
 import { h } from "./ui/dom.js";
 import { ico } from "./icons/index.js";
 import { renderSidebar, activeRepo } from "./ui/sidebar.js";
@@ -13,8 +13,8 @@ import { pickCsv } from "./ui/csvFile.js";
 import { createVaultUi } from "./ui/vaultUi.js";
 import { createFolderAdapter, folderSupported } from "./adapters/folder.js";
 import { renderDatabase } from "./ui/dbView.js";
-import { makePersistence, renderRowPage, renderHeader, renderDocPage } from "./ui/pageView.js";
-import { renderTrash, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
+import { makePersistence, renderRowPage, renderHeader, renderDocPage, archiveWithConfirm } from "./ui/pageView.js";
+import { renderTrash, renderArchive, renderRepoBody, openQuickFind } from "./ui/workspaceViews.js";
 import { openFeedback } from "./ui/feedback.js";
 import { openAiAccess, openPageAiAccess } from "./ui/aiAccess.js";
 import { openRepoSettings, installFormulaConstants } from "./ui/repoSettings.js";
@@ -51,9 +51,9 @@ const hashFor = (id) => `#page-${id}`;
 const parseHash = () => {
   const m = location.hash.match(/^#(page|row)-([A-Za-z0-9-]+)$/);
   if (m) return { kind: m[1], id: m[2] };
-  return location.hash === "#trash" ? { kind: "trash" } : null;
+  return location.hash === "#trash" ? { kind: "trash" } : location.hash === "#archive" ? { kind: "archive" } : null;
 };
-const firstLive = () => pages.find((p) => p.type !== "sync" && !isTrashed(pages, p));
+const firstLive = () => pages.find((p) => p.type !== "sync" && !isHidden(pages, p) && !inTemplate(pages, p));
 // PIN lock: locking flushes saves and clears the rendered workspace; unlocking renders the current page again.
 const resetCtx = () => ({
   getStatus: () => store?.status?.() ?? null,
@@ -145,6 +145,7 @@ async function start(u) {
     ws,
     persistence,
     pages: () => pages,
+    create: (type, parentId, opts) => createPage(type, parentId, opts),
     refresh,
     rerender: () => route(),
     open: async (id) => {
@@ -160,7 +161,7 @@ async function start(u) {
     leave: async (goneIds = [], dbId = null) => {
       await refresh();
       const target = dbId ? pages.find((p) => p.id === dbId) : null;
-      const next = target && !isTrashed(pages, target) ? target : firstLive();
+      const next = target && !isHidden(pages, target) ? target : firstLive();
       if (next) {
         if (location.hash === hashFor(next.id)) route();
         else location.hash = hashFor(next.id);
@@ -233,6 +234,12 @@ async function route() {
     drawSidebar();
     return renderTrash(mainEl, env);
   }
+  if (target?.kind === "archive") {
+    view = "archive";
+    currentId = null;
+    drawSidebar();
+    return renderArchive(mainEl, env);
+  }
   view = null;
   if (target?.kind === "row") {
     const row = await ws.getRow(target.id);
@@ -270,7 +277,9 @@ async function route() {
     const body = h("div", { class: "db-body" });
     mainEl.classList.remove("doc-wide", "doc-small");
     mainEl.replaceChildren(header, body);
-    await renderDatabase(body, ws, fresh, { onOpenRow: (id) => env.openRow(id), onOpenPage: (id) => env.open(id) });
+    // an archived (or trashed) database is read-only until restored
+    const frozen = isHidden(pages, fresh);
+    await renderDatabase(body, ws, fresh, { onOpenRow: (id) => env.openRow(id), onOpenPage: (id) => env.open(id), frozen });
   } else {
     renderDocPage(mainEl, env, fresh);
   }
@@ -336,13 +345,25 @@ function drawSidebar() {
       if (location.hash === "#trash") route();
       else location.hash = "#trash";
     },
+    onOpenArchive: async () => {
+      await persistence.flush();
+      if (location.hash === "#archive") route();
+      else location.hash = "#archive";
+    },
+    onArchive: async (p) => {
+      await persistence.flush();
+      if (!await archiveWithConfirm(env, p)) return;
+      if (view) return route();
+      if (currentId && isArchived(pages, pages.find((x) => x.id === currentId))) env.leave([p.id]);
+    },
     footer: buildFooter()
   });
 }
 async function createPage(type = "doc", parentId = null, opts = {}) {
   if (type !== "repo" && !parentId) parentId = activeRepo(pages, currentId)?.id ?? null;
   const source = opts.sourceId ? pages.find((x) => x.id === opts.sourceId) : null;
-  const p = await ws.createPage({
+  await persistence.flush();
+  const p = type === "template" ? await ws.createFromTemplate(opts.templateId, parentId) : await ws.createPage({
     type,
     parentId: type === "repo" ? null : parentId,
     ...opts,
@@ -450,6 +471,7 @@ async function seed() {
   await ws.savePage(welcome);
   const demo = await ws.createPage({ type: "database", title: "Column type demo", parentId: repo.id });
   const col = (name, type, cfg) => ({ id: crypto.randomUUID?.() ?? `${Date.now()}${Math.random()}`, name, type, config: cfg });
+  demo.rowPages = true; // the demo row shows its page body
   const [nameCol] = demo.columns;
   const tags = col("Tags", "array", { itemType: "text", size: null });
   const scores = col("Scores (3)", "array", { itemType: "number", size: 3 });

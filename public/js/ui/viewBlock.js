@@ -52,7 +52,7 @@ function lookup(ctx, id) {
   }
   const info = ctx.pageInfo(id);
   if (info.state === "missing" || info.type !== "database") return { state: "missing" };
-  if (info.state === "trashed") return { state: "trashed" };
+  if (info.state === "trashed" || info.state === "archived") return { state: info.state };
   const live = ctx.livePages();
   const host = live.find((p) => p.id === id);
   if (!host) return { state: "missing" };
@@ -240,7 +240,7 @@ export function viewBlockBody(b, inst, a) {
     }
     if (res.state !== "ok") {
       drawHead();
-      return content.replaceChildren(message(res.state === "trashed" ? "The source of this view is in the trash. Restore it to see the data." : "The source of this view no longer exists (or the table is no longer a data source).", { choose: true }));
+      return content.replaceChildren(message(res.state === "trashed" ? "The source of this view is in the trash. Restore it to see the data." : res.state === "archived" ? "The source of this view is archived. Restore it from the Archive to see the data." : "The source of this view no longer exists (or the table is no longer a data source).", { choose: true }));
     }
     const { host, data } = res;
     try {

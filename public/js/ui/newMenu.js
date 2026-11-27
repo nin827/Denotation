@@ -13,8 +13,11 @@ export function newItems({ pages: pages, parentId, onCreate, onImportCsv, repoLe
     disabled: !ok || !sources.length,
     items: sources.map((d) => ({ label: d.title || "Untitled", icon: ico(d.dataSource ? "database-zap" : "database"), hint: d.dataSource ? "data source" : null, onSelect: () => onCreate("database", parentId, { sourceId: d.id, viewType }) }))
   });
+  // page templates (row templates make rows, from their database page)
+  const templates = (pages ?? []).filter((p) => p.template && !p.templateFor && p.type === "doc");
   return [
     { label: "Page", icon: ico("file-text"), disabled: !ok, onSelect: () => onCreate("doc", parentId) },
+    { label: "From template\u2026", icon: ico("layout-template"), disabled: !ok || !templates.length, hint: templates.length ? null : "none yet", items: templates.map((t) => ({ label: t.title || "Untitled", icon: ico("file-text"), onSelect: () => onCreate("template", parentId, { templateId: t.id }) })) },
     ...repoLevel ? [
       { header: true, label: "Original source" },
       { label: "Database", icon: ico("database"), disabled: !ok, onSelect: () => onCreate("database", parentId) },

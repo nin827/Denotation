@@ -59,9 +59,10 @@ const activeView = new Map();
  *   save     async (link) => ..., stores the views instead of ws.savePage(link) (a custom view lives in the block)
  *   readOnly rows, columns and views of a virtual table source cannot be edited
  */
-export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpenPage, embed = null } = {}) {
-  const readOnly = !!embed?.readOnly;
-  const onOpenRow = readOnly ? null : openRow;
+export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpenPage, embed = null, frozen = false } = {}) {
+  // frozen: an archived or trashed database page, shown read-only (rows can still be opened)
+  const readOnly = !!embed?.readOnly || frozen;
+  const onOpenRow = embed?.readOnly ? null : openRow;
   const src = link.sourceId ? await ws.getPage(link.sourceId) : null;
   if (link.sourceId && (!src || src.trashedAt)) {
     root.replaceChildren(h("p", { class: "hint" }, src ? "The source database of this linked view is in the trash. Restore it to see the data." : "The source database of this linked view no longer exists."));
@@ -84,6 +85,10 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
     }, enumerable: true }
   });
   let rows = await ws.listRows(data.id);
+  const rowPages = data.rowPages !== false;
+  const openLabel = rowPages ? "Open as page" : "Open properties";
+  // row templates of this database ("New row from template")
+  const rowTemplates = readOnly || !ws.listTemplates ? [] : await ws.listTemplates({ forDb: data.id });
   ensureViews(db);
   const bar = h("div", { class: "db-toolbar" });
   const body = h("div", { class: "db-wrap" });
@@ -213,7 +218,15 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
       },
       /** Saves each distinct row once and recomputes formulas once (after a batch of deferred setCell calls). */
       commitRows(list) {
-        for (const row of new Set(list)) saveRow(row).catch((e) => toast(e.message, "error"));
+        const uniq = [...new Set(list)];
+        if (uniq.length > 1 && ws.saveRows) {
+          // One batched save, queued behind each row's pending save and ahead of later ones (same order as saveRow).
+          const next = Promise.all(uniq.map((r) => (queue.get(r.id) ?? Promise.resolve()).catch(() => {}))).then(() => ws.saveRows(uniq));
+          const done = () => uniq.forEach((r) => queue.get(r.id) === next && queue.delete(r.id));
+          uniq.forEach((r) => queue.set(r.id, next));
+          next.then(done, done);
+          next.catch((e) => toast(e.message, "error"));
+        } else for (const row of uniq) saveRow(row).catch((e) => toast(e.message, "error"));
         settle();
       }
     };
@@ -415,7 +428,20 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
         readOnly ? null : h("button", { class: "primary add-row-top", onClick: async () => {
           await api().addRow();
           draw();
-        } }, ico("plus"), " New row")
+        } }, ico("plus"), " New row"),
+        readOnly || !rowTemplates.length ? null : h("button", {
+          class: "add-row-tpl",
+          title: "New row from template",
+          "aria-label": "New row from template",
+          "aria-haspopup": "menu",
+          onClick: (e) => openMenu(e.currentTarget, rowTemplates.map((t) => ({ label: t.title || "Untitled", icon: ico("layout-template"), onSelect: async () => {
+            const row = await ws.createRowFromTemplate(data, t.id);
+            rows.push(row);
+            settle();
+            draw();
+            toast(`Row added from "${t.title || "Untitled"}"`);
+          } })), { width: 220 })
+        }, ico("layout-template"), h("span", { class: "tpl-label" }, " From template"))
       )
     ].filter(Boolean));
   }
@@ -492,7 +518,7 @@ export async function renderDatabase(root, ws, link, { onOpenRow: openRow, onOpe
       readOnly ? h("td", { class: "row-actions" }) : h(
         "td",
         { class: "row-actions" },
-        h("button", { class: "icon", title: "Open as page", "aria-label": "Open as page", onClick: () => onOpenRow?.(row.id) }, ico("arrow-up-right")),
+        h("button", { class: "icon row-open", title: openLabel, "aria-label": openLabel, onClick: () => onOpenRow?.(row.id) }, ico(rowPages ? "arrow-up-right" : "panel-right-open")),
         h("button", { class: "icon", title: "Delete row", "aria-label": "Delete row", onClick: async () => {
           await a.removeRow(row);
           draw();

@@ -1,21 +1,22 @@
-import { ancestors, isTrashed } from "../workspace.js";
+import { ancestors, isHidden, inTemplate } from "../workspace.js";
 import { h } from "./dom.js";
 import { ico, pageIcon } from "../icons/index.js";
 import { openMenu } from "./popover.js";
 import { newItems } from "./newMenu.js";
 
 const collapsed = new Set();
+const openTemplates = new Set(); // repositories whose Templates group is unfolded (folded by default)
 export function activeRepo(pages, currentId) {
   const chain = ancestors(pages, currentId);
-  return chain.find((p) => p.type === "repo") ?? pages.find((p) => p.type === "repo" && !isTrashed(pages, p)) ?? null;
+  return chain.find((p) => p.type === "repo") ?? pages.find((p) => p.type === "repo" && !isHidden(pages, p)) ?? null;
 }
 // Handlers are looked up on the latest props at call time, so a sidebar kept across redraws never calls stale closures.
 let P = {};
 const call = (name) => (...args) => P[name](...args);
 let built = null; // { el, sig, list } of the last full build
 const sigOf = (live, locked) => {
-  let out = `${locked ? 1 : 0}|${[...collapsed].sort().join(",")}`;
-  for (const p of live) out += `\n${p.id}\u0001${p.title ?? ""}\u0001${p.parentId ?? ""}\u0001${p.type}\u0001${p.icon ?? ""}\u0001${p.favorite ? 1 : 0}\u0001${p.sourceId ?? ""}\u0001${p.dataSource ? 1 : 0}`;
+  let out = `${locked ? 1 : 0}|${[...collapsed].sort().join(",")}|${[...openTemplates].sort().join(",")}`;
+  for (const p of live) out += `\n${p.id}\u0001${p.title ?? ""}\u0001${p.parentId ?? ""}\u0001${p.type}\u0001${p.icon ?? ""}\u0001${p.favorite ? 1 : 0}\u0001${p.sourceId ?? ""}\u0001${p.dataSource ? 1 : 0}\u0001${p.template ? 1 : 0}\u0001${p.templateFor ?? ""}`;
   return out;
 };
 export function renderSidebar(el, props) {
@@ -31,6 +32,8 @@ export function renderSidebar(el, props) {
   const onDuplicate = call("onDuplicate");
   const onSearch = call("onSearch");
   const onOpenTrash = call("onOpenTrash");
+  const onOpenArchive = call("onOpenArchive");
+  const onArchive = call("onArchive");
   const onSettings = call("onSettings");
   const onFeedback = call("onFeedback");
   const onAiAccess = call("onAiAccess");
@@ -39,11 +42,21 @@ export function renderSidebar(el, props) {
   const onRepoSettings = call("onRepoSettings");
   const onToggleLock = call("onToggleLock");
   const onClose = call("onClose");
-  const live = pages.filter((p) => p.type !== "sync" && !isTrashed(pages, p));
+  const live = pages.filter((p) => p.type !== "sync" && !isHidden(pages, p));
+  // templates (and anything inside one) are listed in each repository's Templates group, not in the tree
+  const templated = new Set(live.filter((p) => inTemplate(pages, p)).map((p) => p.id));
+  const templatesOf = new Map();
+  for (const p of live) {
+    if (!p.template) continue;
+    const repo = ancestors(pages, p.id).find((x) => x.type === "repo");
+    const key = repo?.id ?? null;
+    if (!templatesOf.has(key)) templatesOf.set(key, []);
+    templatesOf.get(key).push(p);
+  }
   const known = new Set(live.map((p) => p.id));
   const children = new Map();
   for (const p of live) {
-    if (p.type === "repo") continue;
+    if (p.type === "repo" || templated.has(p.id)) continue;
     const key = p.parentId && known.has(p.parentId) ? p.parentId : null;
     if (!children.has(key)) children.set(key, []);
     children.get(key).push(p);
@@ -82,6 +95,7 @@ export function renderSidebar(el, props) {
           onClose();
           onPageAiAccess(p);
         } },
+        p.type !== "repo" ? { label: "Archive", icon: ico("archive"), onSelect: () => onArchive(p) } : null,
         { label: "Move to trash", icon: ico("trash"), danger: true, onSelect: () => onTrash(p) }
       ].filter(Boolean)), { width: 230 });
     };
@@ -149,7 +163,29 @@ export function renderSidebar(el, props) {
         h("span", { class: "side-title" }, h("span", { class: "side-text" }, p.title || "Untitled")),
         p.dataSource && p.type === "database" ? h("span", { class: "side-badge", title: "Data source", "aria-label": "Data source", role: "img" }, ico("database-zap")) : null
       ),
-      ...fold ? [] : kids.flatMap((c) => item(c, depth + 1, { tree }))
+      ...fold ? [] : kids.flatMap((c) => item(c, depth + 1, { tree })),
+      ...!fold && tree && p.type === "repo" ? templateGroup(p.id, depth + 1) : []
+    ];
+  };
+  const templateGroup = (repoId, depth) => {
+    const list = templatesOf.get(repoId) ?? [];
+    if (!list.length) return [];
+    const open = openTemplates.has(repoId ?? "");
+    const toggle = () => {
+      if (open) openTemplates.delete(repoId ?? "");
+      else openTemplates.add(repoId ?? "");
+      onRedraw();
+    };
+    return [
+      h("button", {
+        type: "button",
+        class: "side-group side-templates",
+        "data-repo": repoId ?? "",
+        style: `padding-left:${6 + depth * 14}px`,
+        "aria-expanded": String(open),
+        onClick: toggle
+      }, h("span", { class: `icon twist${open ? " open" : ""}`, "aria-hidden": "true" }, ico("chevron-right")), h("span", { class: "side-icon" }, ico("layout-template")), h("span", { class: "side-title" }, h("span", { class: "side-text" }, "Templates")), h("span", { class: "side-count" }, String(list.length))),
+      ...open ? list.map((t) => item(t, depth + 1, { tree: false })[0]) : []
     ];
   };
   const favorites = live.filter((p) => p.favorite && p.type !== "repo");
@@ -163,6 +199,7 @@ export function renderSidebar(el, props) {
     { label: "Settings", icon: ico("settings-2"), onSelect: onSettings },
     { label: "Feedback", icon: ico("message-square-text"), onSelect: onFeedback },
     { label: "Trash", icon: ico("trash"), onSelect: onOpenTrash },
+    { label: "Archive", icon: ico("archive"), onSelect: onOpenArchive },
     { separator: true },
     ...P.vaultItems(),
     { separator: true },
