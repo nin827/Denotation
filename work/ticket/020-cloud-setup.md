@@ -39,7 +39,7 @@ IDs in `public/js/config.js` under `oauth`.
 - **Client IDs:** not yet; step-by-step below.
 
 ## Step by step: getting the two client IDs
-The app URL on GitHub Pages is `https://<user>.github.io/<repo>/source/app/` (the repository root forwards there).
+The app URL on GitHub Pages is `https://<user>.github.io/<repo>/` (the Pages workflow publishes `source/app/` as the site root).
 Use that exact URL (with the trailing slash) as the redirect URI below.
 
 **Google Drive**
