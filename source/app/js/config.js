@@ -15,7 +15,7 @@ export const config = {
   //              redirect URI = the app's URL; supported accounts: personal + work/school.
   // redirectUri: leave "" to use the app's own URL (without index.html).
   oauth: {
-    google: { clientId: "" },
+    google: { clientId: "1017390894798-dnn9mk7pudq7a9pe9anfqjqqusc0m8r0.apps.googleusercontent.com" },
     microsoft: { clientId: "" },
     redirectUri: ""
   },

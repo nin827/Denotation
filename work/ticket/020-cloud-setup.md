@@ -1,6 +1,6 @@
 # 020: Google Drive and OneDrive setup and real-service check
 
-Status: waiting on owner (client IDs)
+Status: Google client ID set (2026-11-28); real-service check pending. OneDrive ID still to come.
 Raised: 2026-11-27
 
 Drive and OneDrive storage locations are built and tested against fakes only. To turn them on, put the public client
